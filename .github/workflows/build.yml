@@ -17,7 +17,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
 
       - name: Add musl target
         run: rustup target add x86_64-unknown-linux-musl
