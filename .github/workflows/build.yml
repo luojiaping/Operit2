@@ -32,16 +32,17 @@ jobs:
 
       - name: Build CLI (musl static)
         run: |
-          CARGO_TERM_COLOR=never cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 2>&1 | tee build.log
-          BUILD_EXIT=${PIPESTATUS[0]}
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "===== BUILD FAILED (exit $BUILD_EXIT) ====="
-            echo "===== ERRORS ====="
-            grep -n "error" build.log | grep -v "warning" | head -30
-            echo "===== LAST 50 LINES ====="
-            tail -50 build.log
-            exit $BUILD_EXIT
+          CARGO_TERM_COLOR=never cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 > build_output.txt 2>&1 || true
+          echo "=== BUILD OUTPUT ===" > errors.txt
+          grep -i "error" build_output.txt >> errors.txt 2>/dev/null || true
+          echo "=== LAST 100 ===" >> errors.txt
+          tail -100 build_output.txt >> errors.txt 2>/dev/null || true
+          if grep -q "could not compile" build_output.txt 2>/dev/null; then
+            echo "BUILD_FAILED" > status.txt
+            cat errors.txt
+            exit 1
           fi
+          echo "BUILD_SUCCESS" > status.txt
 
       - name: Verify binary
         run: |
@@ -60,3 +61,11 @@ jobs:
         with:
           name: operit2-cli-linux-x86_64
           path: dist/operit2-cli-linux-x86_64.tar.gz
+        if: success()
+
+      - name: Upload error log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-errors
+          path: errors.txt
+        if: always()
