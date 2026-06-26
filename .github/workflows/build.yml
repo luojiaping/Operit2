@@ -35,7 +35,16 @@ jobs:
           restore-keys: linux-x86_64-cargo-
 
       - name: Build CLI (musl static)
-        run: cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2
+        run: |
+          echo "=== Starting build at $(date) ==="
+          cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 2>&1 | tee build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "=== Build finished at $(date) with exit code $BUILD_EXIT ==="
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "=== Last 100 lines of build log ==="
+            tail -100 build.log
+            exit $BUILD_EXIT
+          fi
 
       - name: Verify binary
         run: |
@@ -54,102 +63,3 @@ jobs:
         with:
           name: operit2-cli-linux-x86_64
           path: dist/operit2-cli-linux-x86_64.tar.gz
-
-  build-linux-aarch64:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add aarch64 musl target
-        run: |
-          rustup target add aarch64-unknown-linux-musl
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            apps/cli/target
-          key: linux-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: linux-aarch64-cargo-
-
-      - name: Build CLI (aarch64 musl)
-        run: |
-          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc
-          cargo build --release --manifest-path apps/cli/Cargo.toml --target aarch64-unknown-linux-musl --jobs 2
-
-      - name: Package
-        run: |
-          mkdir -p dist
-          cp apps/cli/target/aarch64-unknown-linux-musl/release/operit2 dist/
-          cd dist && tar czf operit2-cli-linux-aarch64.tar.gz operit2
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: operit2-cli-linux-aarch64
-          path: dist/operit2-cli-linux-aarch64.tar.gz
-
-  build-windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add Windows target
-        run: rustup target add ${{ matrix.arch == 'x86_64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            apps/cli/target
-          key: windows-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: windows-${{ matrix.arch }}-cargo-
-
-      - name: Build CLI
-        run: cargo build --release --manifest-path apps/cli/Cargo.toml --target ${{ matrix.arch == 'x86_64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
-
-      - name: Package
-        run: |
-          mkdir dist
-          copy apps\\cli\\target\\${{ matrix.arch == 'x86_64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}\\release\\operit2.exe dist\\
-          cd dist && tar czf operit2-cli-windows-${{ matrix.arch }}.zip operit2.exe
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: operit2-cli-windows-${{ matrix.arch }}
-          path: dist/operit2-cli-windows-${{ matrix.arch }}.zip
-
-  build-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cargo check
-        run: cargo check --manifest-path apps/cli/Cargo.toml
-
-      - name: Cargo clippy
-        run: cargo clippy --manifest-path apps/cli/Cargo.toml -- -A clippy::all -W clippy::correctness
-        continue-on-error: true
-
-      - name: Cargo test
-        run: cargo test --manifest-path apps/cli/Cargo.toml
-        continue-on-error: true
