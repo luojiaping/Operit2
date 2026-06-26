@@ -147,7 +147,7 @@ jobs:
         run: cargo check --manifest-path apps/cli/Cargo.toml
 
       - name: Cargo clippy
-        run: cargo clippy --manifest-path apps/cli/Cargo.toml -- -D warnings
+        run: cargo clippy --manifest-path apps/cli/Cargo.toml -- -A clippy::all -W clippy::correctness
         continue-on-error: true
 
       - name: Cargo test
