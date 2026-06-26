@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: never
   RUST_BACKTRACE: 1
 
 jobs:
@@ -37,11 +37,14 @@ jobs:
       - name: Build CLI (musl static)
         run: |
           echo "=== Starting build at $(date) ==="
-          cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 2>&1 | tee build.log
-          BUILD_EXIT=${PIPESTATUS[0]}
+          cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 > build.log 2>&1
+          BUILD_EXIT=$?
           echo "=== Build finished at $(date) with exit code $BUILD_EXIT ==="
           if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== Last 100 lines of build log ==="
+            echo "=== BUILD FAILED ==="
+            echo "=== Error lines ==="
+            grep -i "error" build.log | head -50
+            echo "=== Last 100 lines ==="
             tail -100 build.log
             exit $BUILD_EXIT
           fi
@@ -63,3 +66,10 @@ jobs:
         with:
           name: operit2-cli-linux-x86_64
           path: dist/operit2-cli-linux-x86_64.tar.gz
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
