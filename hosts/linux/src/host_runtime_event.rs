@@ -546,9 +546,8 @@ fn prop_u64(properties: &HashMap<String, OwnedValue>, key: &str) -> Option<u64> 
         .get(key)
         .and_then(|value| ZValue::try_from(value).ok())
         .and_then(|value| {
-            u64::try_from(value.try_clone().ok()).ok().unwrap_or(0)
-                .ok()
-                .or_else(|| u32::try_from(value.try_clone().ok()).ok().map(u64::from))
+            u64::try_from(value).ok()
+                .or_else(|| u32::try_from(value).ok().map(u64::from))
                 .or_else(|| i32::try_from(value).ok().map(|number| number as u64))
         })
 }
