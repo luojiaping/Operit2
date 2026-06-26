@@ -36,18 +36,16 @@ jobs:
 
       - name: Build CLI (musl static)
         run: |
-          echo "=== Starting build at $(date) ==="
-          cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 > build.log 2>&1
-          BUILD_EXIT=$?
-          echo "=== Build finished at $(date) with exit code $BUILD_EXIT ==="
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== BUILD FAILED ==="
-            echo "=== Error lines ==="
-            grep -i "error" build.log | head -50
-            echo "=== Last 100 lines ==="
-            tail -100 build.log
-            exit $BUILD_EXIT
-          fi
+          cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 2>&1 | tee build.log || {
+            echo "===== BUILD FAILED ====="
+            echo "=== ERRORS ==="
+            grep -E "^(error|Error)" build.log || true
+            echo "=== ERRORS WITH CONTEXT ==="
+            grep -B2 -A2 "error" build.log | grep -v "warning" | head -60
+            echo "=== LAST 30 LINES ==="
+            tail -30 build.log
+            exit 1
+          }
 
       - name: Verify binary
         run: |
@@ -66,10 +64,3 @@ jobs:
         with:
           name: operit2-cli-linux-x86_64
           path: dist/operit2-cli-linux-x86_64.tar.gz
-
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
