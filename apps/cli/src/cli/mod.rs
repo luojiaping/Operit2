@@ -238,7 +238,7 @@ fn run_tts_config_cli_command(args: &[String]) -> Result<(), String> {
             let config = manager.createTtsConfig(TtsConfig {
                 id: String::new(),
                 name: args[1].clone(),
-                providerType: TtsProviderType::OPENAI_COMPATIBLE.to_string(),
+                providerType: "OPENAI_COMPATIBLE".to_string(),
                 endpoint: args[2].clone(),
                 apiKey: args[3].clone(),
                 model: args[4].clone(),
