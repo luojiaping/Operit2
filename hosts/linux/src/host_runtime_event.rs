@@ -101,15 +101,9 @@ fn run_system_dbus_event_loop(
             return;
         }
     };
-    let rule = match MatchRule::builder()
+    let rule = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-    {
-        Ok(builder) => builder.build(),
-        Err(error) => {
-            let _ = init.send(Err(format!("create system dbus match rule failed: {error}")));
-            return;
-        }
-    };
+        .build();
     let mut iterator = match MessageIterator::for_match_rule(rule, &connection, Some(64)) {
         Ok(iterator) => iterator,
         Err(error) => {
@@ -161,15 +155,9 @@ fn run_session_dbus_event_loop(
             return;
         }
     };
-    let rule = match MatchRule::builder()
+    let rule = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-    {
-        Ok(builder) => builder.build(),
-        Err(error) => {
-            let _ = init.send(Err(format!("create session dbus match rule failed: {error}")));
-            return;
-        }
-    };
+        .build();
     let mut iterator = match MessageIterator::for_match_rule(rule, &connection, Some(64)) {
         Ok(iterator) => iterator,
         Err(error) => {
@@ -558,9 +546,9 @@ fn prop_u64(properties: &HashMap<String, OwnedValue>, key: &str) -> Option<u64> 
         .get(key)
         .and_then(|value| ZValue::try_from(value).ok())
         .and_then(|value| {
-            u64::try_from(value.clone())
+            u64::try_from(value.try_clone().ok()).ok().unwrap_or(0)
                 .ok()
-                .or_else(|| u32::try_from(value.clone()).ok().map(u64::from))
+                .or_else(|| u32::try_from(value.try_clone().ok()).ok().map(u64::from))
                 .or_else(|| i32::try_from(value).ok().map(|number| number as u64))
         })
 }
