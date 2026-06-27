@@ -31,27 +31,23 @@ jobs:
           restore-keys: linux-x86_64-cargo-
 
       - name: Build CLI (musl static)
-        id: build
         run: |
-          CARGO_TERM_COLOR=never cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 2>&1 | tee build.log
-          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
-          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-            echo "===== ERRORS ====="
+          set -o pipefail
+          CARGO_TERM_COLOR=never cargo build --release --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl --jobs 2 2>&1 | tee build.log || {
+            echo "===== BUILD FAILED ====="
+            echo "=== ERRORS ==="
             grep -i "error" build.log | grep -v "warning" | head -30
-            echo "===== CONTEXT ====="
-            grep -B3 -A3 "error" build.log | grep -v "warning" | head -50
-            echo "===== LAST 30 ====="
-            tail -30 build.log
-          fi
+            echo "=== LAST 50 ==="
+            tail -50 build.log
+            exit 1
+          }
 
       - name: Verify binary
-        if: steps.build.outputs.exit_code == '0'
         run: |
           file apps/cli/target/x86_64-unknown-linux-musl/release/operit2
           apps/cli/target/x86_64-unknown-linux-musl/release/operit2 cli version || true
 
       - name: Package
-        if: steps.build.outputs.exit_code == '0'
         run: |
           mkdir -p dist
           cp apps/cli/target/x86_64-unknown-linux-musl/release/operit2 dist/
@@ -59,7 +55,6 @@ jobs:
           cd dist && tar czf operit2-cli-linux-x86_64.tar.gz operit2
 
       - name: Upload artifact
-        if: steps.build.outputs.exit_code == '0'
         uses: actions/upload-artifact@v4
         with:
           name: operit2-cli-linux-x86_64
