@@ -18,13 +18,11 @@
       },
       "problemMatcher": {
         "owner": "operit2-web-access",
-        "pattern": [
-          {
-            "regexp": "^(never-match)$",
-            "file": 1,
-            "message": 1
-          }
-        ],
+        "pattern": {
+          "regexp": "^(never-match)$",
+          "file": 1,
+          "message": 1
+        },
         "background": {
           "activeOnStart": true,
           "beginsPattern": "^Web Access development proxy:",
