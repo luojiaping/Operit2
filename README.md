@@ -1,9 +1,6 @@
-<div align="center">
-  <img src="docs/assets/operit-logo.svg" width="96" alt="Operit logo">
-  <h1>Operit2</h1>
-  <p>一个 Agent 核心，连接你的设备空间。</p>
-  <p><strong>预览版本</strong> · <a href="docs/Operit2技术白皮书.pdf">阅读技术白皮书</a></p>
-</div>
+<h1 align="center"><img src="docs/assets/operit-logo.svg" width="64" alt="Operit logo" valign="middle"> Operit2</h1>
+<p align="center"><sub>一个 Agent 核心，连接你的设备空间。</sub></p>
+<p align="center"><strong>预览版本</strong> · <a href="docs/Operit2技术白皮书.pdf">阅读技术白皮书</a></p>
 
 <p align="center">
   <img src="docs/assets/operit-device-space-concept-v7.png" alt="Operit2 设备空间概念图" width="100%">
