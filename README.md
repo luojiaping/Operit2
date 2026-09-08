@@ -1,24 +1,19 @@
-# Operit2
+<div align="center">
+  <img src="docs/assets/operit-logo.svg" width="96" alt="Operit logo">
+  <h1>Operit2</h1>
+  <p>一个 Agent 核心，连接你的设备空间。</p>
+  <p><strong>预览版本</strong> · <a href="docs/Operit2技术白皮书.pdf">阅读技术白皮书</a></p>
+</div>
 
-> 让 Agent 不再属于某一个窗口，而是属于你的个人设备空间。
+<p align="center">
+  <img src="docs/assets/operit-device-space-concept-v7.png" alt="Operit2 设备空间概念图" width="100%">
+</p>
 
-**预览版本**
+Operit2 是面向个人用户的跨设备 Agent Core。每台设备运行一个 `CoreNode`，保留本地 Host 和系统权限；`Space` 负责同步持久化状态，`Binding` 决定任务下一步在哪个节点继续。
 
-Operit2 是一套面向个人用户的跨设备 Agent Core 与访问面。它从 Rust Core 出发，把手机、桌面、浏览器和 Linux 云端设备组织进同一个个人 `Space`：每台设备保留自己的文件、终端、浏览器、模型、硬件和系统权限，Core 负责持久化任务、上下文、工具、路由和同步，让工作能够在合适的设备之间延续。
+项目源于 Operit 的 Android Agent 实践，当前正在把手机、桌面、浏览器和 Linux 云端设备连接为一个个人设备空间。完整的项目起点、架构边界、任务连续性、权限模型、插件 SDK 和演进方向，请阅读 [Operit2 技术白皮书](docs/Operit2技术白皮书.pdf)。
 
-Operit2 不试图把所有设备伪装成一台机器，也不把 Linux 服务器、桌面或手机预先规定成主节点。每个运行实例都是一个普通的 `CoreNode`。设备在线时间更长、能力更强，只能成为一次调度中的事实，不会改变它在 Space 中的身份。
-
-项目仍处于预览阶段。底层结构、数据格式、插件契约和跨设备流程会继续重构，当前 README 描述的是已经形成的工程基础、可以尝试的入口和明确的演进方向，而不是对所有平台和场景的稳定承诺。
-
-## 为什么做 Operit2
-
-Operit 的第一代产品从 Android Agent 开始。我们曾经把 Ubuntu 和 PRoot 执行环境带进手机，同时提供可见的 PTY 会话、后台复用 shell，以及通过 Android Storage Access Framework 暴露 Ubuntu 文件系统的能力。那段经历让我们确认：手机不只是 Agent 的聊天窗口，也可以是一个真正拥有执行能力的节点。
-
-但当 Agent 开始处理长期任务、代码、浏览器、文件和多种外部工具时，单一设备和单一窗口很快会成为限制。手机适合随时发起和接收任务，桌面适合长时间创作、修改和审核，云端设备适合长期在线，浏览器则适合随时接手查看。它们不应该各自拥有一套互不相认的 Agent。
-
-Operit2 因此把问题重新定义为：如何让一个人的 Agent 工作连续存在于自己的设备之间，同时不抹平设备差异，也不把权限交给一个看不见的中心服务。
-
-我们希望把跨设备复杂性放到 Core、Host、Link 和插件契约中，让普通用户不必先理解一堆命令行、环境变量和平台差异，才能使用自己设备上已经拥有的能力。这是 Operit2 面向个人用户、也面向 AI 普惠性的长期出发点。
+> 预览阶段，底层结构、数据格式、插件契约和跨设备流程仍可能发生破坏性更新。
 
 ## 当前阶段已经形成的基础
 
