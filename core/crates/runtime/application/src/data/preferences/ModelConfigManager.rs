@@ -20,6 +20,9 @@ use operit_providers::chat::llmprovider::ModelConfigConnectionTester::{
     ModelConfigConnectionTester, ModelConnectionTestReport,
 };
 use operit_providers::chat::llmprovider::ModelListFetcher::ModelListFetcher;
+use operit_providers::chat::llmprovider::ThinkingConfiguration::{
+    ThinkingConfigurationApplier, ThinkingControl, ThinkingSettingsDescriptor,
+};
 use operit_providers::runtime_support::ProviderRuntimeContext;
 use operit_store::PreferencesDataStore::{
     stringPreferencesKey, Flow, Preferences, PreferencesDataStore, PreferencesDataStoreError,
@@ -55,6 +58,8 @@ pub enum ModelConfigError {
     ModelListFetch(String),
     #[error("connection test error: {0}")]
     ConnectionTest(String),
+    #[error("invalid thinking configuration: {0}")]
+    InvalidThinkingConfiguration(String),
     #[error("built-in provider operation is not allowed: {0}")]
     BuiltInProvider(String),
 }
@@ -77,7 +82,7 @@ pub struct ModelConfigManager {
 }
 
 impl ModelConfigManager {
-    const PREFERENCES_VERSION: u32 = 1;
+    const PREFERENCES_VERSION: u32 = 2;
     pub const DEFAULT_PROVIDER_ID: &'static str = ModelConfigDefaults::DEFAULT_PROVIDER_ID;
     pub const DEFAULT_MODEL_ID: &'static str = ModelConfigDefaults::DEFAULT_MODEL_ID;
 
@@ -208,6 +213,8 @@ impl ModelConfigManager {
         &self,
         provider: ProviderProfile,
     ) -> Result<ProviderProfile, ModelConfigError> {
+        ThinkingConfigurationApplier::validate(&provider.thinkingConfigurations)
+            .map_err(ModelConfigError::InvalidThinkingConfiguration)?;
         self.modelConfigDataStore.try_edit_result(|preferences| {
             self.assertProviderExistsInPreferences(preferences, &provider.id)?;
             Self::assertProviderNameUniqueInPreferences(
@@ -226,6 +233,8 @@ impl ModelConfigManager {
         &self,
         provider: ProviderProfile,
     ) -> Result<ProviderProfile, ModelConfigError> {
+        ThinkingConfigurationApplier::validate(&provider.thinkingConfigurations)
+            .map_err(ModelConfigError::InvalidThinkingConfiguration)?;
         if provider.id != Self::DEFAULT_PROVIDER_ID {
             return Err(ModelConfigError::ProviderNotFound(provider.id));
         }
@@ -471,6 +480,62 @@ impl ModelConfigManager {
         self.updateModelProfile(providerId, model)
     }
 
+    /// Resolves provider thinking controls for a selected model.
+    pub fn getThinkingSettingsForProvider(
+        &self,
+        providerId: &str,
+        modelId: &str,
+    ) -> Result<ThinkingSettingsDescriptor, ModelConfigError> {
+        let provider = self.getProviderProfile(providerId)?;
+        ThinkingConfigurationApplier::describe(
+            &provider.providerTypeId,
+            modelId,
+            &provider.endpoint,
+            &provider.thinkingConfigurations,
+        )
+        .map_err(ModelConfigError::InvalidThinkingConfiguration)
+    }
+
+    /// Updates provider thinking rules and the selected provider option.
+    pub fn updateThinkingSettingsForProvider(
+        &self,
+        providerId: &str,
+        modelId: &str,
+        thinkingConfigurations: String,
+        thinkingOptionId: String,
+    ) -> Result<ProviderProfile, ModelConfigError> {
+        ThinkingConfigurationApplier::validate(&thinkingConfigurations)
+            .map_err(ModelConfigError::InvalidThinkingConfiguration)?;
+        let mut provider = self.getProviderProfile(providerId)?;
+        let descriptor = ThinkingConfigurationApplier::describe(
+            &provider.providerTypeId,
+            modelId,
+            &provider.endpoint,
+            &thinkingConfigurations,
+        )
+        .map_err(ModelConfigError::InvalidThinkingConfiguration)?;
+        if descriptor.control != ThinkingControl::Levels && !thinkingOptionId.is_empty() {
+            return Err(ModelConfigError::InvalidThinkingConfiguration(
+                "thinking option is only valid for level-based controls".to_string(),
+            ));
+        }
+        if descriptor.control == ThinkingControl::Levels
+            && !thinkingOptionId.is_empty()
+            && !descriptor
+                .options
+                .iter()
+                .any(|option| option.id == thinkingOptionId)
+        {
+            return Err(ModelConfigError::InvalidThinkingConfiguration(format!(
+                "thinking option is not supported: {thinkingOptionId}"
+            )));
+        }
+        provider.thinkingConfigurations = thinkingConfigurations;
+        provider.thinkingOptionId = thinkingOptionId;
+        self.updateProviderProfile(provider.clone())?;
+        Ok(provider)
+    }
+
     /// Tests connectivity for one provider/model configuration.
     pub async fn testModelConnection(
         &self,
@@ -628,6 +693,8 @@ impl ModelConfigManager {
             builtinTools,
             request,
             parameters: model.parameters.clone(),
+            thinkingConfigurations: provider.thinkingConfigurations.clone(),
+            thinkingOptionId: provider.thinkingOptionId.clone(),
             summary: model.summary.clone(),
             localRuntime: model.localRuntime.clone(),
         })
@@ -676,6 +743,7 @@ impl ModelConfigManager {
                 }
                 Self::writeProviderList(preferences, &providerIds)
             }
+            1 => Ok(()),
             from => Err(PreferencesDataStoreError::MissingMigration { from, to: from + 1 }),
         }
     }

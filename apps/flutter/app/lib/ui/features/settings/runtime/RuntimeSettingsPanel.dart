@@ -17,6 +17,7 @@ import '../../../theme/OperitGlassSurface.dart';
 import '../../../theme/OperitTheme.dart';
 import '../components/SettingsControlStyles.dart';
 import '../profile/UserProfileSummaryTile.dart';
+import 'NetworkControlPanel.dart';
 
 class RuntimeSettingsPanel extends StatefulWidget {
   const RuntimeSettingsPanel({
@@ -487,6 +488,15 @@ class _RuntimeSettingsPanelState extends State<RuntimeSettingsPanel> {
         onOpenProfile: widget.onOpenProfile,
         connectionMessage: _connectionMessage,
         connectionFailed: _connectionFailed,
+      ),
+      _SectionCard(
+        title: l10n.settingsRuntimeNetworkControl,
+        children: <Widget>[
+          NetworkControlPanel(
+            clients: _clients,
+            onChanged: _refreshCurrentDeviceSpace,
+          ),
+        ],
       ),
       _SectionCard(
         title: l10n.settingsRuntimeRemoteTitle,

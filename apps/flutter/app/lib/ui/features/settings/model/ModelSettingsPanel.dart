@@ -52,12 +52,13 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
         providerId: chatBinding.providerId,
         modelId: chatBinding.modelId,
       ),
-      functionBindings: await functionManager
-          .functionModelBindingFlow().first,
+      functionBindings: await functionManager.functionModelBindingFlow().first,
       maxImageHistoryUserTurns: await apiPreferences
-          .maxImageHistoryUserTurnsFlow().first,
+          .maxImageHistoryUserTurnsFlow()
+          .first,
       maxMediaHistoryUserTurns: await apiPreferences
-          .maxMediaHistoryUserTurnsFlow().first,
+          .maxMediaHistoryUserTurnsFlow()
+          .first,
     );
     return data;
   }
@@ -170,6 +171,8 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
         customHeaders: result.customHeaders,
         requestLimitPerMinute: result.requestLimitPerMinute,
         maxConcurrentRequests: result.maxConcurrentRequests,
+        thinkingConfigurations: result.thinkingConfigurations,
+        thinkingOptionId: result.thinkingOptionId,
         models: provider.models,
       ),
     );
@@ -210,6 +213,8 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
         customHeaders: saveResult.customHeaders,
         requestLimitPerMinute: saveResult.requestLimitPerMinute,
         maxConcurrentRequests: saveResult.maxConcurrentRequests,
+        thinkingConfigurations: saveResult.thinkingConfigurations,
+        thinkingOptionId: saveResult.thinkingOptionId,
         models: provider.models,
       ),
     );
@@ -218,7 +223,8 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
 
   Future<void> _deleteProvider(core_proxy.ProviderProfile provider) async {
     final bindings = await widget.clients.preferencesFunctionalConfigManager
-        .functionModelBindingFlow().first;
+        .functionModelBindingFlow()
+        .first;
     final boundFunctions = _boundFunctionTypesForProvider(
       bindings,
       provider.id,
@@ -378,7 +384,8 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
     core_proxy.ModelProfile model,
   ) async {
     final bindings = await widget.clients.preferencesFunctionalConfigManager
-        .functionModelBindingFlow().first;
+        .functionModelBindingFlow()
+        .first;
     final boundFunctions = _boundFunctionTypesForModel(
       bindings,
       provider.id,
@@ -646,6 +653,8 @@ class _ProviderEditSaveResult extends _ProviderEditResult {
     required this.customHeaders,
     required this.requestLimitPerMinute,
     required this.maxConcurrentRequests,
+    required this.thinkingConfigurations,
+    required this.thinkingOptionId,
   });
 
   final String name;
@@ -655,6 +664,8 @@ class _ProviderEditSaveResult extends _ProviderEditResult {
   final String customHeaders;
   final int requestLimitPerMinute;
   final int maxConcurrentRequests;
+  final String thinkingConfigurations;
+  final String thinkingOptionId;
 }
 
 class _ProviderEditDeleteResult extends _ProviderEditResult {
@@ -693,6 +704,8 @@ class _ProviderEditorDialogState extends State<_ProviderEditorDialog> {
   late final TextEditingController _customHeadersController;
   late final TextEditingController _requestLimitController;
   late final TextEditingController _maxConcurrentController;
+  late final TextEditingController _thinkingConfigurationsController;
+  late final TextEditingController _thinkingOptionIdController;
   String? _selectedProviderTypeId;
 
   @override
@@ -711,6 +724,12 @@ class _ProviderEditorDialogState extends State<_ProviderEditorDialog> {
     _maxConcurrentController = TextEditingController(
       text: (provider?.maxConcurrentRequests ?? 1).toString(),
     );
+    _thinkingConfigurationsController = TextEditingController(
+      text: provider?.thinkingConfigurations ?? '[]',
+    );
+    _thinkingOptionIdController = TextEditingController(
+      text: provider?.thinkingOptionId ?? '',
+    );
     if (provider != null) {
       _selectedProviderTypeId = provider.providerTypeId;
     } else {
@@ -727,6 +746,8 @@ class _ProviderEditorDialogState extends State<_ProviderEditorDialog> {
     _customHeadersController.dispose();
     _requestLimitController.dispose();
     _maxConcurrentController.dispose();
+    _thinkingConfigurationsController.dispose();
+    _thinkingOptionIdController.dispose();
     super.dispose();
   }
 
@@ -783,6 +804,8 @@ class _ProviderEditorDialogState extends State<_ProviderEditorDialog> {
         customHeaders: _customHeadersController.text,
         requestLimitPerMinute: int.parse(_requestLimitController.text),
         maxConcurrentRequests: int.parse(_maxConcurrentController.text),
+        thinkingConfigurations: _thinkingConfigurationsController.text,
+        thinkingOptionId: _thinkingOptionIdController.text.trim(),
       ),
     );
   }
@@ -813,7 +836,8 @@ class _ProviderEditorDialogState extends State<_ProviderEditorDialog> {
                 ),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: DropdownButtonFormField<String>(
+                  child: OperitFormStyles.dropdownButtonFormField<String>(
+                    context,
                     isExpanded: true,
                     initialValue: _selectedProviderTypeId,
                     style: OperitFormStyles.dropdownTextStyle(context),
@@ -891,6 +915,21 @@ class _ProviderEditorDialogState extends State<_ProviderEditorDialog> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _thinkingConfigurationsController,
+                        minLines: 4,
+                        maxLines: 10,
+                        decoration: InputDecoration(
+                          labelText: l10n.settingsModelThinkingRules,
+                        ),
+                      ),
+                      TextField(
+                        controller: _thinkingOptionIdController,
+                        decoration: InputDecoration(
+                          labelText: l10n.settingsModelThinkingOption,
+                        ),
                       ),
                     ],
                   ),
@@ -3453,7 +3492,9 @@ String _providerCatalogLabel(
 String _providerTypeLocalName(AppLocalizations l10n, String providerTypeId) {
   return switch (providerTypeId) {
     'OPENAI' => l10n.settingsModelProviderTypeOpenai,
+    'XAI' => l10n.settingsModelProviderTypeXai,
     'OPENAI_RESPONSES' => l10n.settingsModelProviderTypeOpenaiResponses,
+    'OPENAI_CODEX' => l10n.settingsModelProviderTypeOpenaiCodex,
     'OPENAI_RESPONSES_GENERIC' =>
       l10n.settingsModelProviderTypeOpenaiResponsesGeneric,
     'OPENAI_GENERIC' => l10n.settingsModelProviderTypeOpenaiGeneric,
@@ -3473,6 +3514,7 @@ String _providerTypeLocalName(AppLocalizations l10n, String providerTypeId) {
     'SILICONFLOW' => l10n.settingsModelProviderTypeSiliconflow,
     'IFLOW' => l10n.settingsModelProviderTypeIflow,
     'OPENROUTER' => l10n.settingsModelProviderTypeOpenrouter,
+    'OPENCODE' => l10n.settingsModelProviderTypeOpencode,
     'FOUR_ROUTER' => l10n.settingsModelProviderTypeFourRouter,
     'NOUS_PORTAL' => l10n.settingsModelProviderTypeNousPortal,
     'INFINIAI' => l10n.settingsModelProviderTypeInfiniai,
@@ -3487,8 +3529,9 @@ String _providerTypeLocalName(AppLocalizations l10n, String providerTypeId) {
     'LLAMA_CPP' => l10n.settingsModelProviderTypeLlamaCpp,
     'PPINFRA' => l10n.settingsModelProviderTypePpinfra,
     'NOVITA' => l10n.settingsModelProviderTypeNovita,
+    'MINIMAX' => l10n.settingsModelProviderTypeMinimax,
     'OTHER' => l10n.settingsModelProviderTypeOther,
-    _ => throw UnsupportedError('missing provider type i18n: $providerTypeId'),
+    _ => providerTypeId,
   };
 }
 
