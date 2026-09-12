@@ -46,7 +46,7 @@ class _ToolPkgUiLauncherScreenState extends State<ToolPkgUiLauncherScreen> {
   static int _nextExecutionOwnerId = 0;
 
   late final int _executionOwnerId = _nextExecutionOwnerId++;
-  late String _selectedRouteId = _initialRouteId();
+  late final String _selectedRouteId = _initialRouteId();
   _ComposeDslRenderResult? _renderResult;
   String? _scriptScreenPath;
   ({String contextKey, String containerPackageName})? _activeExecutionContext;
@@ -282,7 +282,7 @@ class _ToolPkgUiLauncherScreenState extends State<ToolPkgUiLauncherScreen> {
         if (!mounted) {
           return latestActionResult;
         }
-        final parsedEvent = _ParsedComposeDslActionEvent.parse(event as String);
+        final parsedEvent = _ParsedComposeDslActionEvent.parse(event);
         final phase = parsedEvent.phase;
         if (phase == 'intermediate' || phase == 'final') {
           latestActionResult = parsedEvent.actionResult;

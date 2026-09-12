@@ -162,7 +162,7 @@ def _generate_plugin_sdk_types(repo_root: Path, *, dry_run: bool) -> None:
     declaration_root = repo_root / "plugins" / "types"
     _run_checked_command(
         [
-            "cargo",
+            _platform_command("cargo"),
             "run",
             "-p",
             "operit-plugin-sdk-codegen",

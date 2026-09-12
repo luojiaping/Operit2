@@ -7,13 +7,11 @@ class _SectionCard extends StatelessWidget {
     required this.title,
     required this.children,
     this.action,
-    this.initiallyExpanded = true,
   });
 
   final String title;
   final List<Widget> children;
   final Widget? action;
-  final bool initiallyExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +34,7 @@ class _SectionCard extends StatelessWidget {
           material: true,
           clip: false,
           child: ExpansionTile(
-            initiallyExpanded: initiallyExpanded,
+            initiallyExpanded: true,
             tilePadding: const EdgeInsets.symmetric(horizontal: 14),
             childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
             shape: RoundedRectangleBorder(borderRadius: radius),

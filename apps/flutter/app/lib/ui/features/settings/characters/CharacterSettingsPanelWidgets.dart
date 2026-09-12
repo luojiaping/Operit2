@@ -1,3 +1,5 @@
+// ignore_for_file: file_names
+
 part of 'CharacterSettingsPanel.dart';
 
 class _AdvancedSettingsGroup extends StatelessWidget {

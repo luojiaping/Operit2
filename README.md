@@ -6,114 +6,23 @@
   <img src="docs/assets/operit-device-space-concept-v7.png" alt="Operit2 设备空间概念图" width="100%">
 </p>
 
-Operit2 是面向个人用户的跨设备 Agent Core。每台设备运行一个 `CoreNode`，保留本地 Host 和系统权限；`Space` 负责同步持久化状态，`Binding` 决定任务下一步在哪个节点继续。
+Operit2 是面向个人用户的开源跨设备 Agent 项目。它希望让手机、桌面和云端设备各展所长，让对话、任务与上下文在个人设备空间中延续。
 
-项目源于 Operit 的 Android Agent 实践，当前正在把手机、桌面、浏览器和 Linux 云端设备连接为一个个人设备空间。完整的项目起点、架构边界、任务连续性、权限模型、插件 SDK 和演进方向，请阅读 [Operit2 技术白皮书](docs/Operit2技术白皮书.pdf)。
+项目源于 Operit 的 Android Agent 实践，目前正打磨多端同步、跨设备执行和恢复体验。项目初衷、工程架构与长期方向见 [Operit2 技术白皮书](docs/Operit2技术白皮书.pdf)。
 
 > 预览阶段，底层结构、数据格式、插件契约和跨设备流程仍可能发生破坏性更新。
 
-## 当前阶段已经形成的基础
+## 设备如何协作
 
-### Rust Core 和模块边界
+每个运行 Core 的实例称为 `CoreNode`，通过本机 `Host` 使用文件、终端、浏览器等能力。`Space` 组织节点之间的协作与持久化同步，`Binding` 记录任务下一步由哪个节点继续。
 
-Operit2 已经形成以 Rust Core 为基础的 workspace。Core 业务、Host 契约、持久化、Provider、工具、插件、节点路由、访问控制和本地代理被拆成相对清晰的 crate 边界：
+Space 中的节点地位对等。Linux 云端设备可以因长期在线或具备合适能力而承担更多任务，但不会因此成为固定的主节点。加入 Space 也不会自动继承其他设备的系统权限。
 
-```text
-foundation      Host API、共享模型、通用工具、Link 协议
-persistence     本地数据、同步记录、Binding 和备份恢复
-provider        远程 Provider、本地模型、聊天、STT/TTS 和市场服务
-tool            工具执行、权限、Skill、Package、MCP 和脚本工具
-plugin          ToolPkg、JavaScript、Wasm、Compose DSL 和 SDK
-runtime         应用启动、聊天、工作区、事件和跨领域服务
-node            CoreNode 路由、Binding、Space 和同步调度
-access          身份、配对、认证、session、PeerLink 和发现
-proxy           本地调用投影、Rust/Dart codegen 和 dispatch
-application     Core 组合入口
-command         CLI 命令层
-```
+任务交接以工具结果已持久化、下一轮模型请求尚未开始为边界。目标节点取得必要的同步记录后，再继续后续工作。这种接续依赖保存的上下文和任务事实，不搬迁正在运行的模型请求、终端进程或浏览器会话。
 
-目前部分领域仍然以 aggregate crate 形式存在，目录拆分和生命周期收敛还在继续。这里的边界首先是工程约束和演进方向，不意味着每个目标 crate 都已经完成最终拆分。
+我们希望逐步实现这样的体验：在手机上发起任务，由合适的设备持续执行，在桌面上查看或批准，最后回到手机接收结果。主对话保留发起设备的交互归属，子任务在执行节点推进，其他设备通过异步同步了解进展。完整体验仍在完善中。
 
-### CoreNode、Host、Space 和 Binding
-
-Operit2 的执行模型尽量保持简单：
-
-```text
-CoreNode = OperitApplication + LocalCoreProxy + HostManager
-
-Space    = 节点成员 + 已配对链路 + 持久化同步范围
-
-Binding  = 某个任务下一步执行所对应的 CoreNode
-```
-
-它们分别表达不同的事情：
-
-| 概念 | 作用 | 不代表什么 |
-| --- | --- | --- |
-| `CoreNode` | 一个设备或运行实例上的 Core 与本地 Host | 不是主节点、从节点或云端代理 |
-| `Host` | 文件、终端、浏览器、网络、模型和系统权限等本地能力 | 不会因为加入 Space 自动共享 |
-| `Space` | 组织成员、可达链路和持久化同步范围 | 不是执行容器、权限池或中心服务器 |
-| `PeerLink` | 已配对节点之间的认证连接和数据载体 | 不会把中继节点伪装成目标节点 |
-| `Binding` | 决定一次任务下一步由哪个节点继续 | 不搬迁数据，也不是进程热迁移 |
-| `Identity` | 本地顶层隔离，拥有自己的数据和设备关系 | 不进入 Space 同步，也不通过 Link 传播 |
-| Access Surface | Flutter、CLI/TUI、Web Access 等访问和呈现界面 | 不是另一套独立的业务 Core |
-
-核心关系可以概括为：
-
-```text
-Flutter / CLI / TUI / Web Access
-              │
-              ▼
-      LocalCoreProxy / local dispatch
-              │
-              ▼
-  CoreNode = Core + 本地 Host + 持久化数据
-              │
-              ├── ordinary request -> 本地 Core
-              ├── Binding request  -> CoreNodeRouter
-              │                         │
-              │                         └── PeerLink -> 其他 CoreNode
-              │
-              └── Space persistence sync -> 已声明的持久化数据
-```
-
-Space 内的节点地位对等。监听方、连接发起方和一次请求的执行方只是某次连接或调用中的角色，不会形成固定的主从关系。
-
-### 持久化同步与实时流转
-
-Operit2 把跨设备协作拆成两条相互配合、但不混为一谈的数据路径：
-
-- 持久化同步路径负责聊天、配置、Binding、任务事实以及其他已声明数据的本地副本，让节点在断线、重启和迁移后仍有机会恢复工作。
-- 实时路径负责 call、watch、push、事件、流和 Agent continuation，通过 `CoreNodeRouter` 和认证后的 `PeerLink` 把一次工作交给目标节点。
-
-当前实现中的 `SpacePersistenceSyncService`、`CoreNodeRouter`、`PeerFrame`、MessagePack Link 编解码和生成的 route catalog，构成了这两条路径的主要工程基础。
-
-本地应用调用链和 Space 节点链路也保持分离：Flutter/CLI 的本地调用进入生成的本地 Proxy；跨节点请求进入 Router 和 PeerLink，不重新伪装成应用层 Proxy 调用。
-
-## 一项任务如何在设备间延续
-
-Operit2 目前选择在“工具调用已经完成、工具结果已经持久化、下一轮模型请求尚未发起”的边界进行节点交接：
-
-```text
-1. 用户在手机或其他设备上发起对话。
-2. 当前 CoreNode 运行模型和工具循环。
-3. 工具调用结束，工具结果和相关任务事实先在本地提交。
-4. Binding 通过比较写入选择下一步执行的目标 CoreNode。
-5. 目标节点确认自己属于同一个 Space，并等待必要的同步状态。
-6. 目标节点从已同步的上下文恢复下一轮模型请求。
-7. 状态、结果和可恢复记录继续同步到其他成员节点。
-```
-
-这个边界让同一个任务在设备之间有清晰的执行归属，也避免多个节点同时推进同一轮模型请求。当前它不是下面这些能力：
-
-- 正在运行的模型请求不会被原样搬到另一台设备；
-- 终端 PTY、shell 进程、浏览器会话和 Host 句柄不会被热迁移；
-- 所有实时细节不会无条件灌进同一个模型上下文；
-- 改变 Binding 不等于把所有聊天、文件或 Agent 数据移动到目标节点。
-
-这是一种任务意图和 continuation 的交接机制。长期目标是让用户在手机上发起、在云端持续执行、在桌面上查看和批准，并在合适的时机收到结果；当前优先保证边界清楚、状态可追踪和失败可恢复。
-
-## 目前可以尝试的能力
+## 当前能力
 
 ### 单节点 Agent
 
@@ -151,27 +60,17 @@ Operit2 的扩展面已经从“内置工具集合”逐步抽象为可管理的
 - 使用 Skill 提供可导入、可见性可控的工作流和知识资源；
 - 连接 MCP server，管理 MCP 配置、工具和本地 MCP 进程；
 - 使用插件市场和包管理命令安装、启用、停用、查看和执行扩展；
-- 通过 Rust SDK、TypeScript 声明和 codegen 为作者提供稳定的契约入口。
+- 通过 Rust SDK、TypeScript 声明和 codegen 提供插件开发入口，接口仍在演进。
 
-插件可以声明自己需要的运行时、Host capability、权限、兼容版本和状态范围。Operit2 不承诺一个插件无需声明就能在所有设备上运行；真正可靠的可移植性来自清晰的契约和可恢复的任务状态。
+后续将进一步完善运行时、Host 能力、权限、兼容版本和状态范围的声明，让扩展能在兼容节点上执行或接续。当前请按目标平台验证插件及其依赖，跨设备可移植性仍是重点建设方向。
 
 插件作者入口见 [`plugins/docs/README.md`](plugins/docs/README.md)，公共 SDK 说明见 [`core/crates/plugin/sdk/README.md`](core/crates/plugin/sdk/README.md)。
 
 ### Web Access
 
-Web Access 是访问某个已运行 CoreNode 的浏览器访问面，不是默认独立的中心 Server。CLI 可以启动本地 Web Access 服务，Flutter Web 开发则使用隔离代理，以便启用本地 STT/TTS 和其他 WebAssembly 能力：
+Web Access 让浏览器访问一个已运行的 CoreNode；打开页面不会自动让浏览器成为 Space 中的独立节点。浏览器 Host 与 WebAssembly 运行时是另一条工程路径，两者的能力和部署方式需要分别看待。
 
-```powershell
-# 终端一：apps/flutter/app
-fvm flutter run -d web-server --web-hostname 127.0.0.1 --web-port 4835
-
-# 终端二：仓库根目录
-node tools/dev_web_access_proxy.mjs --upstream-port 4835 --listen-port 4836
-```
-
-随后打开 `http://127.0.0.1:4836`。代理会转发 Flutter Web 的 HTTP 和调试 WebSocket，并补充跨源隔离响应头；它只服务于本地开发，不是产品网关。
-
-在 VS Code 中可以选择 `Operit2: Web (isolated)` 运行配置并按 F5。完整说明见 [`apps/web_access/README.md`](apps/web_access/README.md)。
+本地开发方式见下方“Web Access 开发”，访问与部署说明见 [`apps/web_access/README.md`](apps/web_access/README.md)。
 
 ### 数据备份与迁移
 
@@ -229,35 +128,19 @@ Operit2 采用从外到内逐层收紧的能力模型：
 
 完整边界说明见 [`docs/permission-access-architecture.md`](docs/permission-access-architecture.md) 和 [`hosts/README.md`](hosts/README.md)。
 
-## 预览阶段的真实边界
+## 预览阶段与演进方向
 
-### 已经可以作为工程基础使用
+Rust Core、平台 Host、节点连接、持久化同步和插件运行时已经形成工程基础。当前优先修复问题、打磨稳定性，尤其关注跨设备执行的取消、重连、资源释放和失败恢复。
 
-- Rust Core、Host API、LocalCoreProxy 和跨语言 codegen 已经形成基本工作链路；
-- CoreNode、Space、Binding、Link Access、PeerLink 和持久化同步已有代码与架构约束；
-- Flutter、CLI/TUI、Web Access、工作区、终端和浏览器能力已经有对应入口；
-- ToolPkg、JavaScript/Wasm、Skill、MCP、Compose DSL 和插件 SDK 已形成扩展面；
-- 身份隔离、快照、备份恢复和版本化方向已经进入工程路径。
+以下方向仍在设计、完善或验证中：
 
-### 正在打磨或仍需验证
+- 结合节点健康状态（Health）、长期执行记录和用户偏好选择合适的设备；
+- 在适合的任务上引入备用节点、受控并行和子任务拆分；
+- 完善插件 SDK 的兼容声明与跨节点接续能力；
+- 改善新设备加入、数据恢复和长期在线部署的使用体验；
+- 验证节点数量增加后的发现、路由与同步成本。
 
-- 跨设备任务流转的稳定性、取消、重连、背压、失败恢复和可观测性；
-- 根据真实 Host capability、health、冗余和长期使用证据决定节点选择的调度机制；
-- 节点数量增多后的发现、拓扑、路由、同步成本和个人用户可理解性；
-- 插件在不同运行时、Host 和权限组合下的兼容声明与继续执行能力；
-- 真正的应用内执行隔离边界；
-- 可直接部署、长期运行和可迁移的 Server 产品形态。
-
-### 当前不应该被理解成的承诺
-
-- 所有设备拥有相同的硬件、模型和系统能力；
-- 正在运行的模型、终端或浏览器会话可以被无缝热迁移；
-- 任意插件、Skill 或 MCP server 可以自动在每个节点上运行；
-- 已经支持数千节点的大规模调度；
-- 已经提供面向企业团队、多租户或复杂组织治理的产品；
-- Rust 本身就能证明没有内存泄漏、资源泄漏或长时间运行问题。
-
-这些限制不是项目的终点，而是预览阶段需要诚实面对的工程问题。Operit2 会继续优先完善个人用户最在意的连续性、可恢复性、权限可见性和设备协作体验。
+当前以个人设备空间为主要场景，尚未验证数千节点调度，也不以企业组织治理为产品目标。长期运行品质仍需持续测试，Rust 本身不构成无资源泄漏的保证。更详细的设计取舍见 [技术白皮书](docs/Operit2技术白皮书.pdf)。
 
 ## 快速开始
 
@@ -307,7 +190,7 @@ fvm flutter run -d windows
 
 ### Web Access 开发
 
-推荐使用仓库根目录的 VS Code 配置 `Operit2: Web (isolated)`，或者手动启动：
+本地 Flutter Web 开发需要两个终端：
 
 ```powershell
 # 终端一：apps/flutter/app
