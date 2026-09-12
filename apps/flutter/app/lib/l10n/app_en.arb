@@ -473,12 +473,28 @@
   "settingsModelCurrentSection": "Current chat model",
   "settingsModelCurrentChatModel": "Chat uses",
   "settingsModelCurrentActive": "Active",
+  "settingsModelMultimodalBadge": "Multimodal",
+  "settingsModelNoModels": "No models yet",
+  "settingsModelProviderModelCount": "{count} models",
+  "@settingsModelProviderModelCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsModelSetCurrentActive": "Set active",
   "settingsChatThinkingMode": "Thinking mode",
   "settingsChatThinkingModeDescription": "Let supported models produce steadier reasoning.",
   "settingsChatStreamOutput": "Stream output",
   "settingsChatStreamOutputDescription": "Show generated replies progressively.",
   "settingsModelProfilesSection": "Model profiles",
+  "settingsModelFunctionFollowChat": "Follow chat",
+  "settingsModelFunctionFollowChatAll": "Follow all",
+  "settingsModelFunctionFollowChatHint": "Automatically uses the current chat model",
+  "settingsModelFunctionGroupBackground": "Background helpers",
+  "settingsModelFunctionGroupMain": "Main chat model",
+  "settingsModelFunctionGroupMultimodal": "Multimodal recognition",
   "settingsModelFunctionMappingsSection": "Function model assignment",
   "settingsModelFunctionMappingsDescription": "Choose the model profile and concrete model used by chat, summary, memory, image recognition, and other functions.",
   "settingsModelFunctionMappingsReset": "Reset all",
@@ -611,7 +627,7 @@
   "settingsModelApiKeyName": "Key name",
   "settingsModelApiKeyEnabled": "Enable this key",
   "settingsModelProviderId": "Provider ID",
-  "settingsModelProvidersSection": "Providers",
+  "settingsModelProvidersSection": "LLM providers",
   "settingsModelProviderType": "Provider type",
   "settingsModelProviderTypeOption": "{name} ({original})",
   "@settingsModelProviderTypeOption": {

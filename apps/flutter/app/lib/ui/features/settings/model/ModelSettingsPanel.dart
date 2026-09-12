@@ -12,6 +12,7 @@ import '../../../common/components/M3LoadingIndicator.dart';
 import '../../../theme/OperitFormStyles.dart';
 import '../../../theme/OperitGlassSurface.dart';
 import '../components/SettingsControlStyles.dart';
+import 'ProviderLogo.dart';
 
 class ModelSettingsPanel extends StatefulWidget {
   const ModelSettingsPanel({super.key, GeneratedCoreProxyClients? clients})
@@ -28,8 +29,6 @@ class ModelSettingsPanel extends StatefulWidget {
 class ModelSettingsPanelState extends State<ModelSettingsPanel> {
   Future<ModelSettingsData>? _future;
   String? _testingModelKey;
-  final Set<String> _expandedProviderIds = <String>{};
-  bool _providerExpansionInitialized = false;
 
   @override
   void initState() {
@@ -60,15 +59,6 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
       maxMediaHistoryUserTurns: await apiPreferences
           .maxMediaHistoryUserTurnsFlow().first,
     );
-    if (!_providerExpansionInitialized) {
-      _providerExpansionInitialized = true;
-      for (final provider in data.providers) {
-        if (provider.id == data.chatBinding.providerId) {
-          _expandedProviderIds.add(provider.id);
-          break;
-        }
-      }
-    }
     return data;
   }
 
@@ -106,13 +96,22 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
       context: context,
       functionType: functionType,
       summaries: data.summaries,
-      currentBinding: data.functionBindings[functionType]!,
+      currentBinding: _resolveFunctionBinding(data, functionType),
+      chatBinding: data.chatBinding,
+      followsChat: data.functionBindings[functionType]!.followsChat,
     );
     if (selected == null) {
       return;
     }
+    if (selected is _FunctionModelFollowChat) {
+      await widget.clients.preferencesFunctionalConfigManager
+          .setFunctionFollowChat(functionType: functionType);
+      _reload();
+      return;
+    }
+    final modelSelection = selected as _FunctionModelSelection;
     if (functionType == core_proxy.FunctionType.chat &&
-        selected.modelId.toLowerCase().contains('autoglm')) {
+        modelSelection.modelId.toLowerCase().contains('autoglm')) {
       if (!mounted) {
         return;
       }
@@ -123,9 +122,15 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
     }
     await widget.clients.preferencesFunctionalConfigManager.setModelForFunction(
       functionType: functionType,
-      providerId: selected.providerId,
-      modelId: selected.modelId,
+      providerId: modelSelection.providerId,
+      modelId: modelSelection.modelId,
     );
+    _reload();
+  }
+
+  Future<void> _setAllFunctionsFollowChat() async {
+    await widget.clients.preferencesFunctionalConfigManager
+        .setAllFunctionsFollowChat();
     _reload();
   }
 
@@ -168,7 +173,6 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
         models: provider.models,
       ),
     );
-    _expandedProviderIds.add(providerId);
     _reload();
   }
 
@@ -243,18 +247,24 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
     await widget.clients.preferencesModelConfigManager.deleteProvider(
       providerId: provider.id,
     );
-    _expandedProviderIds.remove(provider.id);
     _reload();
   }
 
-  void _toggleProviderExpanded(String providerId) {
-    setState(() {
-      if (_expandedProviderIds.contains(providerId)) {
-        _expandedProviderIds.remove(providerId);
-      } else {
-        _expandedProviderIds.add(providerId);
-      }
-    });
+  Future<void> _openProviderDetail(core_proxy.ProviderProfile provider) async {
+    final data = await _future!;
+    if (!mounted) {
+      return;
+    }
+    await _ProviderDetailScreen.open(
+      context: context,
+      providerId: provider.id,
+      initialData: data,
+      reload: load,
+      onSelectModel: _selectChatModel,
+      onAddModel: _addProviderModel,
+      onEditProvider: _editProvider,
+      onEditModelSettings: _editModelSettings,
+    );
   }
 
   /// Adds a provider model from the remote catalog or a user-entered model ID.
@@ -559,26 +569,14 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
           children: <Widget>[
-            _SectionCard(
-              title: l10n.settingsModelProvidersSection,
-              action: FilledButton.icon(
-                onPressed: _createProvider,
-                style: SettingsControlStyles.sectionFilledButton(),
-                icon: const Icon(Icons.add, size: 18),
-                label: Text(l10n.create),
-              ),
+            _ProviderSectionCard(
+              onCreateProvider: _createProvider,
               children: <Widget>[
-                _ProviderModelManager(
+                _ProviderCardList(
                   providers: data.providers,
                   summaries: data.summaries,
                   chatBinding: data.chatBinding,
-                  expandedProviderIds: _expandedProviderIds,
-                  onToggleProviderExpanded: _toggleProviderExpanded,
-                  onEditProvider: _editProvider,
-                  onAddModel: _addProviderModel,
-                  onSelectModel: _selectChatModel,
-                  testingModelKey: _testingModelKey,
-                  onEditModelSettings: _editModelSettings,
+                  onOpenProvider: _openProviderDetail,
                 ),
               ],
             ),
@@ -586,25 +584,11 @@ class ModelSettingsPanelState extends State<ModelSettingsPanel> {
               title: l10n.settingsModelFunctionMappingsSection,
               initiallyExpanded: false,
               children: <Widget>[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    l10n.settingsModelFunctionMappingsDescription,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
+                _FunctionMappingGroups(
+                  data: data,
+                  onSelectFunction: _selectFunctionModel,
+                  onFollowAll: _setAllFunctionsFollowChat,
                 ),
-                const SizedBox(height: 8),
-                for (final functionType in _functionTypes)
-                  _FunctionMappingTile(
-                    functionType: functionType,
-                    binding: data.functionBindings[functionType]!,
-                    summary: data.summaryForBinding(
-                      data.functionBindings[functionType]!,
-                    ),
-                    onTap: () => _selectFunctionModel(functionType, data),
-                  ),
               ],
             ),
           ],
@@ -1165,34 +1149,120 @@ class _TextInputDialogState extends State<_TextInputDialog> {
   }
 }
 
-class _ProviderModelManager extends StatelessWidget {
-  const _ProviderModelManager({
+class _ProviderSectionCard extends StatelessWidget {
+  const _ProviderSectionCard({
+    required this.onCreateProvider,
+    required this.children,
+  });
+
+  final VoidCallback onCreateProvider;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final radius = BorderRadius.circular(12);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.36),
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.18),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: OperitGlassSurface(
+          color: Colors.transparent,
+          borderRadius: radius,
+          material: true,
+          clip: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _CreateProviderPill(
+                    label: l10n.settingsModelProvidersSection,
+                    onTap: onCreateProvider,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...children,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateProviderPill extends StatelessWidget {
+  const _CreateProviderPill({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final borderColor = colorScheme.outlineVariant.withValues(alpha: 0.6);
+    return InkWell(
+      onTap: onTap,
+      customBorder: const StadiumBorder(),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 7, 8, 7),
+        decoration: ShapeDecoration(
+          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+          shape: StadiumBorder(side: BorderSide(color: borderColor)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: borderColor),
+              ),
+              child: Icon(
+                Icons.add,
+                size: 15,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProviderCardList extends StatelessWidget {
+  const _ProviderCardList({
     required this.providers,
     required this.summaries,
     required this.chatBinding,
-    required this.expandedProviderIds,
-    required this.onToggleProviderExpanded,
-    required this.onEditProvider,
-    required this.onAddModel,
-    required this.onSelectModel,
-    required this.testingModelKey,
-    required this.onEditModelSettings,
+    required this.onOpenProvider,
   });
 
   final List<core_proxy.ProviderProfile> providers;
   final List<core_proxy.ProviderModelSummary> summaries;
   final core_proxy.FunctionModelBinding chatBinding;
-  final Set<String> expandedProviderIds;
-  final ValueChanged<String> onToggleProviderExpanded;
-  final void Function(core_proxy.ProviderProfile provider) onEditProvider;
-  final void Function(core_proxy.ProviderProfile provider) onAddModel;
-  final void Function(String providerId, String modelId) onSelectModel;
-  final String? testingModelKey;
-  final void Function(
-    core_proxy.ProviderProfile provider,
-    core_proxy.ModelProfile model,
-  )
-  onEditModelSettings;
+  final void Function(core_proxy.ProviderProfile provider) onOpenProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -1200,185 +1270,396 @@ class _ProviderModelManager extends StatelessWidget {
       return const SizedBox.shrink();
     }
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        for (final provider in providers)
-          _ProviderModelGroup(
-            provider: provider,
+        for (var index = 0; index < providers.length; index++) ...<Widget>[
+          if (index > 0) const SizedBox(height: 8),
+          _ProviderCard(
+            provider: providers[index],
             summaries: summaries,
             chatBinding: chatBinding,
-            expanded: expandedProviderIds.contains(provider.id),
-            onToggleExpanded: () => onToggleProviderExpanded(provider.id),
-            onEditProvider: () => onEditProvider(provider),
-            onAddModel: () => onAddModel(provider),
-            onSelectModel: onSelectModel,
-            testingModelKey: testingModelKey,
-            onEditModelSettings: onEditModelSettings,
+            onOpen: () => onOpenProvider(providers[index]),
           ),
+        ],
       ],
     );
   }
 }
 
-class _ProviderModelGroup extends StatelessWidget {
-  const _ProviderModelGroup({
+class _ProviderCard extends StatelessWidget {
+  const _ProviderCard({
     required this.provider,
     required this.summaries,
     required this.chatBinding,
-    required this.expanded,
-    required this.onToggleExpanded,
-    required this.onEditProvider,
-    required this.onAddModel,
-    required this.onSelectModel,
-    required this.testingModelKey,
-    required this.onEditModelSettings,
+    required this.onOpen,
   });
 
   final core_proxy.ProviderProfile provider;
   final List<core_proxy.ProviderModelSummary> summaries;
   final core_proxy.FunctionModelBinding chatBinding;
-  final bool expanded;
-  final VoidCallback onToggleExpanded;
-  final VoidCallback onEditProvider;
-  final VoidCallback onAddModel;
-  final void Function(String providerId, String modelId) onSelectModel;
-  final String? testingModelKey;
-  final void Function(
-    core_proxy.ProviderProfile provider,
-    core_proxy.ModelProfile model,
-  )
-  onEditModelSettings;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final chatProvider = provider.id == chatBinding.providerId;
-    final radius = BorderRadius.circular(8);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Material(
-            color: expanded
-                ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.34)
-                : Colors.transparent,
-            borderRadius: radius,
-            child: InkWell(
-              borderRadius: radius,
-              onTap: onToggleExpanded,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                child: Row(
+    final displayedModel = _displayedModelForProvider(provider, chatBinding);
+    final displayedSummary = displayedModel == null
+        ? null
+        : _summaryForModelOrNull(summaries, provider.id, displayedModel.id);
+    final contextLabel = _formatContextLength(
+      displayedModel?.contextOverride?.maxContextLength,
+    );
+    final multimodal = _isMultimodalCapabilities(
+      displayedSummary?.capabilities,
+    );
+    final radius = BorderRadius.circular(16);
+    return Material(
+      color: chatProvider
+          ? colorScheme.primaryContainer.withValues(alpha: 0.16)
+          : colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(
+          color: chatProvider
+              ? colorScheme.primary.withValues(alpha: 0.45)
+              : colorScheme.outlineVariant.withValues(alpha: 0.38),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: <Widget>[
+              ProviderLogo(
+                providerTypeId: provider.providerTypeId,
+                fallbackName: provider.name,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Icon(
-                      expanded
-                          ? Icons.keyboard_arrow_down
-                          : Icons.chevron_right,
-                      size: 18,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: chatProvider
-                            ? colorScheme.primary
-                            : colorScheme.outlineVariant.withValues(alpha: 0.7),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
+                    Row(
+                      children: <Widget>[
+                        Flexible(
+                          child: Text(
                             provider.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.titleSmall
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${provider.providerTypeId} · ${provider.models.length}',
+                        ),
+                        if (chatProvider) ...<Widget>[
+                          const SizedBox(width: 7),
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade400,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: <Widget>[
+                        Flexible(
+                          child: Text(
+                            displayedModel?.id ?? l10n.settingsModelNoModels,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall!
                                 .copyWith(color: colorScheme.onSurfaceVariant),
                           ),
+                        ),
+                        if (multimodal) ...<Widget>[
+                          const SizedBox(width: 6),
+                          _ProviderInfoBadge(
+                            label: l10n.settingsModelMultimodalBadge,
+                          ),
                         ],
-                      ),
+                        if (contextLabel != null) ...<Widget>[
+                          const SizedBox(width: 6),
+                          _ProviderInfoBadge(label: contextLabel),
+                        ],
+                      ],
                     ),
-                    if (expanded) ...<Widget>[
-                      TextButton.icon(
-                        onPressed: onAddModel,
-                        style: SettingsControlStyles.sectionTextButton(),
-                        icon: const Icon(Icons.playlist_add, size: 18),
-                        label: Text(l10n.settingsModelAddModelShort),
-                      ),
-                      SettingsEntityIconButton(
-                        tooltip: l10n.edit,
-                        icon: Icons.edit_outlined,
-                        onPressed: onEditProvider,
-                      ),
-                    ],
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.arrow_forward,
+                size: 18,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProviderInfoBadge extends StatelessWidget {
+  const _ProviderInfoBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: ShapeDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        shape: const StadiumBorder(),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _ProviderDetailScreen extends StatefulWidget {
+  const _ProviderDetailScreen({
+    required this.providerId,
+    required this.initialData,
+    required this.reload,
+    required this.onSelectModel,
+    required this.onAddModel,
+    required this.onEditProvider,
+    required this.onEditModelSettings,
+  });
+
+  final String providerId;
+  final ModelSettingsData initialData;
+  final Future<ModelSettingsData> Function() reload;
+  final Future<void> Function(String providerId, String modelId) onSelectModel;
+  final Future<void> Function(core_proxy.ProviderProfile provider) onAddModel;
+  final Future<void> Function(core_proxy.ProviderProfile provider)
+  onEditProvider;
+  final Future<void> Function(
+    core_proxy.ProviderProfile provider,
+    core_proxy.ModelProfile model,
+  )
+  onEditModelSettings;
+
+  static Future<void> open({
+    required BuildContext context,
+    required String providerId,
+    required ModelSettingsData initialData,
+    required Future<ModelSettingsData> Function() reload,
+    required Future<void> Function(String providerId, String modelId)
+    onSelectModel,
+    required Future<void> Function(core_proxy.ProviderProfile provider)
+    onAddModel,
+    required Future<void> Function(core_proxy.ProviderProfile provider)
+    onEditProvider,
+    required Future<void> Function(
+      core_proxy.ProviderProfile provider,
+      core_proxy.ModelProfile model,
+    )
+    onEditModelSettings,
+  }) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _ProviderDetailScreen(
+          providerId: providerId,
+          initialData: initialData,
+          reload: reload,
+          onSelectModel: onSelectModel,
+          onAddModel: onAddModel,
+          onEditProvider: onEditProvider,
+          onEditModelSettings: onEditModelSettings,
+        ),
+      ),
+    );
+  }
+
+  @override
+  State<_ProviderDetailScreen> createState() => _ProviderDetailScreenState();
+}
+
+class _ProviderDetailScreenState extends State<_ProviderDetailScreen> {
+  late ModelSettingsData _data = widget.initialData;
+
+  core_proxy.ProviderProfile? get _provider {
+    for (final provider in _data.providers) {
+      if (provider.id == widget.providerId) {
+        return provider;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _run(Future<void> Function() action) async {
+    await action();
+    await _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final data = await widget.reload();
+      if (!mounted) {
+        return;
+      }
+      final providerExists = data.providers.any(
+        (provider) => provider.id == widget.providerId,
+      );
+      if (!providerExists) {
+        Navigator.of(context).pop();
+        return;
+      }
+      setState(() {
+        _data = data;
+      });
+    } catch (_) {
+      // Keep showing the last snapshot if a background refresh fails.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final provider = _provider;
+    if (provider == null) {
+      return const Scaffold(
+        body: Center(child: M3LoadingIndicator(size: 32)),
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: <Widget>[
+            ProviderLogo(
+              providerTypeId: provider.providerTypeId,
+              fallbackName: provider.name,
+              size: 30,
+              contentScale: 0.66,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                provider.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          IconButton(
+            tooltip: l10n.settingsModelAddModel,
+            icon: const Icon(Icons.playlist_add_outlined),
+            onPressed: () => _run(() => widget.onAddModel(provider)),
+          ),
+          IconButton(
+            tooltip: l10n.edit,
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => _run(() => widget.onEditProvider(provider)),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+        children: <Widget>[
+          Text(
+            '${_providerTypeDisplayName(l10n, provider.providerTypeId)}'
+            ' · ${l10n.settingsModelProviderModelCount(provider.models.length)}',
+            style: Theme.of(context).textTheme.bodySmall!.copyWith(
+              color: colorScheme.onSurfaceVariant,
             ),
           ),
-          if (expanded)
+          const SizedBox(height: 8),
+          if (provider.models.isEmpty)
             Padding(
-              padding: const EdgeInsets.only(left: 24, top: 6),
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Container(
-                      width: 1,
-                      margin: const EdgeInsets.only(top: 2, bottom: 8),
-                      color: colorScheme.outlineVariant.withValues(alpha: 0.34),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          if (provider.models.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              child: Text(
-                                l10n.settingsModelAddModel,
-                                style: TextStyle(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            )
-                          else
-                            _ProviderModelList(
-                              provider: provider,
-                              summaries: summaries,
-                              chatBinding: chatBinding,
-                              onSelectModel: onSelectModel,
-                              testingModelKey: testingModelKey,
-                              onEditModelSettings: onEditModelSettings,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              child: Column(
+                children: <Widget>[
+                  Text(
+                    l10n.settingsModelNoModels,
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () => _run(() => widget.onAddModel(provider)),
+                    style: SettingsControlStyles.sectionFilledButton(),
+                    icon: const Icon(Icons.playlist_add, size: 18),
+                    label: Text(l10n.settingsModelAddModel),
+                  ),
+                ],
+              ),
+            )
+          else
+            _ProviderModelList(
+              provider: provider,
+              summaries: _data.summaries,
+              chatBinding: _data.chatBinding,
+              onSelectModel: (providerId, modelId) =>
+                  _run(() => widget.onSelectModel(providerId, modelId)),
+              testingModelKey: null,
+              onEditModelSettings: (currentProvider, currentModel) => _run(
+                () => widget.onEditModelSettings(currentProvider, currentModel),
               ),
             ),
         ],
       ),
     );
+  }
+}
+
+core_proxy.ModelProfile? _displayedModelForProvider(
+  core_proxy.ProviderProfile provider,
+  core_proxy.FunctionModelBinding chatBinding,
+) {
+  if (provider.id == chatBinding.providerId) {
+    for (final model in provider.models) {
+      if (model.id == chatBinding.modelId) {
+        return model;
+      }
+    }
+  }
+  return provider.models.isEmpty ? null : provider.models.first;
+}
+
+bool _isMultimodalCapabilities(core_proxy.ModelCapabilities? capabilities) {
+  if (capabilities == null) {
+    return false;
+  }
+  return capabilities.directImage ||
+      capabilities.directAudio ||
+      capabilities.directVideo;
+}
+
+String? _formatContextLength(double? maxContextLength) {
+  if (maxContextLength == null || maxContextLength <= 0) {
+    return null;
+  }
+  if (maxContextLength >= 1000) {
+    return '${(maxContextLength / 1000).round()}K';
+  }
+  return '${maxContextLength.round()}';
+}
+
+String _providerTypeDisplayName(AppLocalizations l10n, String providerTypeId) {
+  try {
+    return _providerTypeLocalName(l10n, providerTypeId);
+  } on UnsupportedError {
+    return providerTypeId;
   }
 }
 
@@ -1588,18 +1869,143 @@ class _CapabilityIcon extends StatelessWidget {
   }
 }
 
-class _FunctionMappingTile extends StatelessWidget {
-  const _FunctionMappingTile({
+class _FunctionMappingGroups extends StatelessWidget {
+  const _FunctionMappingGroups({
+    required this.data,
+    required this.onSelectFunction,
+    required this.onFollowAll,
+  });
+
+  final ModelSettingsData data;
+  final Future<void> Function(
+    core_proxy.FunctionType functionType,
+    ModelSettingsData data,
+  ) onSelectFunction;
+  final Future<void> Function() onFollowAll;
+
+  static const List<core_proxy.FunctionType> _backgroundTypes =
+      <core_proxy.FunctionType>[
+        core_proxy.FunctionType.summary,
+        core_proxy.FunctionType.titleGeneration,
+        core_proxy.FunctionType.memory,
+        core_proxy.FunctionType.uiController,
+        core_proxy.FunctionType.translation,
+        core_proxy.FunctionType.grep,
+        core_proxy.FunctionType.roleResponsePlanner,
+      ];
+
+  static const List<core_proxy.FunctionType> _multimodalTypes =
+      <core_proxy.FunctionType>[
+        core_proxy.FunctionType.imageRecognition,
+        core_proxy.FunctionType.audioRecognition,
+        core_proxy.FunctionType.videoRecognition,
+      ];
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                l10n.settingsModelFunctionMappingsDescription,
+                style: TextStyle(color: colorScheme.onSurfaceVariant),
+              ),
+            ),
+            const SizedBox(width: 12),
+            TextButton.icon(
+              onPressed: onFollowAll,
+              style: SettingsControlStyles.sectionTextButton(),
+              icon: const Icon(Icons.link, size: 18),
+              label: Text(l10n.settingsModelFunctionFollowChatAll),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        _FunctionGroupHeader(
+          label: l10n.settingsModelFunctionGroupMain,
+        ),
+        _FunctionMappingRow(
+          functionType: core_proxy.FunctionType.chat,
+          displayBinding: data.chatBinding,
+          followsChat: false,
+          summary: data.summaryForBinding(data.chatBinding),
+          onSelect: () =>
+              onSelectFunction(core_proxy.FunctionType.chat, data),
+        ),
+        const SizedBox(height: 10),
+        _FunctionGroupHeader(
+          label: l10n.settingsModelFunctionGroupBackground,
+        ),
+        for (final functionType in _backgroundTypes)
+          _FunctionMappingRow(
+            functionType: functionType,
+            displayBinding: _resolveFunctionBinding(data, functionType),
+            followsChat: data.functionBindings[functionType]!.followsChat,
+            summary: data.summaryForBinding(
+              _resolveFunctionBinding(data, functionType),
+            ),
+            onSelect: () => onSelectFunction(functionType, data),
+          ),
+        const SizedBox(height: 10),
+        _FunctionGroupHeader(
+          label: l10n.settingsModelFunctionGroupMultimodal,
+        ),
+        for (final functionType in _multimodalTypes)
+          _FunctionMappingRow(
+            functionType: functionType,
+            displayBinding: _resolveFunctionBinding(data, functionType),
+            followsChat: data.functionBindings[functionType]!.followsChat,
+            summary: data.summaryForBinding(
+              _resolveFunctionBinding(data, functionType),
+            ),
+            onSelect: () => onSelectFunction(functionType, data),
+          ),
+      ],
+    );
+  }
+}
+
+class _FunctionGroupHeader extends StatelessWidget {
+  const _FunctionGroupHeader({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 2),
+      child: Text(
+        label.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+class _FunctionMappingRow extends StatelessWidget {
+  const _FunctionMappingRow({
     required this.functionType,
-    required this.binding,
+    required this.displayBinding,
+    required this.followsChat,
     required this.summary,
-    required this.onTap,
+    required this.onSelect,
   });
 
   final core_proxy.FunctionType functionType;
-  final core_proxy.FunctionModelBinding binding;
+  final core_proxy.FunctionModelBinding displayBinding;
+  final bool followsChat;
   final core_proxy.ProviderModelSummary? summary;
-  final VoidCallback onTap;
+  final VoidCallback onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -1607,68 +2013,163 @@ class _FunctionMappingTile extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final warning = summary == null
         ? l10n.settingsModelFunctionMappingsMissing(
-            binding.providerId,
-            binding.modelId,
+            displayBinding.providerId,
+            displayBinding.modelId,
           )
         : _functionMappingWarning(l10n, functionType, summary!);
+    final bindingText = l10n.settingsModelFunctionMappingsCurrent(
+      summary?.providerName ?? displayBinding.providerId,
+      displayBinding.modelId,
+    );
     return Material(
       type: MaterialType.transparency,
-      child: ListTile(
-        dense: true,
-        visualDensity: VisualDensity.compact,
-        contentPadding: EdgeInsets.zero,
-        title: Text(_functionTypeTitle(l10n, functionType)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(_functionTypeDescription(l10n, functionType)),
-            const SizedBox(height: 4),
-            Text(
-              summary == null
-                  ? '${binding.providerId} · ${binding.modelId}'
-                  : l10n.settingsModelFunctionMappingsCurrent(
-                      summary!.providerName,
-                      binding.modelId,
+      child: InkWell(
+        onTap: onSelect,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Flexible(
+                          child: Text(
+                            _functionTypeTitle(l10n, functionType),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        if (followsChat) ...<Widget>[
+                          const SizedBox(width: 6),
+                          const _FollowChatBadge(),
+                        ],
+                      ],
                     ),
-              style: TextStyle(
-                color: summary == null
-                    ? colorScheme.error
-                    : colorScheme.primary,
-                fontWeight: FontWeight.w700,
+                    const SizedBox(height: 4),
+                    Row(
+                      children: <Widget>[
+                        ProviderLogo(
+                          providerTypeId: summary?.providerTypeId ?? '',
+                          fallbackName:
+                              summary?.providerName ??
+                              displayBinding.providerId,
+                          size: 20,
+                          contentScale: 0.72,
+                        ),
+                        const SizedBox(width: 7),
+                        Flexible(
+                          child: Text(
+                            bindingText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: summary == null
+                                      ? colorScheme.error
+                                      : colorScheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                        if (warning != null) ...<Widget>[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.warning_amber_outlined,
+                            size: 14,
+                            color: colorScheme.error,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              warning,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(color: colorScheme.error),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _functionTypeDescription(l10n, functionType),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (warning != null) ...<Widget>[
-              const SizedBox(height: 4),
-              Row(
-                children: <Widget>[
-                  Icon(
-                    Icons.warning_amber_outlined,
-                    size: 16,
-                    color: colorScheme.error,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      warning,
-                      style: TextStyle(color: colorScheme.error),
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 6),
+              Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: colorScheme.onSurfaceVariant,
               ),
             ],
-          ],
+          ),
         ),
-        trailing: TextButton(
-          onPressed: onTap,
-          child: Text(l10n.settingsModelFunctionMappingsChange),
-        ),
-        onTap: onTap,
       ),
     );
   }
 }
 
-class _FunctionModelSelection {
+class _FollowChatBadge extends StatelessWidget {
+  const _FollowChatBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: ShapeDecoration(
+        color: colorScheme.primaryContainer.withValues(alpha: 0.45),
+        shape: const StadiumBorder(),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.link, size: 11, color: colorScheme.primary),
+          const SizedBox(width: 3),
+          Text(
+            l10n.settingsModelFunctionFollowChat,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+core_proxy.FunctionModelBinding _resolveFunctionBinding(
+  ModelSettingsData data,
+  core_proxy.FunctionType functionType,
+) {
+  final binding = data.functionBindings[functionType]!;
+  if (binding.followsChat && functionType != core_proxy.FunctionType.chat) {
+    return data.chatBinding;
+  }
+  return binding;
+}
+
+sealed class _FunctionModelSelectionResult {
+  const _FunctionModelSelectionResult();
+}
+
+class _FunctionModelSelection extends _FunctionModelSelectionResult {
   const _FunctionModelSelection({
     required this.providerId,
     required this.modelId,
@@ -1678,29 +2179,55 @@ class _FunctionModelSelection {
   final String modelId;
 }
 
+class _FunctionModelFollowChat extends _FunctionModelSelectionResult {
+  const _FunctionModelFollowChat();
+}
+
+class _ProviderModelGroupEntry {
+  const _ProviderModelGroupEntry({
+    required this.providerId,
+    required this.providerName,
+    required this.providerTypeId,
+    required this.models,
+  });
+
+  final String providerId;
+  final String providerName;
+  final String providerTypeId;
+  final List<core_proxy.ProviderModelSummary> models;
+}
+
 class _FunctionModelSelectorDialog extends StatefulWidget {
   const _FunctionModelSelectorDialog({
     required this.functionType,
     required this.summaries,
     required this.currentBinding,
+    required this.chatBinding,
+    required this.followsChat,
   });
 
   final core_proxy.FunctionType functionType;
   final List<core_proxy.ProviderModelSummary> summaries;
   final core_proxy.FunctionModelBinding currentBinding;
+  final core_proxy.FunctionModelBinding chatBinding;
+  final bool followsChat;
 
-  static Future<_FunctionModelSelection?> show({
+  static Future<_FunctionModelSelectionResult?> show({
     required BuildContext context,
     required core_proxy.FunctionType functionType,
     required List<core_proxy.ProviderModelSummary> summaries,
     required core_proxy.FunctionModelBinding currentBinding,
+    required core_proxy.FunctionModelBinding chatBinding,
+    required bool followsChat,
   }) {
-    return showDialog<_FunctionModelSelection>(
+    return showDialog<_FunctionModelSelectionResult>(
       context: context,
       builder: (context) => _FunctionModelSelectorDialog(
         functionType: functionType,
         summaries: summaries,
         currentBinding: currentBinding,
+        chatBinding: chatBinding,
+        followsChat: followsChat,
       ),
     );
   }
@@ -1729,59 +2256,28 @@ class _FunctionModelSelectorDialogState
     );
   }
 
-  List<core_proxy.ProviderModelSummary> _filteredModels() {
-    final candidates = widget.summaries
-        .where(
-          (summary) => _functionModelSupported(widget.functionType, summary),
-        )
-        .toList(growable: false);
+  List<_ProviderModelGroupEntry> _filteredGroups() {
     final query = _searchController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return candidates;
+    final groups = <String, _ProviderModelGroupEntry>{};
+    for (final summary in widget.summaries) {
+      if (query.isNotEmpty &&
+          !'${summary.modelId} ${summary.providerName} ${summary.providerTypeId}'
+              .toLowerCase()
+              .contains(query)) {
+        continue;
+      }
+      final group = groups.putIfAbsent(
+        summary.providerId,
+        () => _ProviderModelGroupEntry(
+          providerId: summary.providerId,
+          providerName: summary.providerName,
+          providerTypeId: summary.providerTypeId,
+          models: <core_proxy.ProviderModelSummary>[],
+        ),
+      );
+      group.models.add(summary);
     }
-    return candidates
-        .where(
-          (summary) =>
-              '${summary.modelId} ${summary.providerName} ${summary.providerTypeId}'
-                  .toLowerCase()
-                  .contains(query),
-        )
-        .toList(growable: false);
-  }
-
-  Widget _modelList(AppLocalizations l10n) {
-    final filteredModels = _filteredModels();
-    return Column(
-      children: <Widget>[
-        TextField(
-          controller: _searchController,
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            labelText: l10n.search,
-          ),
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: filteredModels.isEmpty
-              ? Center(child: Text(l10n.noData))
-              : ListView.builder(
-                  itemCount: filteredModels.length,
-                  itemBuilder: (context, index) {
-                    final summary = filteredModels[index];
-                    return _FunctionModelOptionTile(
-                      summary: summary,
-                      selected:
-                          summary.providerId ==
-                              widget.currentBinding.providerId &&
-                          summary.modelId == widget.currentBinding.modelId,
-                      onTap: () => _selectModel(summary),
-                    );
-                  },
-                ),
-        ),
-      ],
-    );
+    return groups.values.toList(growable: false);
   }
 
   @override
@@ -1803,13 +2299,71 @@ class _FunctionModelSelectorDialogState
         ],
       );
     }
+    final groups = _filteredGroups();
     return AlertDialog(
       title: Text(
         l10n.settingsModelFunctionMappingsSelect(
           _functionTypeTitle(l10n, widget.functionType),
         ),
       ),
-      content: SizedBox(width: 560, height: 480, child: _modelList(l10n)),
+      content: SizedBox(
+        width: 560,
+        height: 520,
+        child: Column(
+          children: <Widget>[
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                labelText: l10n.search,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: groups.isEmpty
+                  ? Center(child: Text(l10n.noData))
+                  : ListView(
+                      children: <Widget>[
+                        if (widget.functionType != core_proxy.FunctionType.chat)
+                          _FollowChatQuickOption(
+                            selected: widget.followsChat,
+                            onTap: () => Navigator.of(
+                              context,
+                            ).pop(const _FunctionModelFollowChat()),
+                          ),
+                        for (final group in groups) ...<Widget>[
+                          _FunctionModelGroupHeader(
+                            providerName: group.providerName,
+                            providerTypeId: group.providerTypeId,
+                            count: group.models.length,
+                          ),
+                          for (final summary in group.models)
+                            _FunctionModelOptionTile(
+                              summary: summary,
+                              enabled: _functionModelSupported(
+                                widget.functionType,
+                                summary,
+                              ),
+                              unsupportedReason: _functionMappingWarning(
+                                l10n,
+                                widget.functionType,
+                                summary,
+                              ),
+                              selected:
+                                  summary.providerId ==
+                                      widget.currentBinding.providerId &&
+                                  summary.modelId ==
+                                      widget.currentBinding.modelId,
+                              onTap: () => _selectModel(summary),
+                            ),
+                        ],
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
@@ -1820,59 +2374,187 @@ class _FunctionModelSelectorDialogState
   }
 }
 
-class _FunctionModelOptionTile extends StatelessWidget {
-  const _FunctionModelOptionTile({
-    required this.summary,
-    required this.selected,
-    required this.onTap,
-  });
+class _FollowChatQuickOption extends StatelessWidget {
+  const _FollowChatQuickOption({required this.selected, required this.onTap});
 
-  final core_proxy.ProviderModelSummary summary;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      type: MaterialType.transparency,
+      color: selected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.24)
+          : colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
+      borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
           child: Row(
             children: <Widget>[
-              SizedBox(
-                width: 24,
-                child: Icon(
-                  selected ? Icons.check_circle : Icons.circle_outlined,
-                  size: 20,
-                  color: selected
-                      ? colorScheme.primary
-                      : colorScheme.onSurfaceVariant,
-                ),
-              ),
+              Icon(Icons.link, size: 20, color: colorScheme.primary),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      summary.modelId,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      l10n.settingsModelFunctionFollowChat,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      summary.providerName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: colorScheme.onSurfaceVariant),
+                      l10n.settingsModelFunctionFollowChatHint,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
               ),
+              if (selected)
+                Icon(Icons.check_circle, size: 20, color: colorScheme.primary),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FunctionModelGroupHeader extends StatelessWidget {
+  const _FunctionModelGroupHeader({
+    required this.providerName,
+    required this.providerTypeId,
+    required this.count,
+  });
+
+  final String providerName;
+  final String providerTypeId;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 10, 6, 4),
+      child: Row(
+        children: <Widget>[
+          ProviderLogo(
+            providerTypeId: providerTypeId,
+            fallbackName: providerName,
+            size: 20,
+            contentScale: 0.72,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              providerName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Text(
+            '$count',
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FunctionModelOptionTile extends StatelessWidget {
+  const _FunctionModelOptionTile({
+    required this.summary,
+    required this.enabled,
+    required this.unsupportedReason,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final core_proxy.ProviderModelSummary summary;
+  final bool enabled;
+  final String? unsupportedReason;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Row(
+              children: <Widget>[
+                SizedBox(
+                  width: 24,
+                  child: Icon(
+                    selected ? Icons.check_circle : Icons.circle_outlined,
+                    size: 20,
+                    color: selected
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        summary.modelId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: <Widget>[
+                          _ModelCapabilityIcons(
+                            capabilities: summary.capabilities,
+                          ),
+                          if (!enabled && unsupportedReason != null) ...<Widget>[
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.warning_amber_outlined,
+                              size: 13,
+                              color: colorScheme.error,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                unsupportedReason!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: colorScheme.error),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2611,13 +3293,11 @@ class _SectionCard extends StatelessWidget {
   const _SectionCard({
     required this.title,
     required this.children,
-    this.action,
     this.initiallyExpanded = true,
   });
 
   final String title;
   final List<Widget> children;
-  final Widget? action;
   final bool initiallyExpanded;
 
   @override
@@ -2646,16 +3326,9 @@ class _SectionCard extends StatelessWidget {
             childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
             shape: RoundedRectangleBorder(borderRadius: radius),
             collapsedShape: RoundedRectangleBorder(borderRadius: radius),
-            title: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    title,
-                    style: SettingsControlStyles.sectionTitleTextStyle(context),
-                  ),
-                ),
-                ?action,
-              ],
+            title: Text(
+              title,
+              style: SettingsControlStyles.sectionTitleTextStyle(context),
             ),
             children: children,
           ),
@@ -2711,20 +3384,6 @@ class _DialogTextField extends StatelessWidget {
     );
   }
 }
-
-const List<core_proxy.FunctionType> _functionTypes = <core_proxy.FunctionType>[
-  core_proxy.FunctionType.chat,
-  core_proxy.FunctionType.summary,
-  core_proxy.FunctionType.titleGeneration,
-  core_proxy.FunctionType.memory,
-  core_proxy.FunctionType.uiController,
-  core_proxy.FunctionType.translation,
-  core_proxy.FunctionType.grep,
-  core_proxy.FunctionType.roleResponsePlanner,
-  core_proxy.FunctionType.imageRecognition,
-  core_proxy.FunctionType.audioRecognition,
-  core_proxy.FunctionType.videoRecognition,
-];
 
 List<core_proxy.FunctionType> _boundFunctionTypesForModel(
   Map<core_proxy.FunctionType, core_proxy.FunctionModelBinding> bindings,

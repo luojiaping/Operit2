@@ -995,6 +995,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsModelCurrentActive => 'Active';
 
   @override
+  String get settingsModelMultimodalBadge => 'Multimodal';
+
+  @override
+  String get settingsModelNoModels => 'No models yet';
+
+  @override
+  String settingsModelProviderModelCount(int count) {
+    return '$count models';
+  }
+
+  @override
   String get settingsModelSetCurrentActive => 'Set active';
 
   @override
@@ -1013,6 +1024,25 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsModelProfilesSection => 'Model profiles';
+
+  @override
+  String get settingsModelFunctionFollowChat => 'Follow chat';
+
+  @override
+  String get settingsModelFunctionFollowChatAll => 'Follow all';
+
+  @override
+  String get settingsModelFunctionFollowChatHint =>
+      'Automatically uses the current chat model';
+
+  @override
+  String get settingsModelFunctionGroupBackground => 'Background helpers';
+
+  @override
+  String get settingsModelFunctionGroupMain => 'Main chat model';
+
+  @override
+  String get settingsModelFunctionGroupMultimodal => 'Multimodal recognition';
 
   @override
   String get settingsModelFunctionMappingsSection =>
@@ -1231,7 +1261,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsModelProviderId => 'Provider ID';
 
   @override
-  String get settingsModelProvidersSection => 'Providers';
+  String get settingsModelProvidersSection => 'LLM providers';
 
   @override
   String get settingsModelProviderType => 'Provider type';

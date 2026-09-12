@@ -1892,6 +1892,24 @@ abstract class AppLocalizations {
   /// **'Active'**
   String get settingsModelCurrentActive;
 
+  /// No description provided for @settingsModelMultimodalBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Multimodal'**
+  String get settingsModelMultimodalBadge;
+
+  /// No description provided for @settingsModelNoModels.
+  ///
+  /// In en, this message translates to:
+  /// **'No models yet'**
+  String get settingsModelNoModels;
+
+  /// No description provided for @settingsModelProviderModelCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} models'**
+  String settingsModelProviderModelCount(int count);
+
   /// No description provided for @settingsModelSetCurrentActive.
   ///
   /// In en, this message translates to:
@@ -1927,6 +1945,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Model profiles'**
   String get settingsModelProfilesSection;
+
+  /// No description provided for @settingsModelFunctionFollowChat.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow chat'**
+  String get settingsModelFunctionFollowChat;
+
+  /// No description provided for @settingsModelFunctionFollowChatAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow all'**
+  String get settingsModelFunctionFollowChatAll;
+
+  /// No description provided for @settingsModelFunctionFollowChatHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically uses the current chat model'**
+  String get settingsModelFunctionFollowChatHint;
+
+  /// No description provided for @settingsModelFunctionGroupBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Background helpers'**
+  String get settingsModelFunctionGroupBackground;
+
+  /// No description provided for @settingsModelFunctionGroupMain.
+  ///
+  /// In en, this message translates to:
+  /// **'Main chat model'**
+  String get settingsModelFunctionGroupMain;
+
+  /// No description provided for @settingsModelFunctionGroupMultimodal.
+  ///
+  /// In en, this message translates to:
+  /// **'Multimodal recognition'**
+  String get settingsModelFunctionGroupMultimodal;
 
   /// No description provided for @settingsModelFunctionMappingsSection.
   ///
@@ -2279,7 +2333,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsModelProvidersSection.
   ///
   /// In en, this message translates to:
-  /// **'Providers'**
+  /// **'LLM providers'**
   String get settingsModelProvidersSection;
 
   /// No description provided for @settingsModelProviderType.
