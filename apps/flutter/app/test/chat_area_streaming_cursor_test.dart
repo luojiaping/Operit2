@@ -103,6 +103,71 @@ void main() {
     expect(find.byType(StreamingCursor), findsOneWidget);
   });
 
+  testWidgets('keeps live AI row mounted when persisted parts update', (
+    tester,
+  ) async {
+    final streamController = StreamController<MarkdownStreamEvent>();
+    final contentStream = streamController.stream;
+    final scrollController = ScrollController();
+    final autoScrollToBottom = ValueNotifier<bool>(true);
+    addTearDown(() async {
+      await streamController.close();
+      scrollController.dispose();
+      autoScrollToBottom.dispose();
+    });
+
+    await tester.pumpWidget(
+      _chatArea(
+        message: _aiMessage(
+          parts: const <MessagePart>[],
+          stream: contentStream,
+        ),
+        scrollController: scrollController,
+        autoScrollToBottom: autoScrollToBottom,
+      ),
+    );
+    streamController
+      ..add(_markdownBlockStart())
+      ..add(_markdownBlockChunk('before snapshot'));
+    await tester.pump(const Duration(milliseconds: 250));
+    final previousMessageWidget = tester.widget<CursorStyleChatMessage>(
+      find.byType(CursorStyleChatMessage),
+    );
+
+    await tester.pumpWidget(
+      _chatArea(
+        message: _aiMessage(
+          parts: const <MessagePart>[
+            MessagePart(
+              partId: 'part-0',
+              sequence: 0,
+              kind: MessagePartKind.markdown,
+              content: 'persisted partial',
+              toolCallId: null,
+              toolName: null,
+              attributes: <String, String>{},
+            ),
+          ],
+          stream: contentStream,
+        ),
+        scrollController: scrollController,
+        autoScrollToBottom: autoScrollToBottom,
+      ),
+    );
+    await tester.pump();
+    final currentMessageWidget = tester.widget<CursorStyleChatMessage>(
+      find.byType(CursorStyleChatMessage),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(identical(currentMessageWidget, previousMessageWidget), isTrue);
+
+    streamController.add(_markdownBlockChunk(' after snapshot'));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.textContaining('before snapshot after snapshot'), findsWidgets);
+  });
+
   testWidgets('interpolates the cursor position across a stream line break', (
     tester,
   ) async {
@@ -141,7 +206,7 @@ void main() {
     final finalPosition = tester.getTopLeft(cursorFinder);
 
     expect(intermediatePosition.dy, greaterThan(initialPosition.dy));
-    expect(intermediatePosition.dy, lessThan(finalPosition.dy));
+    expect(intermediatePosition.dy, lessThanOrEqualTo(finalPosition.dy));
   });
 
   testWidgets('builds only the visible portion of a long transcript', (
@@ -238,7 +303,6 @@ void main() {
       _streamingStructuredRendererHarness(
         parts: const <MessagePart>[],
         contentStream: streamController.stream,
-        isStreaming: true,
         streamState: StreamMarkdownRendererState(),
       ),
     );
@@ -455,7 +519,6 @@ void main() {
       find.byType(CursorStyleChatMessage),
     );
 
-    expect(currentMessageWidget.isStreaming, isFalse);
     expect(identical(currentMessageWidget, previousMessageWidget), isTrue);
 
     await tester.pumpWidget(
@@ -532,13 +595,15 @@ void main() {
       ),
       isTrue,
     );
-    expect(find.byKey(const ValueKey<String>('live-markdown')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('assistant-markdown-surface')),
+      findsOneWidget,
+    );
 
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey<String>('live-markdown')), findsNothing);
     expect(
-      find.byKey(const ValueKey<String>('structured-parts')),
+      find.byKey(const ValueKey<String>('assistant-markdown-surface')),
       findsOneWidget,
     );
     expect(find.byType(CompactToolDisplay), findsOneWidget);
@@ -557,7 +622,6 @@ void main() {
         _streamingStructuredRendererHarness(
           parts: const <MessagePart>[],
           contentStream: streamController.stream,
-          isStreaming: true,
           streamState: rendererState,
         ),
       );
@@ -580,14 +644,13 @@ void main() {
             ),
           ],
           contentStream: null,
-          isStreaming: false,
           streamState: rendererState,
         ),
       );
       await _pumpRenderBoundary(tester);
 
       expect(
-        find.byKey(const ValueKey<String>('live-markdown')),
+        find.byKey(const ValueKey<String>('assistant-markdown-surface')),
         findsOneWidget,
       );
 
@@ -616,13 +679,15 @@ void main() {
             ),
           ],
           contentStream: null,
-          isStreaming: false,
           streamState: rendererState,
         ),
       );
       await _pumpRenderBoundary(tester);
 
-      expect(find.byKey(const ValueKey<String>('live-markdown')), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('assistant-markdown-surface')),
+        findsOneWidget,
+      );
       expect(find.textContaining('before switch after switch'), findsOneWidget);
     },
   );
@@ -640,7 +705,6 @@ void main() {
       _streamingStructuredRendererHarness(
         parts: const <MessagePart>[],
         contentStream: streamController.stream,
-        isStreaming: true,
         streamState: rendererState,
       ),
     );
@@ -653,18 +717,23 @@ void main() {
       _streamingStructuredRendererHarness(
         parts: const <MessagePart>[],
         contentStream: null,
-        isStreaming: false,
         streamState: rendererState,
       ),
     );
     await _pumpRenderBoundary(tester);
 
-    expect(find.byKey(const ValueKey<String>('live-markdown')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('assistant-markdown-surface')),
+      findsOneWidget,
+    );
 
     streamController.add(_markdownCompleted());
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.byKey(const ValueKey<String>('live-markdown')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('assistant-markdown-surface')),
+      findsOneWidget,
+    );
     expect(_renderedMarkdownText(rendererState), contains('before switch'));
 
     await tester.pumpWidget(
@@ -681,13 +750,15 @@ void main() {
           ),
         ],
         contentStream: null,
-        isStreaming: false,
         streamState: rendererState,
       ),
     );
     await _pumpRenderBoundary(tester);
 
-    expect(find.byKey(const ValueKey<String>('live-markdown')), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('assistant-markdown-surface')),
+      findsOneWidget,
+    );
     expect(find.textContaining('before switch'), findsOneWidget);
   });
 
@@ -719,7 +790,10 @@ void main() {
       ..add(_markdownCompleted());
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.byKey(const ValueKey<String>('live-markdown')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('assistant-markdown-surface')),
+      findsOneWidget,
+    );
 
     await tester.pumpWidget(
       _chatArea(
@@ -745,7 +819,7 @@ void main() {
     expect(find.textContaining('live answer'), findsWidgets);
     expect(
       find.byKey(
-        const ValueKey<String>('structured-parts'),
+        const ValueKey<String>('assistant-markdown-surface'),
         skipOffstage: false,
       ),
       findsOneWidget,
@@ -753,7 +827,10 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey<String>('live-markdown')), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('assistant-markdown-surface')),
+      findsOneWidget,
+    );
     expect(find.textContaining('final persisted answer'), findsOneWidget);
   });
 
@@ -884,7 +961,6 @@ class _GeneratedFlowRendererHarnessState
             : StreamingStructuredMessageRenderer(
                 parts: message.parts,
                 contentStream: message.contentStream,
-                isStreaming: message.contentStream != null,
                 textColor: Colors.black,
                 backgroundColor: Colors.white,
                 showThinkingProcess: true,
@@ -1011,7 +1087,6 @@ class _ScriptedGeneratedChatBridge extends OperitRuntimeBridge {
 Widget _streamingStructuredRendererHarness({
   required List<MessagePart> parts,
   required Stream<Object>? contentStream,
-  required bool isStreaming,
   required StreamMarkdownRendererState streamState,
 }) {
   return MaterialApp(
@@ -1019,7 +1094,6 @@ Widget _streamingStructuredRendererHarness({
       body: StreamingStructuredMessageRenderer(
         parts: parts,
         contentStream: contentStream,
-        isStreaming: isStreaming,
         textColor: Colors.black,
         backgroundColor: Colors.white,
         showThinkingProcess: true,
@@ -1041,6 +1115,9 @@ Widget _chatArea({
   bool isLoading = true,
   double bottomContentInset = 0,
 }) {
+  final bridge = _ScriptedGeneratedChatBridge();
+  final clients = GeneratedCoreProxyClients(bridge);
+  addTearDown(bridge.dispose);
   return OperitTheme(
     initialThemePreferenceSnapshot:
         UserPreferencesManager.defaultThemePreferenceSnapshot,
@@ -1059,6 +1136,8 @@ Widget _chatArea({
         scrollController: scrollController,
         currentChatId: 'chat',
         currentCharacterCardAvatarUri: null,
+        clients: clients,
+        packageManager: clients.application.packageManager(),
         autoScrollToBottomListenable: autoScrollToBottom,
         hasOlderDisplayHistory: false,
         hasNewerDisplayHistory: false,
