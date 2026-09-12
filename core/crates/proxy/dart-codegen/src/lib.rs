@@ -23,6 +23,20 @@ pub fn dart_default_value(dart_ty: &str) -> &'static str {
     }
 }
 
+/// Returns a Dart default expression for serde-defaulted fields when known.
+fn dart_field_default_expr(field: &SerializableField, dart_ty: &str) -> Option<&'static str> {
+    if !field.has_serde_default {
+        return None;
+    }
+    match dart_ty {
+        "String" | "int" | "double" | "bool" | "Uint8List" => Some(dart_default_value(dart_ty)),
+        ty if ty.starts_with("List<") || ty.starts_with("Map<") || ty.ends_with('?') => {
+            Some(dart_default_value(ty))
+        }
+        _ => None,
+    }
+}
+
 /// Writes generated Flutter Dart proxy models and clients from one proxy scan result.
 pub fn write_dart_proxy_artifacts(
     manifest_dir: &Path,
@@ -626,14 +640,24 @@ fn render_dart_struct(
         output.push_str(&format!("    return {class_name}(\n"));
         for field in fields {
             let field_type = dart_type(&field.ty, serializable_types);
+            let decoded = dart_decode_expr(
+                &format!("json['{}']", field.json_name),
+                &field_type,
+                serializable_types,
+            );
+            let value_expr = match dart_field_default_expr(field, &field_type) {
+                Some(default) => format!(
+                    "json.containsKey('{}') ? {} : {}",
+                    dart_string_literal(&field.json_name),
+                    decoded,
+                    default
+                ),
+                None => decoded,
+            };
             output.push_str(&format!(
                 "      {}: {},\n",
                 dart_identifier(&field.name),
-                dart_decode_expr(
-                    &format!("json['{}']", field.json_name),
-                    &field_type,
-                    serializable_types
-                )
+                value_expr
             ));
         }
         output.push_str("    );\n");
@@ -706,10 +730,17 @@ fn render_dart_message_pack_struct_decoder(
     output.push_str("        default:\n          reader.skipValue();\n      }\n    }\n");
     for field in fields {
         let field_name = dart_identifier(&field.name);
-        output.push_str(&format!(
-            "    if (!has_{field_name}) {{\n      throw FormatException('Missing {class_name}.{}');\n    }}\n",
-            dart_string_literal(&field.json_name),
-        ));
+        let field_type = dart_type(&field.ty, serializable_types);
+        if let Some(default) = dart_field_default_expr(field, &field_type) {
+            output.push_str(&format!(
+                "    if (!has_{field_name}) {{\n      {field_name} = {default};\n    }}\n"
+            ));
+        } else {
+            output.push_str(&format!(
+                "    if (!has_{field_name}) {{\n      throw FormatException('Missing {class_name}.{}');\n    }}\n",
+                dart_string_literal(&field.json_name),
+            ));
+        }
     }
     if fields.is_empty() {
         output.push_str(&format!("    return {class_name}();\n"));

@@ -254,6 +254,7 @@ pub struct SerializableField {
     pub name: String,
     pub json_name: String,
     pub ty: String,
+    pub has_serde_default: bool,
 }
 
 #[derive(Clone, Debug)]
