@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/bridge/PlatformCoreProxy.dart';
 import '../../../../core/bridge/ProxyCoreRuntimeBridge.dart';
@@ -13,6 +14,7 @@ import '../../../../l10n/generated/app_localizations.dart';
 import '../../../common/DeviceSpaceDiscoveryPanel.dart';
 import '../../../common/components/M3LoadingIndicator.dart';
 import '../../../theme/OperitGlassSurface.dart';
+import '../../../theme/OperitTheme.dart';
 import '../components/SettingsControlStyles.dart';
 import '../profile/UserProfileSummaryTile.dart';
 
@@ -666,8 +668,8 @@ class _DeviceSpaceOverviewCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final space = deviceSpace;
     if (space == null) {
-      return const _SectionCard(
-        title: '设备空间',
+      return _SectionCard(
+        title: l10n.settingsRuntimeCurrentSpace,
         children: <Widget>[
           SizedBox(
             height: 190,
@@ -678,8 +680,8 @@ class _DeviceSpaceOverviewCard extends StatelessWidget {
     }
     final graph = topology;
     if (graph == null) {
-      return const _SectionCard(
-        title: '设备空间',
+      return _SectionCard(
+        title: l10n.settingsRuntimeCurrentSpace,
         children: <Widget>[
           SizedBox(
             height: 190,
@@ -695,124 +697,78 @@ class _DeviceSpaceOverviewCard extends StatelessWidget {
     );
     final remoteDevices = devices
         .where((device) => device.deviceId != graph.currentDeviceId)
-        .take(3)
         .toList(growable: false);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: OperitGlassSurface(
-        color: Color.alphaBlend(
-          scheme.primary.withValues(alpha: 0.08),
-          scheme.surfaceContainerHighest.withValues(alpha: 0.42),
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.3)),
+        color: scheme.surface.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.48)),
         material: true,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              _DeviceSpaceIdentityChip(onTap: onOpenProfile),
-              const SizedBox(height: 14),
-              Row(
-                children: <Widget>[
-                  Icon(Icons.hub_outlined, color: scheme.primary, size: 24),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      l10n.settingsRuntimeCurrentSpace,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: l10n.settingsRuntimeRenameSpace,
-                    onPressed: busy ? null : onRename,
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
-                  IconButton(
-                    tooltip: l10n.settingsRuntimeLeaveSpace,
-                    onPressed: busy || space.members.length <= 1
-                        ? null
-                        : onLeave,
-                    icon: const Icon(Icons.logout_outlined),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                space.spaceName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: scheme.primary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                l10n.settingsRuntimeSpaceId(space.spaceId),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l10n.settingsRuntimeOverviewDescription,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: <Widget>[
-                  Text('${space.members.length} 台设备'),
-                  const SizedBox(width: 8),
-                  Icon(Icons.circle, size: 8, color: scheme.primary),
-                  const SizedBox(width: 5),
-                  Text('$onlineCount 台在线'),
-                ],
-              ),
-              const SizedBox(height: 4),
-              SizedBox(
-                height: 242,
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 680;
+              final infoPane = _DeviceSpaceInfoPane(
+                space: space,
+                onlineCount: onlineCount,
+                busy: busy,
+                onViewTopology: onViewTopology,
+                onRename: onRename,
+                onLeave: onLeave,
+                onOpenProfile: onOpenProfile,
+                connectionMessage: connectionMessage,
+                connectionFailed: connectionFailed,
+              );
+              final infoWidth = isWide
+                  ? math
+                        .min(
+                          420.0,
+                          math.max(300.0, constraints.maxWidth * 0.38),
+                        )
+                        .toDouble()
+                  : constraints.maxWidth;
+              final graphAvailableWidth = isWide
+                  ? math
+                        .max(0.0, constraints.maxWidth - infoWidth - 18)
+                        .toDouble()
+                  : constraints.maxWidth;
+              final graphDimension = _spaceGraphDimension(
+                graphAvailableWidth,
+                viewportHeight: MediaQuery.sizeOf(context).height,
+              );
+              final graphPane = SizedBox.square(
+                dimension: graphDimension,
                 child: _AnimatedSpaceGraph(
-                  color: scheme.primary,
                   currentDevice: currentDevice,
                   remoteDevices: remoteDevices,
                 ),
-              ),
-              const Divider(height: 18),
-              Row(
+              );
+              if (!isWide) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Align(alignment: Alignment.centerLeft, child: infoPane),
+                    const SizedBox(height: 14),
+                    Align(alignment: Alignment.center, child: graphPane),
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
+                  SizedBox(width: infoWidth, child: infoPane),
+                  const SizedBox(width: 18),
                   Expanded(
-                    child: Text(
-                      l10n.settingsRuntimeSpaceId(space.spaceId),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: graphPane,
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: busy ? null : onViewTopology,
-                    icon: const Icon(Icons.account_tree_outlined, size: 18),
-                    label: Text(l10n.settingsRuntimeViewSpaceTopology),
-                  ),
                 ],
-              ),
-              if (connectionMessage != null) ...<Widget>[
-                const SizedBox(height: 4),
-                _InlineStatus(
-                  message: connectionMessage!,
-                  failed: connectionFailed,
-                ),
-              ],
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -820,10 +776,300 @@ class _DeviceSpaceOverviewCard extends StatelessWidget {
   }
 }
 
-class _DeviceSpaceIdentityChip extends StatelessWidget {
+class _DeviceSpaceInfoPane extends StatelessWidget {
+  const _DeviceSpaceInfoPane({
+    required this.space,
+    required this.onlineCount,
+    required this.busy,
+    required this.onViewTopology,
+    required this.onRename,
+    required this.onLeave,
+    required this.onOpenProfile,
+    required this.connectionMessage,
+    required this.connectionFailed,
+  });
+
+  final generated.CoreSpace space;
+  final int onlineCount;
+  final bool busy;
+  final VoidCallback onViewTopology;
+  final VoidCallback onRename;
+  final VoidCallback onLeave;
+  final VoidCallback onOpenProfile;
+  final String? connectionMessage;
+  final bool connectionFailed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final scheme = Theme.of(context).colorScheme;
+    final bodyStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wideActions = constraints.maxWidth >= 300;
+        final actionItems = <Widget>[
+          _DeviceSpaceActionButton(
+            icon: Icons.edit_outlined,
+            label: '编辑',
+            tooltip: l10n.settingsRuntimeRenameSpace,
+            onPressed: busy ? null : onRename,
+          ),
+          const _DeviceSpaceActionDivider(),
+          _DeviceSpaceActionButton(
+            icon: Icons.logout_outlined,
+            label: '退出',
+            tooltip: l10n.settingsRuntimeLeaveSpace,
+            onPressed: busy || space.members.length <= 1 ? null : onLeave,
+          ),
+          const _DeviceSpaceActionDivider(),
+          _DeviceSpaceTopologyAction(
+            label: l10n.settingsRuntimeViewSpaceTopology,
+            onPressed: busy ? null : onViewTopology,
+          ),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _DeviceSpaceIdentityChip(onTap: onOpenProfile),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 14,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(
+                      Icons.devices_other_outlined,
+                      size: 25,
+                      color: scheme.onSurface,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      l10n.settingsRuntimeSpaceDeviceCount(
+                        space.members.length,
+                      ),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.circle, size: 9, color: scheme.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$onlineCount ${l10n.settingsRuntimePairedOnline}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Text(
+                  '空间 ID',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Text(
+                    space.spaceId,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '复制空间 ID',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: space.spaceId));
+                  },
+                  icon: const Icon(Icons.copy_outlined),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              l10n.settingsRuntimeOverviewDescription,
+              maxLines: wideActions ? 1 : 2,
+              overflow: TextOverflow.ellipsis,
+              style: bodyStyle,
+            ),
+            const SizedBox(height: 16),
+            Divider(
+              height: 1,
+              color: scheme.outlineVariant.withValues(alpha: 0.7),
+            ),
+            const SizedBox(height: 8),
+            wideActions
+                ? Row(children: actionItems)
+                : Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: actionItems,
+                  ),
+            if (connectionMessage != null) ...<Widget>[
+              const SizedBox(height: 4),
+              _InlineStatus(
+                message: connectionMessage!,
+                failed: connectionFailed,
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DeviceSpaceActionButton extends StatelessWidget {
+  const _DeviceSpaceActionButton({
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        visualDensity: VisualDensity.compact,
+        textStyle: Theme.of(context).textTheme.bodyMedium,
+      ),
+      icon: Icon(icon),
+      label: Tooltip(message: tooltip, child: Text(label)),
+    );
+  }
+}
+
+class _DeviceSpaceTopologyAction extends StatelessWidget {
+  const _DeviceSpaceTopologyAction({
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        visualDensity: VisualDensity.compact,
+        textStyle: Theme.of(context).textTheme.bodyMedium,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.account_tree_outlined),
+          const SizedBox(width: 8),
+          Text(label),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right_rounded),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeviceSpaceActionDivider extends StatelessWidget {
+  const _DeviceSpaceActionDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 30,
+      child: VerticalDivider(
+        width: 1,
+        color: Theme.of(context).colorScheme.outlineVariant,
+      ),
+    );
+  }
+}
+
+class _DeviceSpaceIdentityChip extends StatefulWidget {
   const _DeviceSpaceIdentityChip({required this.onTap});
 
   final VoidCallback onTap;
+
+  @override
+  State<_DeviceSpaceIdentityChip> createState() =>
+      _DeviceSpaceIdentityChipState();
+}
+
+class _DeviceSpaceIdentityChipState extends State<_DeviceSpaceIdentityChip> {
+  static const GeneratedCoreProxyClients _clients = GeneratedCoreProxyClients(
+    ProxyCoreRuntimeBridge(coreProxy: platformCoreProxy),
+  );
+
+  String? _githubAvatarUrl;
+  String? _avatarLookupKey;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolveFallbackAvatar();
+  }
+
+  void _resolveFallbackAvatar() {
+    final customAvatarUri = OperitTheme.of(
+      context,
+    ).themePreferenceSnapshot.customUserAvatarUri?.trim();
+    final identityId = RuntimeBootstrapManager.instance.activeIdentity.id;
+    final lookupKey = '$identityId|${customAvatarUri ?? ''}';
+    if (_avatarLookupKey == lookupKey) {
+      return;
+    }
+    _avatarLookupKey = lookupKey;
+    if (customAvatarUri != null && customAvatarUri.isNotEmpty) {
+      if (_githubAvatarUrl != null && mounted) {
+        setState(() => _githubAvatarUrl = null);
+      }
+      return;
+    }
+    unawaited(_loadGithubAvatar());
+  }
+
+  Future<void> _loadGithubAvatar() async {
+    try {
+      final user = await _clients.preferencesGitHubAuthPreferences
+          .getCurrentUserInfo();
+      final avatarUrl = user?.avatarUrl.trim();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _githubAvatarUrl = avatarUrl == null || avatarUrl.isEmpty
+            ? null
+            : avatarUrl;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _githubAvatarUrl = null);
+      }
+    }
+  }
 
   /// Builds the identity selector shown above the current-space title.
   @override
@@ -832,70 +1078,125 @@ class _DeviceSpaceIdentityChip extends StatelessWidget {
     final identity = RuntimeBootstrapManager.instance.activeIdentity;
     final name = runtimeIdentityDisplayName(identity, l10n);
     final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: scheme.outlineVariant.withValues(alpha: 0.4),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 5, 11, 5),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              CircleAvatar(
-                radius: 15,
-                backgroundColor: scheme.primary.withValues(alpha: 0.15),
-                child: Icon(
-                  Icons.person_outline,
-                  size: 19,
-                  color: scheme.primary,
+    final customAvatarUri = OperitTheme.of(
+      context,
+    ).themePreferenceSnapshot.customUserAvatarUri;
+    final suffix = Localizations.localeOf(context).languageCode == 'zh'
+        ? '的设备空间'
+        : l10n.settingsRuntimeCurrentSpace;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: constraints.hasBoundedWidth
+                  ? constraints.maxWidth
+                  : double.infinity,
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.4),
                 ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: scheme.primary,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '用户与身份',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: scheme.primary,
-                  fontWeight: FontWeight.w700,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(7, 4, 9, 4),
+                child: Row(
+                  children: <Widget>[
+                    _IdentityChipAvatar(
+                      customAvatarUri: customAvatarUri,
+                      githubAvatarUrl: _githubAvatarUrl,
+                    ),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      flex: 2,
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      flex: 3,
+                      child: Text(
+                        suffix,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: scheme.onSurface,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _IdentityChipAvatar extends StatelessWidget {
+  const _IdentityChipAvatar({
+    required this.customAvatarUri,
+    required this.githubAvatarUrl,
+  });
+
+  final String? customAvatarUri;
+  final String? githubAvatarUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final customPath = customAvatarUri?.trim();
+    if (customPath != null && customPath.isNotEmpty) {
+      return UserProfileAvatar(storagePath: customPath, size: 40);
+    }
+    final githubUrl = githubAvatarUrl?.trim();
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 40,
+      height: 40,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: colorScheme.surfaceContainerHighest,
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.45),
         ),
       ),
+      child: githubUrl == null || githubUrl.isEmpty
+          ? Icon(Icons.person_outline, size: 24, color: colorScheme.primary)
+          : Image.network(
+              githubUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Icon(
+                Icons.person_outline,
+                size: 24,
+                color: colorScheme.primary,
+              ),
+            ),
     );
   }
 }
 
 class _AnimatedSpaceGraph extends StatefulWidget {
   const _AnimatedSpaceGraph({
-    required this.color,
     required this.currentDevice,
     required this.remoteDevices,
   });
 
-  final Color color;
   final generated.RuntimeDeviceSpaceDevice currentDevice;
   final List<generated.RuntimeDeviceSpaceDevice> remoteDevices;
 
@@ -907,73 +1208,333 @@ class _AnimatedSpaceGraph extends StatefulWidget {
 class _AnimatedSpaceGraphState extends State<_AnimatedSpaceGraph>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  final GlobalKey _graphKey = GlobalKey();
+  final Map<String, _SpaceOrbitNodeState> _nodeStates =
+      <String, _SpaceOrbitNodeState>{};
+  double _lastControllerValue = 0;
+  double _continuousPhase = 0;
+  String? _draggingDeviceId;
 
-  /// Starts the continuous ambient motion for the device graph.
   @override
   void initState() {
     super.initState();
+    _synchronizeNodes();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 12),
+      duration: const Duration(seconds: 24),
     )..repeat();
+    _controller.addListener(_accumulateContinuousPhase);
   }
 
-  /// Releases the graph animation ticker.
+  @override
+  void didUpdateWidget(covariant _AnimatedSpaceGraph oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _synchronizeNodes();
+  }
+
   @override
   void dispose() {
+    _controller.removeListener(_accumulateContinuousPhase);
     _controller.dispose();
     super.dispose();
   }
 
-  /// Builds animated orbit rings, connection dashes, and device nodes.
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final pulse = (math.sin(_controller.value * math.pi * 2) + 1) / 2;
-        return Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            CustomPaint(
-              painter: _SpaceOrbitPainter(
-                color: widget.color,
-                phase: _controller.value,
-                pulse: pulse,
-              ),
-            ),
-            Center(
-              child: _SpaceDeviceNode(
-                label: widget.currentDevice.deviceName,
-                current: true,
-                online: widget.currentDevice.online,
-                pulse: pulse,
-              ),
-            ),
-            for (var index = 0; index < widget.remoteDevices.length; index++)
-              Align(
-                alignment: index == 0
-                    ? Alignment.centerRight
-                    : index == 1
-                    ? Alignment.centerLeft
-                    : Alignment.topRight,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    right: index == 0 ? 8 : 20,
-                    left: index == 1 ? 8 : 0,
-                    top: index == 2 ? 18 : 0,
-                  ),
-                  child: _SpaceDeviceNode(
-                    label: widget.remoteDevices[index].deviceName,
-                    current: false,
-                    online: widget.remoteDevices[index].online,
-                    pulse: pulse,
-                  ),
+    final scheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final graphSize = Size(
+          constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : _SpaceGraphMetrics.fallbackDimension,
+          constraints.hasBoundedHeight
+              ? constraints.maxHeight
+              : _SpaceGraphMetrics.fallbackDimension,
+        );
+        final metrics = _SpaceGraphMetrics.fromSize(graphSize);
+        return AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final pulse = (math.sin(_controller.value * math.pi * 2) + 1) / 2;
+            final children = <Widget>[
+              CustomPaint(painter: _SpaceOrbitPainter(colorScheme: scheme)),
+              Center(
+                child: _SpaceDeviceNode(
+                  label: _spaceDeviceLabel(widget.currentDevice, current: true),
+                  platform: widget.currentDevice.platform,
+                  current: true,
+                  online: widget.currentDevice.online,
+                  pulse: pulse,
+                  metrics: metrics,
                 ),
               ),
-          ],
+            ];
+            for (final device in widget.remoteDevices) {
+              final nodeState = _nodeStates[device.deviceId];
+              if (nodeState == null) {
+                continue;
+              }
+              final position = _spaceOrbitPosition(
+                graphSize,
+                nodeState.level,
+                _visualAngle(nodeState),
+              );
+              children.add(
+                _buildDraggableNode(
+                  device: device,
+                  position: position,
+                  graphSize: graphSize,
+                  pulse: pulse,
+                  metrics: metrics,
+                ),
+              );
+            }
+            return Stack(
+              key: _graphKey,
+              fit: StackFit.expand,
+              clipBehavior: Clip.none,
+              children: children,
+            );
+          },
         );
       },
+    );
+  }
+
+  void _synchronizeNodes() {
+    final devices = widget.remoteDevices;
+    final deviceIds = devices.map((device) => device.deviceId).toSet();
+    _nodeStates.removeWhere((deviceId, _) => !deviceIds.contains(deviceId));
+    for (var index = 0; index < devices.length; index++) {
+      final device = devices[index];
+      final existing = _nodeStates[device.deviceId];
+      if (existing == null) {
+        _nodeStates[device.deviceId] = _SpaceOrbitNodeState(
+          level: device.online
+              ? _SpaceOrbitLevel.inner
+              : _defaultNonOnlineOrbitLevel(index),
+          angle: _initialAngle(index, devices.length),
+          direction: index.isEven ? 1 : -1,
+        );
+        continue;
+      }
+      if (device.online) {
+        existing.level = _SpaceOrbitLevel.inner;
+      } else if (existing.level == _SpaceOrbitLevel.inner) {
+        existing.level = _defaultNonOnlineOrbitLevel(index);
+      }
+    }
+  }
+
+  Widget _buildDraggableNode({
+    required generated.RuntimeDeviceSpaceDevice device,
+    required Offset position,
+    required Size graphSize,
+    required double pulse,
+    required _SpaceGraphMetrics metrics,
+  }) {
+    final nodeWidth = metrics.nodeWidth;
+    final nodeHeight = metrics.remoteNodeHeight;
+    return Positioned(
+      key: ValueKey<String>(device.deviceId),
+      left: _clampNodeCoordinate(
+        position.dx - nodeWidth / 2,
+        graphSize.width - nodeWidth,
+      ),
+      top: _clampNodeCoordinate(
+        position.dy - nodeHeight / 2,
+        graphSize.height - nodeHeight,
+      ),
+      width: nodeWidth,
+      height: nodeHeight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onPanStart: (details) => _handleNodePanStart(device, details),
+        onPanUpdate: (details) => _handleNodePanUpdate(device, details),
+        onPanEnd: (_) => _handleNodePanEnd(device.deviceId),
+        onPanCancel: () => _handleNodePanEnd(device.deviceId),
+        child: Center(
+          child: _SpaceDeviceNode(
+            label: _spaceDeviceLabel(device, current: false),
+            platform: device.platform,
+            current: false,
+            online: device.online,
+            pulse: pulse,
+            metrics: metrics,
+          ),
+        ),
+      ),
+    );
+  }
+
+  double _visualAngle(_SpaceOrbitNodeState nodeState) {
+    return nodeState.angle +
+        _continuousPhase *
+            math.pi *
+            2 *
+            _spaceOrbitMotionTurns(nodeState.level) *
+            nodeState.direction;
+  }
+
+  void _accumulateContinuousPhase() {
+    final value = _controller.value;
+    var delta = value - _lastControllerValue;
+    if (delta < -0.5) {
+      delta += 1;
+    }
+    _continuousPhase += delta;
+    _lastControllerValue = value;
+  }
+
+  void _handleNodePanStart(
+    generated.RuntimeDeviceSpaceDevice device,
+    DragStartDetails details,
+  ) {
+    final nodeState = _nodeStates[device.deviceId];
+    final localPosition = _graphLocalPosition(details.globalPosition);
+    if (nodeState == null || localPosition == null) {
+      return;
+    }
+    setState(() {
+      _draggingDeviceId = device.deviceId;
+      _updateNodePosition(device, nodeState, localPosition);
+    });
+  }
+
+  void _handleNodePanUpdate(
+    generated.RuntimeDeviceSpaceDevice device,
+    DragUpdateDetails details,
+  ) {
+    if (_draggingDeviceId != device.deviceId) {
+      return;
+    }
+    final nodeState = _nodeStates[device.deviceId];
+    final localPosition = _graphLocalPosition(details.globalPosition);
+    if (nodeState == null || localPosition == null) {
+      return;
+    }
+    setState(() => _updateNodePosition(device, nodeState, localPosition));
+  }
+
+  void _handleNodePanEnd(String deviceId) {
+    if (_draggingDeviceId != deviceId) {
+      return;
+    }
+    setState(() => _draggingDeviceId = null);
+  }
+
+  void _updateNodePosition(
+    generated.RuntimeDeviceSpaceDevice device,
+    _SpaceOrbitNodeState nodeState,
+    Offset localPosition,
+  ) {
+    final graphSize = _graphSizeFromContext();
+    final center = graphSize.center(Offset.zero);
+    final vector = localPosition - center;
+    final level = device.online
+        ? _SpaceOrbitLevel.inner
+        : _orbitLevelForNonOnlineDistance(vector.distance, graphSize);
+    nodeState.level = level;
+    nodeState.angle =
+        math.atan2(vector.dy, vector.dx) -
+        _continuousPhase *
+            math.pi *
+            2 *
+            _spaceOrbitMotionTurns(nodeState.level) *
+            nodeState.direction;
+  }
+
+  Offset? _graphLocalPosition(Offset globalPosition) {
+    final renderObject = _graphKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox) {
+      return null;
+    }
+    return renderObject.globalToLocal(globalPosition);
+  }
+
+  Size _graphSizeFromContext() {
+    final renderObject = _graphKey.currentContext?.findRenderObject();
+    if (renderObject is RenderBox) {
+      return renderObject.size;
+    }
+    return Size.square(_SpaceGraphMetrics.fallbackDimension);
+  }
+}
+
+class _SpaceGraphMetrics {
+  const _SpaceGraphMetrics({
+    required this.scale,
+    required this.nodeWidth,
+    required this.currentDiameter,
+    required this.remoteDiameter,
+    required this.currentLabelReserve,
+    required this.remoteLabelReserve,
+    required this.currentNodeHeight,
+    required this.remoteNodeHeight,
+    required this.labelGap,
+    required this.labelMaxWidth,
+    required this.currentIconSize,
+    required this.remoteIconSize,
+    required this.currentBorderWidth,
+    required this.remoteBorderWidth,
+    required this.currentShadowBlur,
+    required this.currentShadowSpread,
+    required this.remoteShadowBlur,
+  });
+
+  static const double fallbackDimension = 320;
+  static const double maxCanvasDimension = 380;
+  static const double viewportHeightFraction = 0.5;
+  static const double referenceDimension = 360;
+  static const double minScale = 0.56;
+  static const double maxScale = 1;
+
+  final double scale;
+  final double nodeWidth;
+  final double currentDiameter;
+  final double remoteDiameter;
+  final double currentLabelReserve;
+  final double remoteLabelReserve;
+  final double currentNodeHeight;
+  final double remoteNodeHeight;
+  final double labelGap;
+  final double labelMaxWidth;
+  final double currentIconSize;
+  final double remoteIconSize;
+  final double currentBorderWidth;
+  final double remoteBorderWidth;
+  final double currentShadowBlur;
+  final double currentShadowSpread;
+  final double remoteShadowBlur;
+
+  factory _SpaceGraphMetrics.fromSize(Size size) {
+    final shortestSide = math.min(size.width, size.height);
+    final scale = (shortestSide / referenceDimension)
+        .clamp(minScale, maxScale)
+        .toDouble();
+    final currentDiameter = 72 * scale;
+    final remoteDiameter = 46 * scale;
+    final currentLabelReserve = 24 * scale;
+    final remoteLabelReserve = 44 * scale;
+    return _SpaceGraphMetrics(
+      scale: scale,
+      nodeWidth: 132 * scale,
+      currentDiameter: currentDiameter,
+      remoteDiameter: remoteDiameter,
+      currentLabelReserve: currentLabelReserve,
+      remoteLabelReserve: remoteLabelReserve,
+      currentNodeHeight: currentDiameter + currentLabelReserve * 2,
+      remoteNodeHeight: remoteDiameter + remoteLabelReserve * 2,
+      labelGap: 6 * scale,
+      labelMaxWidth: 126 * scale,
+      currentIconSize: 32 * scale,
+      remoteIconSize: 22 * scale,
+      currentBorderWidth: (2 * scale).clamp(1.0, 2.0).toDouble(),
+      remoteBorderWidth: (1.5 * scale).clamp(1.0, 1.5).toDouble(),
+      currentShadowBlur: 18 * scale,
+      currentShadowSpread: 2 * scale,
+      remoteShadowBlur: 8 * scale,
     );
   }
 }
@@ -981,182 +1542,303 @@ class _AnimatedSpaceGraphState extends State<_AnimatedSpaceGraph>
 class _SpaceDeviceNode extends StatelessWidget {
   const _SpaceDeviceNode({
     required this.label,
+    required this.platform,
     required this.current,
     required this.online,
     required this.pulse,
+    required this.metrics,
   });
 
   final String label;
+  final String platform;
   final bool current;
   final bool online;
   final double pulse;
+  final _SpaceGraphMetrics metrics;
 
-  /// Builds one glowing current-device node or compact remote node.
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final scheme = Theme.of(context).colorScheme;
-    final accent = online ? scheme.primary : scheme.error;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Transform.scale(
-          scale: 1 + (current ? pulse * 0.045 : pulse * 0.018),
-          child: Container(
-            width: current ? 88 : 52,
-            height: current ? 88 : 52,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: current
-                  ? RadialGradient(
-                      colors: <Color>[
-                        Colors.white.withValues(alpha: 0.95),
-                        accent.withValues(alpha: 0.86),
-                        const Color(0xff7750d9).withValues(alpha: 0.92),
-                      ],
-                      stops: const <double>[0.05, 0.48, 1],
-                    )
-                  : RadialGradient(
-                      colors: <Color>[
-                        Colors.white.withValues(alpha: 0.92),
-                        const Color(0xffbbc0d3).withValues(alpha: 0.74),
-                        scheme.surface.withValues(alpha: 0.42),
-                      ],
-                      stops: const <double>[0.06, 0.5, 1],
-                    ),
-              border: Border.all(
-                color: accent.withValues(alpha: 0.78),
-                width: current ? 2 : 1.5,
-              ),
-              boxShadow: current
-                  ? <BoxShadow>[
-                      BoxShadow(
-                        color: accent.withValues(alpha: 0.42),
-                        blurRadius: 22 + pulse * 12,
-                        spreadRadius: 5 + pulse * 6,
-                      ),
-                    ]
-                  : const <BoxShadow>[],
-            ),
-            child: Icon(
-              current
-                  ? Icons.laptop_mac_outlined
-                  : Icons.devices_other_outlined,
-              size: current ? 38 : 24,
-              color: accent,
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 126),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              fontWeight: current ? FontWeight.w800 : FontWeight.w600,
-            ),
-          ),
-        ),
-        if (current)
-          Text(
-            '当前设备',
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        if (!current)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(Icons.circle, size: 7, color: accent),
-              const SizedBox(width: 4),
-              Text(online ? '在线' : '离线'),
+    final accent = online ? scheme.primary : scheme.outline;
+    final iconColor = current ? scheme.onPrimary : scheme.onSurface;
+    final gradient = current
+        ? RadialGradient(
+            center: const Alignment(-0.32, -0.38),
+            radius: 0.92,
+            colors: <Color>[
+              scheme.onPrimary.withValues(alpha: 0.52),
+              scheme.primary.withValues(alpha: 0.94),
+              scheme.primaryContainer.withValues(alpha: 0.96),
             ],
+            stops: const <double>[0.02, 0.56, 1],
+          )
+        : online
+        ? RadialGradient(
+            center: const Alignment(-0.28, -0.34),
+            radius: 0.98,
+            colors: <Color>[
+              scheme.onPrimary.withValues(alpha: 0.34),
+              scheme.primary.withValues(alpha: 0.88),
+              scheme.primaryContainer.withValues(alpha: 0.92),
+            ],
+            stops: const <double>[0.04, 0.58, 1],
+          )
+        : RadialGradient(
+            center: const Alignment(-0.28, -0.34),
+            radius: 0.98,
+            colors: <Color>[
+              scheme.surface.withValues(alpha: 0.98),
+              scheme.surfaceContainerHighest.withValues(alpha: 0.94),
+              scheme.surfaceContainerHigh.withValues(alpha: 0.9),
+            ],
+            stops: const <double>[0.04, 0.58, 1],
+          );
+    final nodeWidth = metrics.nodeWidth;
+    final nodeDiameter = current
+        ? metrics.currentDiameter
+        : metrics.remoteDiameter;
+    final labelReserve = current
+        ? metrics.currentLabelReserve
+        : metrics.remoteLabelReserve;
+    final nodeHeight = current
+        ? metrics.currentNodeHeight
+        : metrics.remoteNodeHeight;
+    final circleTop = labelReserve;
+    return SizedBox(
+      width: nodeWidth,
+      height: nodeHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          Positioned(
+            left: (nodeWidth - nodeDiameter) / 2,
+            top: circleTop,
+            child: Transform.scale(
+              scale: 1 + (current ? pulse * 0.045 : pulse * 0.018),
+              child: Container(
+                width: nodeDiameter,
+                height: nodeDiameter,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: gradient,
+                  border: Border.all(
+                    color: current
+                        ? scheme.primary
+                        : accent.withValues(alpha: 0.7),
+                    width: current
+                        ? metrics.currentBorderWidth
+                        : metrics.remoteBorderWidth,
+                  ),
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: (current ? scheme.primary : scheme.shadow)
+                          .withValues(alpha: current ? 0.22 : 0.12),
+                      blurRadius: current
+                          ? metrics.currentShadowBlur +
+                                pulse * metrics.scale * 8
+                          : metrics.remoteShadowBlur,
+                      spreadRadius: current
+                          ? metrics.currentShadowSpread +
+                                pulse * metrics.scale * 3
+                          : 0,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  _spaceDeviceIcon(platform),
+                  size: current
+                      ? metrics.currentIconSize
+                      : metrics.remoteIconSize,
+                  color: iconColor,
+                ),
+              ),
+            ),
           ),
-      ],
+          Positioned(
+            left: 0,
+            right: 0,
+            top: circleTop + nodeDiameter + metrics.labelGap,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: metrics.labelMaxWidth),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: current ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (!current)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(Icons.circle, size: 7, color: accent),
+                      const SizedBox(width: 4),
+                      Text(
+                        online
+                            ? l10n.settingsRuntimePairedOnline
+                            : l10n.settingsRuntimePairedOffline,
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _SpaceOrbitPainter extends CustomPainter {
-  const _SpaceOrbitPainter({
-    required this.color,
-    required this.phase,
-    required this.pulse,
-  });
+  const _SpaceOrbitPainter({required this.colorScheme});
 
-  final Color color;
-  final double phase;
-  final double pulse;
+  final ColorScheme colorScheme;
 
-  /// Draws the concentric orbit rings behind the device nodes.
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final shortest = math.min(size.width, size.height);
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = color.withValues(alpha: 0.18);
-    for (final factor in <double>[0.28, 0.48, 0.68, 0.88]) {
-      canvas.drawCircle(center, shortest * factor / 2, paint);
-    }
-    final stars = <Offset>[
-      Offset(size.width * 0.58, size.height * 0.18),
-      Offset(size.width * 0.73, size.height * 0.34),
-      Offset(size.width * 0.79, size.height * 0.78),
-      Offset(size.width * 0.24, size.height * 0.68),
-      Offset(size.width * 0.14, size.height * 0.37),
-    ];
-    final starPaint = Paint()
-      ..color = color.withValues(alpha: 0.36 + pulse * 0.18);
-    for (final star in stars) {
-      canvas.drawCircle(star, 2.2, starPaint);
-    }
-    final dashPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..color = color.withValues(alpha: 0.42);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: shortest * 0.36),
-      -0.35,
-      1.7,
-      false,
-      dashPaint,
-    );
-    final connectionPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = color.withValues(alpha: 0.48);
-    const dashLength = 7.0;
-    const gapLength = 6.0;
-    final dashOffset = phase * (dashLength + gapLength);
-    final start = Offset(center.dx + shortest * 0.08, center.dy);
-    final end = Offset(size.width * 0.85, center.dy);
-    final delta = end - start;
-    final distance = delta.distance;
-    final direction = delta / distance;
-    for (
-      double traveled = -dashOffset;
-      traveled < distance;
-      traveled += dashLength + gapLength
-    ) {
-      final dashStart = start + direction * traveled;
-      final dashEnd =
-          start + direction * math.min(traveled + dashLength, distance);
-      canvas.drawLine(dashStart, dashEnd, connectionPaint);
+    for (final level in _SpaceOrbitLevel.values.reversed) {
+      final fillColor = switch (level) {
+        _SpaceOrbitLevel.outer => colorScheme.primaryContainer.withValues(
+          alpha: 0.12,
+        ),
+        _SpaceOrbitLevel.middle => colorScheme.primaryContainer.withValues(
+          alpha: 0.19,
+        ),
+        _SpaceOrbitLevel.inner => colorScheme.primary.withValues(alpha: 0.11),
+      };
+      final paint = Paint()
+        ..style = PaintingStyle.fill
+        ..color = fillColor;
+      canvas.drawCircle(center, _spaceOrbitRadius(size, level), paint);
     }
   }
 
-  /// Repaints the orbit when the active theme color changes.
   @override
   bool shouldRepaint(covariant _SpaceOrbitPainter oldDelegate) {
-    return oldDelegate.color != color ||
-        oldDelegate.phase != phase ||
-        oldDelegate.pulse != pulse;
+    return oldDelegate.colorScheme.primary != colorScheme.primary ||
+        oldDelegate.colorScheme.primaryContainer !=
+            colorScheme.primaryContainer;
   }
+}
+
+enum _SpaceOrbitLevel { inner, middle, outer }
+
+class _SpaceOrbitNodeState {
+  _SpaceOrbitNodeState({
+    required this.level,
+    required this.angle,
+    required this.direction,
+  });
+
+  _SpaceOrbitLevel level;
+  double angle;
+  final double direction;
+}
+
+double _spaceOrbitRadius(Size size, _SpaceOrbitLevel level) {
+  final shortest = math.min(size.width, size.height);
+  return switch (level) {
+    _SpaceOrbitLevel.inner => shortest * 0.22,
+    _SpaceOrbitLevel.middle => shortest * 0.34,
+    _SpaceOrbitLevel.outer => shortest * 0.46,
+  };
+}
+
+Offset _spaceOrbitPosition(Size size, _SpaceOrbitLevel level, double angle) {
+  final center = size.center(Offset.zero);
+  final radius = _spaceOrbitRadius(size, level);
+  return center + Offset(math.cos(angle) * radius, math.sin(angle) * radius);
+}
+
+double _spaceOrbitMotionTurns(_SpaceOrbitLevel level) {
+  return switch (level) {
+    _SpaceOrbitLevel.inner => 0.34,
+    _SpaceOrbitLevel.middle => 0.22,
+    _SpaceOrbitLevel.outer => 0.14,
+  };
+}
+
+double _spaceGraphDimension(
+  double availableWidth, {
+  required double viewportHeight,
+}) {
+  if (!availableWidth.isFinite || availableWidth <= 0) {
+    return _SpaceGraphMetrics.fallbackDimension;
+  }
+  final heightBudget = viewportHeight.isFinite && viewportHeight > 0
+      ? viewportHeight * _SpaceGraphMetrics.viewportHeightFraction
+      : _SpaceGraphMetrics.maxCanvasDimension;
+  final maxDimension = math.min(
+    _SpaceGraphMetrics.maxCanvasDimension,
+    heightBudget,
+  );
+  return math.min(availableWidth, maxDimension).toDouble();
+}
+
+double _initialAngle(int index, int count) {
+  if (count <= 0) {
+    return -math.pi / 2;
+  }
+  return -math.pi / 2 + math.pi * 2 * index / count;
+}
+
+_SpaceOrbitLevel _defaultNonOnlineOrbitLevel(int index) {
+  return index.isEven ? _SpaceOrbitLevel.middle : _SpaceOrbitLevel.outer;
+}
+
+_SpaceOrbitLevel _orbitLevelForNonOnlineDistance(double distance, Size size) {
+  final middleRadius = _spaceOrbitRadius(size, _SpaceOrbitLevel.middle);
+  final outerRadius = _spaceOrbitRadius(size, _SpaceOrbitLevel.outer);
+  return distance < (middleRadius + outerRadius) / 2
+      ? _SpaceOrbitLevel.middle
+      : _SpaceOrbitLevel.outer;
+}
+
+double _clampNodeCoordinate(double value, double max) {
+  if (max <= 0) {
+    return 0;
+  }
+  return value.clamp(0.0, max).toDouble();
+}
+
+String _spaceDeviceLabel(
+  generated.RuntimeDeviceSpaceDevice device, {
+  required bool current,
+}) {
+  if (!current) {
+    return device.deviceName;
+  }
+  final platform = device.platform.trim();
+  return platform.isEmpty ? device.deviceName : platform;
+}
+
+IconData _spaceDeviceIcon(String platform) {
+  final normalized = platform.trim().toLowerCase();
+  if (normalized.contains('android')) {
+    return Icons.android;
+  }
+  if (normalized.contains('windows')) {
+    return Icons.laptop_windows;
+  }
+  if (normalized.contains('mac') || normalized.contains('darwin')) {
+    return Icons.laptop_mac_outlined;
+  }
+  if (normalized.contains('linux')) {
+    return Icons.desktop_windows;
+  }
+  if (normalized.contains('ios')) {
+    return Icons.phone_iphone;
+  }
+  return Icons.devices_other_outlined;
 }
 
 class _SectionCard extends StatelessWidget {
