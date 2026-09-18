@@ -934,17 +934,22 @@ class _DrawerContentState extends State<DrawerContent> {
                               color: widget.appearance.itemColor,
                             ),
                           ),
-                          IconButton(
-                            onPressed: () => themeController.toggle(context),
-                            visualDensity: VisualDensity.compact,
-                            tooltip: darkThemeActive ? '切换白天模式' : '切换黑夜模式',
-                            icon: Icon(
-                              darkThemeActive
-                                  ? Icons.light_mode_outlined
-                                  : Icons.dark_mode_outlined,
-                              size: 20,
-                              color: widget.appearance.itemColor,
-                            ),
+                          Builder(
+                            builder: (buttonContext) {
+                              return IconButton(
+                                onPressed: () =>
+                                    themeController.toggle(buttonContext),
+                                visualDensity: VisualDensity.compact,
+                                tooltip: darkThemeActive ? '切换白天模式' : '切换黑夜模式',
+                                icon: Icon(
+                                  darkThemeActive
+                                      ? Icons.light_mode_outlined
+                                      : Icons.dark_mode_outlined,
+                                  size: 20,
+                                  color: widget.appearance.itemColor,
+                                ),
+                              );
+                            },
                           ),
                           IconButton(
                             onPressed: _toggleSearchExpanded,
