@@ -128,6 +128,7 @@ export interface ToolResultMap {
   get_chat_messages: ChatMessagesResultData;
   get_chat_messages_range: ChatMessagesResultData;
   query_memory: MemoryQueryResultData;
+  get_memory_owner_key: string;
   get_memory_by_title: MemoryQueryResultData;
   create_memory: string;
   update_memory: string;

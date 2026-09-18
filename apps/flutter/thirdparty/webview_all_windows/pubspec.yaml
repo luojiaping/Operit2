@@ -29,6 +29,10 @@ dev_dependencies:
     sdk: flutter
   pigeon: ^27.1.0
 
+dependency_overrides:
+  webview_flutter_platform_interface:
+    path: ../webview_flutter_platform_interface
+
 topics:
   - html
   - webview

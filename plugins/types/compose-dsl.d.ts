@@ -3418,9 +3418,181 @@ export type ComposeChildren = ComposeNode | ComposeNode[] | null | undefined;
 export type ComposeNodeFactory<TProps = Record<string, unknown>> = (arg0?: TProps, arg1?: ComposeChildren) => ComposeNode;
 
 /**
+ * Completion returned by dialog actions.
+ */
+export type ComposeDialogActionOutput = void | Promise<void>;
+
+/**
+ * Dialog text supplied as a literal or a node slot.
+ */
+export type ComposeDialogText = string | ComposeChildren;
+
+/**
+ * Modal dismissal and window layout policies.
+ */
+export interface DialogProperties {
+  /**
+   * Allows dismissal requests from the back button.
+   */
+  dismissOnBackPress?: boolean;
+  /**
+   * Allows dismissal requests from the modal barrier.
+   */
+  dismissOnClickOutside?: boolean;
+  /**
+   * Applies the platform's preferred dialog width.
+   */
+  usePlatformDefaultWidth?: boolean;
+  /**
+   * Insets dialog content around system UI.
+   */
+  decorFitsSystemWindows?: boolean;
+}
+
+/**
+ * Properties for a custom modal dialog.
+ */
+export interface DialogProps extends ComposeCommonProps {
+  /**
+   * Custom modal content.
+   */
+  content?: ComposeChildren;
+  /**
+   * Receives back-button and outside-click dismissal requests.
+   */
+  onDismissRequest?: () => ComposeDialogActionOutput;
+  /**
+   * Closes the modal after a dismissal request; defaults to true.
+   */
+  closeOnDismissRequest?: boolean;
+  /**
+   * Modal background color.
+   */
+  containerColor?: ComposeColor;
+  /**
+   * Modal foreground color.
+   */
+  contentColor?: ComposeColor;
+  /**
+   * Modal elevation.
+   */
+  tonalElevation?: number;
+  /**
+   * Modal surface shape.
+   */
+  shape?: ComposeShape;
+  /**
+   * Modal window policies.
+   */
+  properties?: DialogProperties;
+}
+
+/**
+ * Properties for a modal confirmation dialog.
+ */
+export interface AlertDialogProps extends ComposeCommonProps {
+  /**
+   * Dialog heading as text or child nodes.
+   */
+  title?: ComposeDialogText;
+  /**
+   * Dialog body as text or child nodes.
+   */
+  text?: ComposeDialogText;
+  /**
+   * Markdown body content.
+   */
+  markdown?: string;
+  /**
+   * Custom body content.
+   */
+  content?: ComposeChildren;
+  /**
+   * Leading dialog icon.
+   */
+  icon?: ComposeChildren;
+  /**
+   * Custom confirmation control.
+   */
+  confirmButton?: ComposeChildren;
+  /**
+   * Custom dismissal control.
+   */
+  dismissButton?: ComposeChildren;
+  /**
+   * Confirmation button label.
+   */
+  confirmText?: string;
+  /**
+   * Dismissal button label.
+   */
+  dismissText?: string;
+  /**
+   * Receives confirmation button actions.
+   */
+  onConfirm?: () => ComposeDialogActionOutput;
+  /**
+   * Receives dismissal button actions.
+   */
+  onDismiss?: () => ComposeDialogActionOutput;
+  /**
+   * Receives back-button and outside-click dismissal requests.
+   */
+  onDismissRequest?: () => ComposeDialogActionOutput;
+  /**
+   * Closes after confirmation; defaults to true.
+   */
+  closeOnConfirm?: boolean;
+  /**
+   * Closes after dismissal; defaults to true.
+   */
+  closeOnDismiss?: boolean;
+  /**
+   * Closes after a dismissal request; defaults to true.
+   */
+  closeOnDismissRequest?: boolean;
+  /**
+   * Modal background color.
+   */
+  containerColor?: ComposeColor;
+  /**
+   * Icon foreground color.
+   */
+  iconContentColor?: ComposeColor;
+  /**
+   * Title foreground color.
+   */
+  titleContentColor?: ComposeColor;
+  /**
+   * Body foreground color.
+   */
+  textContentColor?: ComposeColor;
+  /**
+   * Modal elevation.
+   */
+  tonalElevation?: number;
+  /**
+   * Modal surface shape.
+   */
+  shape?: ComposeShape;
+  /**
+   * Modal window policies.
+   */
+  properties?: DialogProperties;
+}
+
+/**
  * Core component factories available through `ComposeDslContext::UI`.
  */
 export interface ComposeUiFactoryRegistry {
+  /**
+   * Creates a custom modal dialog.
+   */
+  Dialog: ComposeNodeFactory<DialogProps>;
+  /**
+   * Creates a modal confirmation dialog.
+   */
+  AlertDialog: ComposeNodeFactory<AlertDialogProps>;
   /**
    * Creates a vertical layout container.
    */
@@ -3576,7 +3748,7 @@ export interface ComposeResolveToolNameRequest {
 /**
  * Selects one source for the host file picker.
  */
-export type ComposeFilePickerMode = "document" | "photo" | "video" | "media";
+export type ComposeFilePickerMode = "document" | "photo" | "image" | "video" | "media" | "directory";
 
 /**
  * Selection behavior for the host file picker.
@@ -3590,6 +3762,10 @@ export interface ComposeFilePickerOptions {
    * Whether the user may select more than one document or visual-media item.
    */
   allowMultiple?: boolean;
+  /**
+   * MIME types accepted by the document selector.
+   */
+  mimeTypes?: string[];
 }
 
 /**

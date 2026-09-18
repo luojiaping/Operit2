@@ -35,18 +35,6 @@ using BridgeCreate = BridgeHandle (*)();
 using BridgeCreateWithStorageRoots = BridgeHandle (*)(const char*, const char*);
 using BridgeCreateError = char* (*)();
 using BridgeDestroy = void (*)(BridgeHandle);
-struct OperitByteBuffer { unsigned char* ptr; size_t len; };
-using BridgeNativeCall =
-    OperitByteBuffer (*)(const void*, const unsigned char*, size_t);
-using BridgePushOpen = OperitByteBuffer (*)(BridgeHandle, const unsigned char*, size_t);
-using BridgePushItem = OperitByteBuffer (*)(BridgeHandle, const unsigned char*, size_t);
-using BridgePushClose = OperitByteBuffer (*)(BridgeHandle, const char*);
-using BridgeWatchSnapshot = OperitByteBuffer (*)(BridgeHandle, const unsigned char*, size_t);
-using BridgeWatchStream = OperitByteBuffer (*)(BridgeHandle, const unsigned char*, size_t);
-using BridgeNextWatchChannelEvent = OperitByteBuffer (*)(BridgeHandle);
-using BridgeCloseWatchChannel = void (*)(BridgeHandle);
-using BridgeCloseWatchStream = OperitByteBuffer (*)(BridgeHandle, const char*);
-using BridgeFreeBytes = void (*)(OperitByteBuffer);
 using BridgeStartWebAccessServer =
     char* (*)(BridgeHandle, const char*, const char*, const char*, const char*,
               const char*, const char*, const char*);
@@ -68,11 +56,7 @@ std::vector<std::shared_ptr<OperitRuntimeChannelOwner>>
     g_operit_runtime_channels;
 HWND g_operit_runtime_window = nullptr;
 DWORD g_operit_runtime_platform_thread_id = 0;
-std::atomic_bool g_watch_channel_pump_running{false};
-std::atomic_uint64_t g_watch_channel_pump_generation{0};
 std::atomic_bool g_operit_runtime_shutting_down{false};
-std::mutex g_watch_channel_pump_mutex;
-std::thread g_watch_channel_pump_thread;
 std::deque<flutter::EncodableMap> g_pending_notification_activations;
 bool g_notification_activation_receiver_ready = false;
 std::once_flag g_gdiplus_start_once;
@@ -664,15 +648,13 @@ void ClearOperitRuntimePlatformTasks() {
 class OperitRuntimeLibrary {
  public:
   OperitRuntimeLibrary() = default;
+  /// Releases the host runtime reference while preserving loaded FFI code.
   ~OperitRuntimeLibrary() {
     if (handle_ != nullptr && destroy_ != nullptr) {
       destroy_(handle_);
       handle_ = nullptr;
     }
-    if (library_ != nullptr) {
-      FreeLibrary(library_);
-      library_ = nullptr;
-    }
+    // FFI function pointers and VM finalizers retain this module until process exit.
   }
 
   bool EnsureReady(std::string* error) {
@@ -696,44 +678,16 @@ class OperitRuntimeLibrary {
           GetProcAddress(library_, "operit_flutter_bridge_create_error"));
       destroy_ = reinterpret_cast<BridgeDestroy>(
           GetProcAddress(library_, "operit_flutter_bridge_destroy"));
-      native_call_ = reinterpret_cast<BridgeNativeCall>(
-          GetProcAddress(library_, "operit_flutter_bridge_native_call"));
-      push_open_ = reinterpret_cast<BridgePushOpen>(
-          GetProcAddress(library_, "operit_flutter_bridge_push_open"));
-      push_item_ = reinterpret_cast<BridgePushItem>(
-          GetProcAddress(library_, "operit_flutter_bridge_push_item"));
-      push_close_ = reinterpret_cast<BridgePushClose>(
-          GetProcAddress(library_, "operit_flutter_bridge_push_close"));
-      watch_snapshot_ = reinterpret_cast<BridgeWatchSnapshot>(
-          GetProcAddress(library_, "operit_flutter_bridge_watch_snapshot"));
-      watch_stream_ = reinterpret_cast<BridgeWatchStream>(
-          GetProcAddress(library_, "operit_flutter_bridge_watch_stream"));
-      next_watch_channel_event_ =
-          reinterpret_cast<BridgeNextWatchChannelEvent>(
-              GetProcAddress(library_,
-                             "operit_flutter_bridge_next_watch_channel_event"));
-      close_watch_channel_ = reinterpret_cast<BridgeCloseWatchChannel>(
-          GetProcAddress(library_,
-                         "operit_flutter_bridge_close_watch_channel"));
-      close_watch_stream_ = reinterpret_cast<BridgeCloseWatchStream>(
-          GetProcAddress(library_, "operit_flutter_bridge_close_watch_stream"));
       start_web_access_server_ = reinterpret_cast<BridgeStartWebAccessServer>(
           GetProcAddress(library_, "operit_flutter_bridge_start_web_access_server"));
       stop_web_access_server_ = reinterpret_cast<BridgeStopWebAccessServer>(
           GetProcAddress(library_, "operit_flutter_bridge_stop_web_access_server"));
       free_string_ = reinterpret_cast<BridgeFreeString>(
           GetProcAddress(library_, "operit_flutter_bridge_free_string"));
-      free_bytes_ = reinterpret_cast<BridgeFreeBytes>(
-          GetProcAddress(library_, "operit_flutter_bridge_free_bytes"));
+
       if (create_ == nullptr || create_with_storage_roots_ == nullptr ||
-          destroy_ == nullptr || native_call_ == nullptr || push_open_ == nullptr ||
-          push_item_ == nullptr || push_close_ == nullptr ||
-          watch_snapshot_ == nullptr || watch_stream_ == nullptr ||
-          next_watch_channel_event_ == nullptr ||
-          close_watch_channel_ == nullptr ||
-          close_watch_stream_ == nullptr ||
-          start_web_access_server_ == nullptr || stop_web_access_server_ == nullptr ||
-          free_string_ == nullptr || free_bytes_ == nullptr) {
+          destroy_ == nullptr || start_web_access_server_ == nullptr || stop_web_access_server_ == nullptr ||
+          free_string_ == nullptr) {
         AssignError(error, "operit flutter bridge exports are incomplete");
         return false;
       }
@@ -752,73 +706,16 @@ class OperitRuntimeLibrary {
     return true;
   }
 
-  bool Call(const std::vector<uint8_t>& request, std::vector<uint8_t>* response,
-            std::string* error) {
-    if (!EnsureReadyThreadSafe(error)) {
-      return false;
-    }
-    return TakeBridgeBytes(
-        native_call_(handle_, request.data(), request.size()), response, error);
-  }
-
-  /// Opens one local Link push stream.
-  bool PushOpen(const std::vector<uint8_t>& request,
-                std::vector<uint8_t>* response, std::string* error) {
+  /// Creates a retained Dart FFI connection to the process-owned runtime.
+  bool ConnectCoreFfi(std::string* response, std::string* error) {
     if (!EnsureReadyThreadSafe(error)) return false;
-    return TakeBridgeBytes(push_open_(handle_, request.data(), request.size()), response, error);
-  }
-
-  /// Dispatches one local Link push item.
-  bool PushItem(const std::vector<uint8_t>& item,
-                std::vector<uint8_t>* response, std::string* error) {
-    if (!EnsureReadyThreadSafe(error)) return false;
-    return TakeBridgeBytes(push_item_(handle_, item.data(), item.size()), response, error);
-  }
-
-  /// Closes one local Link push stream.
-  bool PushClose(const std::string& push_id,
-                 std::vector<uint8_t>* response, std::string* error) {
-    if (!EnsureReadyThreadSafe(error)) return false;
-    return TakeBridgeBytes(push_close_(handle_, push_id.c_str()), response, error);
-  }
-
-  bool WatchSnapshot(const std::vector<uint8_t>& request, std::vector<uint8_t>* response,
-                     std::string* error) {
-    if (!EnsureReadyThreadSafe(error)) {
+    const auto connect = reinterpret_cast<char* (*)(BridgeHandle)>(
+        GetProcAddress(library_, "operit_flutter_bridge_ffi_connect"));
+    if (connect == nullptr) {
+      AssignError(error, "operit flutter FFI connect export is missing");
       return false;
     }
-    return TakeBridgeBytes(watch_snapshot_(handle_, request.data(), request.size()), response, error);
-  }
-
-  bool WatchStream(const std::vector<uint8_t>& request, std::vector<uint8_t>* response,
-                   std::string* error) {
-    if (!EnsureReadyThreadSafe(error)) {
-      return false;
-    }
-    return TakeBridgeBytes(watch_stream_(handle_, request.data(), request.size()), response, error);
-  }
-
-  bool NextWatchChannelEvent(std::vector<uint8_t>* response, std::string* error) {
-    if (!EnsureReadyThreadSafe(error)) {
-      return false;
-    }
-    return TakeBridgeBytes(next_watch_channel_event_(handle_), response, error);
-  }
-
-  /// Wakes the native watch-event reader during bridge shutdown.
-  void CloseWatchChannel() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (handle_ != nullptr) {
-      close_watch_channel_(handle_);
-    }
-  }
-
-  bool CloseWatchStream(const std::string& subscription, std::vector<uint8_t>* response,
-                        std::string* error) {
-    if (!EnsureReadyThreadSafe(error)) {
-      return false;
-    }
-    return TakeBridgeBytes(close_watch_stream_(handle_, subscription.c_str()), response, error);
+    return TakeBridgeString(connect(handle_), response, error);
   }
 
   bool StartWebAccessServer(const std::string& bind_address,
@@ -914,18 +811,6 @@ class OperitRuntimeLibrary {
     return true;
   }
 
-  /// Copies one owned Rust Link buffer and releases its native allocation.
-  bool TakeBridgeBytes(OperitByteBuffer value, std::vector<uint8_t>* output,
-                       std::string* error) {
-    if (value.ptr == nullptr) {
-      AssignError(error, "operit flutter bridge returned an empty byte buffer");
-      return false;
-    }
-    output->assign(value.ptr, value.ptr + value.len);
-    free_bytes_(value);
-    return true;
-  }
-
   HMODULE library_ = nullptr;
   BridgeHandle handle_ = nullptr;
   std::string configured_runtime_root_;
@@ -935,19 +820,9 @@ class OperitRuntimeLibrary {
   BridgeCreateWithStorageRoots create_with_storage_roots_ = nullptr;
   BridgeCreateError create_error_ = nullptr;
   BridgeDestroy destroy_ = nullptr;
-  BridgeNativeCall native_call_ = nullptr;
-  BridgePushOpen push_open_ = nullptr;
-  BridgePushItem push_item_ = nullptr;
-  BridgePushClose push_close_ = nullptr;
-  BridgeWatchSnapshot watch_snapshot_ = nullptr;
-  BridgeWatchStream watch_stream_ = nullptr;
-  BridgeNextWatchChannelEvent next_watch_channel_event_ = nullptr;
-  BridgeCloseWatchChannel close_watch_channel_ = nullptr;
-  BridgeCloseWatchStream close_watch_stream_ = nullptr;
   BridgeStartWebAccessServer start_web_access_server_ = nullptr;
   BridgeStopWebAccessServer stop_web_access_server_ = nullptr;
   BridgeFreeString free_string_ = nullptr;
-  BridgeFreeBytes free_bytes_ = nullptr;
 };
 
 using OperitRuntimeActiveLibrary = OperitRuntimeLibrary;
@@ -1079,87 +954,6 @@ void ShutdownOperitRuntimeChannelInstance(
   }
 }
 
-/// Sends one native watch event to every live Flutter runtime channel.
-void DispatchWatchChannelEvent(std::vector<uint8_t> frame) {
-  PostOperitRuntimePlatformTask([frame = std::move(frame)]() {
-    for (const auto& owner : g_operit_runtime_channels) {
-      if (!owner->accepting_responses.load()) {
-        continue;
-      }
-      owner->channel->InvokeMethod(
-          "watchChannelEvent",
-          std::make_unique<flutter::EncodableValue>(frame));
-    }
-  });
-}
-
-/// Reads bridge watch events until the pump is stopped or the channel closes.
-void RunWatchChannelPump(
-    std::shared_ptr<OperitRuntimeActiveLibrary> library,
-    uint64_t generation) {
-  while (g_watch_channel_pump_running.load() &&
-         g_watch_channel_pump_generation.load() == generation) {
-    std::vector<uint8_t> frame;
-    std::string error;
-    if (!library->NextWatchChannelEvent(&frame, &error)) {
-      break;
-    }
-    DispatchWatchChannelEvent(std::move(frame));
-  }
-  if (g_watch_channel_pump_generation.load() == generation) {
-    g_watch_channel_pump_running.store(false);
-  }
-}
-
-/// Stops the watch-event pump and waits for its native thread to finish.
-void StopWatchChannelPump() {
-  std::shared_ptr<OperitRuntimeActiveLibrary> library;
-  std::thread pump_thread;
-  {
-    std::lock_guard<std::mutex> lock(g_watch_channel_pump_mutex);
-    g_watch_channel_pump_running.store(false);
-    g_watch_channel_pump_generation.fetch_add(1);
-    library = g_operit_runtime_library;
-    pump_thread = std::move(g_watch_channel_pump_thread);
-  }
-  if (library) {
-    library->CloseWatchChannel();
-  }
-  if (pump_thread.joinable()) {
-    pump_thread.join();
-  }
-}
-
-/// Starts the single bridge watch-event pump when the runtime is active.
-void EnsureWatchChannelPump(std::shared_ptr<OperitRuntimeActiveLibrary> library) {
-  if (g_operit_runtime_shutting_down.load()) {
-    return;
-  }
-  std::thread completed_pump_thread;
-  {
-    std::lock_guard<std::mutex> lock(g_watch_channel_pump_mutex);
-    if (g_operit_runtime_shutting_down.load() ||
-        g_watch_channel_pump_running.load()) {
-      return;
-    }
-    completed_pump_thread = std::move(g_watch_channel_pump_thread);
-  }
-  if (completed_pump_thread.joinable()) {
-    completed_pump_thread.join();
-  }
-  {
-    std::lock_guard<std::mutex> lock(g_watch_channel_pump_mutex);
-    if (g_operit_runtime_shutting_down.load() ||
-        g_watch_channel_pump_running.load()) {
-      return;
-    }
-    const uint64_t generation = g_watch_channel_pump_generation.load();
-    g_watch_channel_pump_running.store(true);
-    g_watch_channel_pump_thread = std::thread(
-        RunWatchChannelPump, std::move(library), generation);
-  }
-}
-
 /// Runs one Rust bridge operation off the Windows platform thread.
 template <typename Operation>
 void RespondRuntimeStringAsync(
@@ -1184,46 +978,6 @@ void RespondRuntimeStringAsync(
     PostOperitRuntimePlatformTask(
         [channel_owner, result = std::move(platform_result), ok, response = std::move(response),
          error = std::move(error)]() mutable {
-          if (!channel_owner->accepting_responses.load()) {
-            return;
-          }
-          if (ok) {
-            result->Success(flutter::EncodableValue(response));
-          } else {
-            result->Error("RUNTIME_BRIDGE_ERROR", error);
-          }
-        });
-  });
-  if (!submitted) {
-    auto platform_result = std::move(*result_holder);
-    platform_result->Error("RUNTIME_WORKER_QUEUE_CLOSED",
-                           "runtime worker queue is not accepting work");
-  }
-}
-
-/// Runs one binary Link bridge operation off the Windows platform thread.
-template <typename Operation>
-void RespondRuntimeBytesAsync(
-    const std::shared_ptr<OperitRuntimeChannelOwner>& channel_owner,
-    Operation operation,
-    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  auto* workers = g_operit_runtime_workers.get();
-  if (workers == nullptr) {
-    result->Error("RUNTIME_WORKER_QUEUE_CLOSED",
-                  "runtime worker queue is not available");
-    return;
-  }
-  auto result_holder = std::make_shared<
-      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>>(
-      std::move(result));
-  const bool submitted = workers->Post(
-      [channel_owner, operation = std::move(operation), result_holder]() mutable {
-    std::vector<uint8_t> response;
-    std::string error;
-    const bool ok = operation(&response, &error);
-    auto platform_result = std::move(*result_holder);
-    PostOperitRuntimePlatformTask(
-        [channel_owner, result = std::move(platform_result), ok, response = std::move(response), error = std::move(error)]() mutable {
           if (!channel_owner->accepting_responses.load()) {
             return;
           }
@@ -1268,47 +1022,6 @@ void RespondRuntimeVoidAsync(
           }
           if (ok) {
             result->Success();
-          } else {
-            result->Error("RUNTIME_BRIDGE_ERROR", error);
-          }
-        });
-  });
-  if (!submitted) {
-    auto platform_result = std::move(*result_holder);
-    platform_result->Error("RUNTIME_WORKER_QUEUE_CLOSED",
-                           "runtime worker queue is not accepting work");
-  }
-}
-
-/// Runs a core proxy call off the Windows platform thread.
-void RespondRuntimeCallAsync(
-    const std::shared_ptr<OperitRuntimeChannelOwner>& channel_owner,
-    std::vector<uint8_t> request,
-    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  auto* workers = g_operit_runtime_workers.get();
-  if (workers == nullptr) {
-    result->Error("RUNTIME_WORKER_QUEUE_CLOSED",
-                  "runtime worker queue is not available");
-    return;
-  }
-  auto library = g_operit_runtime_library;
-  auto result_holder = std::make_shared<
-      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>>(
-      std::move(result));
-  const bool submitted = workers->Post(
-      [channel_owner, library, request = std::move(request), result_holder]() mutable {
-    std::vector<uint8_t> response;
-    std::string error;
-    const bool ok = library->Call(request, &response, &error);
-    auto platform_result = std::move(*result_holder);
-    PostOperitRuntimePlatformTask(
-        [channel_owner, result = std::move(platform_result), ok, response = std::move(response),
-         error = std::move(error)]() mutable {
-          if (!channel_owner->accepting_responses.load()) {
-            return;
-          }
-          if (ok) {
-            result->Success(flutter::EncodableValue(response));
           } else {
             result->Error("RUNTIME_BRIDGE_ERROR", error);
           }
@@ -1551,102 +1264,11 @@ void RegisterOperitRuntimeChannel(flutter::FlutterEngine* engine, HWND window) {
           result->Success();
           return;
         }
-        if (method_call.method_name().compare("call") == 0) {
-          const std::vector<uint8_t>* request =
-              std::get_if<std::vector<uint8_t>>(method_call.arguments());
-          if (request == nullptr) {
-            result->Error("INVALID_ARGS", "call expects MessagePack bytes");
-            return;
-          }
-          RespondRuntimeCallAsync(channel_owner, *request, std::move(result));
-          return;
-        }
-        if (method_call.method_name().compare("pushOpen") == 0 ||
-            method_call.method_name().compare("pushItem") == 0) {
-          const std::vector<uint8_t>* request =
-              std::get_if<std::vector<uint8_t>>(method_call.arguments());
-          if (request == nullptr) {
-            result->Error("INVALID_ARGS", "push operation expects MessagePack bytes");
-            return;
-          }
-          const bool opening = method_call.method_name().compare("pushOpen") == 0;
-          RespondRuntimeBytesAsync(
+        if (method_call.method_name().compare("connectCoreFfi") == 0) {
+          RespondRuntimeStringAsync(
               channel_owner,
-              [runtime_library, request = *request, opening](
-                  std::vector<uint8_t>* response, std::string* operation_error) {
-                return opening
-                    ? runtime_library->PushOpen(request, response, operation_error)
-                    : runtime_library->PushItem(request, response, operation_error);
-              },
-              std::move(result));
-          return;
-        }
-        if (method_call.method_name().compare("pushClose") == 0) {
-          const std::string* push_id = StringArgument(method_call);
-          if (push_id == nullptr) {
-            result->Error("INVALID_ARGS", "pushClose expects a push id");
-            return;
-          }
-          RespondRuntimeBytesAsync(
-              channel_owner,
-              [runtime_library, push_id = *push_id](
-                  std::vector<uint8_t>* response, std::string* operation_error) {
-                return runtime_library->PushClose(push_id, response, operation_error);
-              },
-              std::move(result));
-          return;
-        }
-        if (method_call.method_name().compare("watchSnapshot") == 0) {
-          const std::vector<uint8_t>* request =
-              std::get_if<std::vector<uint8_t>>(method_call.arguments());
-          if (request == nullptr) {
-            result->Error("INVALID_ARGS", "watchSnapshot expects MessagePack bytes");
-            return;
-          }
-          RespondRuntimeBytesAsync(
-              channel_owner,
-              [runtime_library, request = *request](
-                  std::vector<uint8_t>* response, std::string* operation_error) {
-                return runtime_library->WatchSnapshot(
-                    request, response, operation_error);
-              },
-              std::move(result));
-          return;
-        }
-        if (method_call.method_name().compare("watchStream") == 0) {
-          const std::vector<uint8_t>* request =
-              std::get_if<std::vector<uint8_t>>(method_call.arguments());
-          if (request == nullptr) {
-            result->Error("INVALID_ARGS", "watchStream expects MessagePack bytes");
-            return;
-          }
-          RespondRuntimeBytesAsync(
-              channel_owner,
-              [runtime_library, request = *request](
-                  std::vector<uint8_t>* response, std::string* operation_error) {
-                if (!runtime_library->WatchStream(
-                        request, response, operation_error)) {
-                  return false;
-                }
-                EnsureWatchChannelPump(runtime_library);
-                return true;
-              },
-              std::move(result));
-          return;
-        }
-        if (method_call.method_name().compare("closeWatchStream") == 0) {
-          const std::string* subscription = StringArgument(method_call);
-          if (subscription == nullptr) {
-            result->Error("INVALID_ARGS",
-                          "closeWatchStream expects a subscription id");
-            return;
-          }
-          RespondRuntimeBytesAsync(
-              channel_owner,
-              [runtime_library, subscription = *subscription](
-                  std::vector<uint8_t>* response, std::string* operation_error) {
-                return runtime_library->CloseWatchStream(
-                    subscription, response, operation_error);
+              [runtime_library](std::string* response, std::string* operation_error) {
+                return runtime_library->ConnectCoreFfi(response, operation_error);
               },
               std::move(result));
           return;
@@ -1749,7 +1371,6 @@ void ShutdownOperitRuntimeChannel() {
     channel_owner->accepting_responses.store(false);
   }
   g_operit_runtime_workers.reset();
-  StopWatchChannelPump();
   ClearOperitRuntimePlatformTasks();
   g_operit_runtime_library.reset();
   g_pending_notification_activations.clear();

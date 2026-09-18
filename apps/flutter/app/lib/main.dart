@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:desktop_widgets/desktop_widgets.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'core/application/CoreApplicationService.dart';
@@ -12,6 +13,7 @@ import 'core/runtime/RuntimeBootstrapManager.dart';
 import 'ui/features/packages/screens/GitHubOAuthLoginCallback.dart';
 import 'ui/main/OperitApp.dart';
 import 'ui/window/DetachedChatWindowApp.dart';
+import 'ui/window/DesktopWidgetWindowApp.dart';
 import 'ui/window/OperitWindowArguments.dart';
 import 'ui/window/OperitWindowPlatform.dart';
 
@@ -58,24 +60,30 @@ void main(List<String> arguments) async {
         'liquid glass initialized elapsedMs=${glassStopwatch.elapsedMilliseconds}',
         tag: _appStartupLogTag,
       );
-      final windowStopwatch = Stopwatch()..start();
-      final windowArguments = await readOperitWindowArguments();
-      ClientLogger.i(
-        'window arguments read type=${windowArguments.runtimeType} elapsedMs=${windowStopwatch.elapsedMilliseconds}',
-        tag: _appStartupLogTag,
-      );
-      switch (windowArguments) {
-        case MainWindowArguments():
-          final coreStopwatch = Stopwatch()..start();
-          CoreApplicationService.instance.initialize();
+      await DesktopWidgets.run(
+        arguments: arguments,
+        widgetBuilder: (launch) => DesktopWidgetWindowApp(launch: launch),
+        application: () async {
+          final windowStopwatch = Stopwatch()..start();
+          final windowArguments = await readOperitWindowArguments();
           ClientLogger.i(
-            'core application initialize dispatched elapsedMs=${coreStopwatch.elapsedMilliseconds}',
+            'window arguments read type=${windowArguments.runtimeType} elapsedMs=${windowStopwatch.elapsedMilliseconds}',
             tag: _appStartupLogTag,
           );
-          _runMainWindow();
-        case final DetachedChatWindowArguments detachedArguments:
-          _runDetachedChatWindow(detachedArguments);
-      }
+          switch (windowArguments) {
+            case MainWindowArguments():
+              final coreStopwatch = Stopwatch()..start();
+              CoreApplicationService.instance.initialize();
+              ClientLogger.i(
+                'core application initialize dispatched elapsedMs=${coreStopwatch.elapsedMilliseconds}',
+                tag: _appStartupLogTag,
+              );
+              _runMainWindow();
+            case final DetachedChatWindowArguments detachedArguments:
+              _runDetachedChatWindow(detachedArguments);
+          }
+        },
+      );
       ClientLogger.i(
         'startup done elapsedMs=${startupStopwatch.elapsedMilliseconds}',
         tag: _appStartupLogTag,

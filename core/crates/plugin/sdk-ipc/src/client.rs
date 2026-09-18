@@ -41,7 +41,7 @@ pub struct PluginSdkClient {
 }
 
 impl PluginSdkClient {
-    /// Connects a third-party process to one running Operit host endpoint.
+    /// Activates and connects to Operit through the selected platform host.
     pub fn connect(
         host: Arc<dyn PluginSdkIpcHost>,
         endpoint: PluginSdkIpcEndpoint,
@@ -85,7 +85,17 @@ impl PluginSdkClient {
         Ok(Self { state })
     }
 
-    /// Allocates a request id local to this IPC session.
+    /// Closes the shared SDK session and rejects its outstanding operations.
+    pub fn close(&self) -> Result<(), CoreLinkError> {
+        let (host, session_id) = {
+            let mut state = self.state.lock().map_err(|e| CoreLinkError::internal(e.to_string()))?;
+            let session_id = state.sessionId.take().ok_or_else(|| CoreLinkError::internal("Plugin SDK session is closed"))?;
+            (state.host.clone(), session_id)
+        };
+        failPending(&self.state, "Plugin SDK IPC session closed");
+        host.closeSession(&session_id).map_err(|e| CoreLinkError::internal(e.to_string()))
+    }
+
     /// Allocates a request id for a generated SDK method.
     pub fn nextRequestId(&self) -> Result<String, CoreLinkError> {
         let mut guard = self

@@ -1435,7 +1435,6 @@ name = "operit-host-native-plugin-sdk-ipc"
 version = "0.1.0"
 dependencies = [
  "operit-host-api",
- "windows-sys 0.59.0",
 ]
 
 [[package]]

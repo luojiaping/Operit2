@@ -59,6 +59,7 @@ pub(crate) struct ConfigUi {
     pub(crate) confirm_action: ConfirmAction,
     pub(crate) show_add_model_popup: bool,
     pub(crate) add_model_custom_mode: bool,
+    pub(crate) add_model_include_history: bool,
     pub(crate) add_model_search: String,
     pub(crate) add_model_filtered: Vec<usize>,
     pub(crate) add_model_index: usize,
@@ -87,7 +88,7 @@ impl ConfigUi {
             editing_provider_id: None,
             error_message: None,
             status_message: None,
-            chat_provider_id: String::new(),
+            chat_provider_id: ModelConfigManager::DEFAULT_PROVIDER_ID.to_string(),
             chat_model_id: String::new(),
             show_confirm_dialog: false,
             confirm_title: String::new(),
@@ -95,6 +96,7 @@ impl ConfigUi {
             confirm_action: ConfirmAction::None,
             show_add_model_popup: false,
             add_model_custom_mode: false,
+            add_model_include_history: false,
             add_model_search: String::new(),
             add_model_filtered: Vec::new(),
             add_model_index: 0,
@@ -176,19 +178,19 @@ impl ConfigUi {
         }
     }
 
+    /// Rebuilds the add-model list from search text and the fetched-or-history scope.
     fn update_add_model_filter(&mut self) {
         let search = self.add_model_search.to_ascii_lowercase();
-        if search.is_empty() {
-            self.add_model_filtered = (0..self.available_models.len()).collect();
-        } else {
-            self.add_model_filtered = self
-                .available_models
-                .iter()
-                .enumerate()
-                .filter(|(_, model)| model.modelId.to_ascii_lowercase().contains(&search))
-                .map(|(index, _)| index)
-                .collect();
-        }
+        self.add_model_filtered = self
+            .available_models
+            .iter()
+            .enumerate()
+            .filter(|(_, model)| {
+                (self.add_model_include_history || model.isFetched())
+                    && (search.is_empty() || model.modelId.to_ascii_lowercase().contains(&search))
+            })
+            .map(|(index, _)| index)
+            .collect();
         self.add_model_index = 0;
     }
 
@@ -409,8 +411,13 @@ impl ConfigUi {
             )));
         }
         if self.show_add_model_popup {
+            let footer = if self.add_model_include_history {
+                text.config_add_model_popup_all()
+            } else {
+                text.config_add_model_popup_fetched()
+            };
             return ratatui::text::Text::from(Line::from(Span::styled(
-                "Up/Down: select  |  Enter: add model  |  Type to filter  |  Esc: cancel",
+                footer,
                 Style::default().fg(theme::TEXT_SUBTLE),
             )));
         }
@@ -536,11 +543,6 @@ impl ConfigUi {
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
 
-        let areas = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(0)])
-            .split(inner);
-
         if self.add_model_custom_mode {
             let value = if self.add_model_search.is_empty() {
                 vec![Span::styled(
@@ -571,10 +573,19 @@ impl ConfigUi {
                     )),
                     Line::from(value),
                 ]),
-                areas[1],
+                inner,
             );
             return;
         }
+
+        let areas = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(0),
+            ])
+            .split(inner);
 
         // Search
         let search_display = if self.add_model_search.is_empty() {
@@ -593,6 +604,19 @@ impl ConfigUi {
             areas[0],
         );
 
+        let scope_text = if self.add_model_include_history {
+            text.config_add_model_scope_all()
+        } else {
+            text.config_add_model_scope_fetched()
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                scope_text,
+                Style::default().fg(theme::TEXT_SUBTLE),
+            ))),
+            areas[1],
+        );
+
         // Model list
         let items: Vec<ListItem> = self
             .add_model_filtered
@@ -600,7 +624,14 @@ impl ConfigUi {
             .map(|&i| {
                 let model = self.available_models.get(i);
                 let name = model.map(|m| m.modelId.as_str()).unwrap_or("?");
-                ListItem::new(Line::from(Span::styled(name, Style::default())))
+                let label = if self.add_model_include_history
+                    && model.is_some_and(|item| !item.isFetched())
+                {
+                    format!("{name} ({})", text.config_add_model_source_history())
+                } else {
+                    name.to_string()
+                };
+                ListItem::new(Line::from(Span::styled(label, Style::default())))
             })
             .collect();
 
@@ -631,7 +662,7 @@ impl ConfigUi {
                         .add_modifier(Modifier::BOLD),
                 )
                 .highlight_symbol(">> "),
-            areas[1],
+            areas[2],
             &mut state,
         );
     }
@@ -838,9 +869,9 @@ impl ConfigUi {
                             .collect();
                         self.show_add_model_popup = true;
                         self.add_model_custom_mode = false;
+                        self.add_model_include_history = false;
                         self.add_model_search.clear();
-                        self.add_model_index = 0;
-                        self.add_model_filtered = (0..self.available_models.len()).collect();
+                        self.update_add_model_filter();
                     }
                     Err(error) => {
                         self.error_message = Some(error.to_string());
@@ -1348,6 +1379,12 @@ impl ConfigUi {
                                     }
                                 }
                             }
+                        }
+                    }
+                    KC::Tab | KC::BackTab => {
+                        if !self.add_model_custom_mode {
+                            self.add_model_include_history = !self.add_model_include_history;
+                            self.update_add_model_filter();
                         }
                     }
                     KC::Esc => {

@@ -497,6 +497,8 @@ class _ComposeDslWebViewState extends State<ComposeDslWebView> {
   _ComposeDslWebViewControllerDescriptor? _boundControllerDescriptor;
   String? _boundExecutionContextKey;
   ComposeDslWebViewResourceServer? _resourceServer;
+  Brightness? _brightness;
+  Future<void> _themeUpdate = Future<void>.value();
 
   @override
   void initState() {
@@ -533,7 +535,31 @@ class _ComposeDslWebViewState extends State<ComposeDslWebView> {
     }
     _applyControllerSettingsIfNeeded(force: true);
     _bindControllerIfNeeded();
-    _scheduleLoad();
+  }
+
+  /// Applies the resolved app theme before the first navigation and on theme changes.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final brightness = Theme.of(context).brightness;
+    if (_brightness == brightness) return;
+    final initial = _brightness == null;
+    _brightness = brightness;
+    _themeUpdate = _controller.setPreferredColorScheme(brightness);
+    if (initial) {
+      _scheduleLoad();
+    } else {
+      unawaited(_reportThemeUpdate());
+    }
+  }
+
+  /// Surfaces native theme failures in the same error UI as browser load failures.
+  Future<void> _reportThemeUpdate() async {
+    try {
+      await _themeUpdate;
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
   }
 
   /// Creates a WebView controller with platform-supported host callbacks.
@@ -877,6 +903,8 @@ class _ComposeDslWebViewState extends State<ComposeDslWebView> {
 
   Future<void> _load() async {
     try {
+      await _themeUpdate;
+      if (!mounted) return;
       if (mounted) {
         setState(() {
           _error = null;

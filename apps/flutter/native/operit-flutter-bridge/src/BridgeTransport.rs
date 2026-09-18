@@ -101,6 +101,7 @@ impl Drop for OperitFlutterBridge {
                     let _ = cancelSender.send(());
                 }
             }
+            crate::PlatformRuntimeFactory::release_runtime_host();
         }
     }
 }

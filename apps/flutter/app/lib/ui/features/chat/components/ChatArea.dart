@@ -132,7 +132,7 @@ class _ChatAreaState extends State<ChatArea>
   Timer? _navigatorHideTimer;
   Timer? _viewportResizeTimer;
   bool _userScrollSessionActive = false;
-  bool _userScrollsTowardHistory = false;
+  ScrollDirection _userScrollDirection = ScrollDirection.idle;
   final Set<int> _activeUserScrollPointers = <int>{};
   bool _messageAnchorCollectionScheduled = false;
   double _viewportHeight = 0;
@@ -331,6 +331,9 @@ class _ChatAreaState extends State<ChatArea>
   bool _handleScrollMetricsNotification(
     ScrollMetricsNotification notification,
   ) {
+    if (notification.depth != 0) {
+      return false;
+    }
     final maxScrollExtentDelta = _updateLastScrollMaxExtent(
       notification.metrics.maxScrollExtent,
     );
@@ -388,11 +391,14 @@ class _ChatAreaState extends State<ChatArea>
 
   /// Updates navigator anchors for active user scroll sessions only.
   bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.depth != 0) {
+      return false;
+    }
     if (notification is UserScrollNotification) {
       if (notification.direction != ScrollDirection.idle) {
+        _clearPendingMessageJump();
         _userScrollSessionActive = true;
-        _userScrollsTowardHistory =
-            notification.direction == ScrollDirection.reverse;
+        _userScrollDirection = notification.direction;
         if (!_showNavigatorChipNotifier.value) {
           _showNavigatorChipNotifier.value = true;
         }
@@ -400,13 +406,17 @@ class _ChatAreaState extends State<ChatArea>
           _stopBottomFollow();
           widget.onAutoScrollToBottomChanged(false);
         }
-      } else if (_userScrollSessionActive) {
-        if (_isAtBottom(notification.metrics) &&
+      } else {
+        if (_userScrollSessionActive &&
+            _userScrollDirection == ScrollDirection.reverse &&
+            _isAtBottom(notification.metrics) &&
             !widget.autoScrollToBottomListenable.value) {
           widget.onAutoScrollToBottomChanged(true);
         }
-        _userScrollsTowardHistory = false;
-        _scheduleNavigatorHide();
+        _userScrollDirection = ScrollDirection.idle;
+        if (_userScrollSessionActive) {
+          _scheduleNavigatorHide();
+        }
       }
     }
 
@@ -421,8 +431,8 @@ class _ChatAreaState extends State<ChatArea>
       if (_userScrollSessionActive) {
         _scheduleMessageAnchorCollection();
       }
-      if (_isAtBottom(notification.metrics) &&
-          !_userScrollsTowardHistory &&
+      if (_userScrollDirection == ScrollDirection.reverse &&
+          _isAtBottom(notification.metrics) &&
           !widget.autoScrollToBottomListenable.value) {
         widget.onAutoScrollToBottomChanged(true);
       }
@@ -444,6 +454,7 @@ class _ChatAreaState extends State<ChatArea>
 
   /// Freezes automatic bottom following while a touch drag can own the gesture.
   void _handleUserPointerDown(PointerDownEvent event) {
+    _clearPendingMessageJump();
     _activeUserScrollPointers.add(event.pointer);
     if (_bottomFollowTicker.isActive) {
       _bottomFollowLastFrameMicroseconds =
@@ -506,9 +517,11 @@ class _ChatAreaState extends State<ChatArea>
     });
   }
 
-  /// Reports whether the supplied scroll metrics are positioned at the bottom.
+  /// Reports whether the settled display window has reached the latest bottom.
   bool _isAtBottom(ScrollMetrics metrics) {
-    return metrics.pixels >= metrics.maxScrollExtent - 2;
+    return !widget.hasNewerDisplayHistory &&
+        !widget.isLoadingDisplayWindow &&
+        metrics.pixels >= metrics.maxScrollExtent - 2;
   }
 
   /// Schedules one immediate automatic alignment with the current bottom extent.
@@ -685,7 +698,9 @@ class _ChatAreaState extends State<ChatArea>
         message.contentStream != null;
   }
 
+  /// Replaces any message locator target with an explicit bottom request.
   Future<void> _scrollToBottomFromNavigator() async {
+    _clearPendingMessageJump();
     widget.onAutoScrollToBottomChanged(true);
     if (widget.hasNewerDisplayHistory) {
       await widget.onShowLatestDisplayWindow();
@@ -957,7 +972,7 @@ class _ChatAreaState extends State<ChatArea>
       _messageAnchorsNotifier.value = const <int, ChatScrollMessageAnchor>{};
       _showNavigatorChipNotifier.value = false;
       _userScrollSessionActive = false;
-      _userScrollsTowardHistory = false;
+      _userScrollDirection = ScrollDirection.idle;
       _clearPendingMessageJump();
       _pendingMessageJumpScheduled = false;
       _pendingMessageJumpInFlight = false;

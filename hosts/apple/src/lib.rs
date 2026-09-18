@@ -24,4 +24,6 @@ pub use tools::terminal::AppleTerminalHost;
 pub use tools::tts::{AppleTtsPlaybackCommand, AppleTtsPlaybackHost, AppleTtsSynthesisHost};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-pub use operit_host_native_plugin_sdk_ipc::UnixPluginSdkIpcHost as ApplePluginSdkIpcHost;
+pub use plugin_sdk_ipc::UnixPluginSdkIpcHost as ApplePluginSdkIpcHost;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod plugin_sdk_ipc;

@@ -1776,7 +1776,7 @@ fn print_model_usage() {
     println!("operit2 cli model provider-create <name> <provider-type-id> <endpoint>");
     println!("operit2 cli model provider-set-key <provider-id> <api-key>");
     println!("operit2 cli model provider-set-endpoint <provider-id> <endpoint>");
-    println!("operit2 cli model provider-model-available-list <provider-id>");
+    println!("operit2 cli model provider-model-available-list <provider-id> [fetched|all]");
     println!("operit2 cli model provider-model-add <provider-id> <provider-model-id>");
     println!("operit2 cli model provider-model-create <provider-id> <provider-model-id>");
     println!("operit2 cli model list");

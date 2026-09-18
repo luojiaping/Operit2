@@ -814,6 +814,10 @@ macro_rules! impl_rejecting_js_tools_host {
 
         #[allow(non_snake_case)]
         impl operit_plugin_sdk::js_sdk::memory::MemoryHost for $host {
+            /// Rejects memory owner resolution outside tests that provide this capability.
+            fn getOwnerKey(&self, _callerCardId: String) -> operit_plugin_sdk::js_sdk::JsFuture<String> {
+                $crate::javascript::TestJsToolsHost::rejecting_js_future("Memory.getOwnerKey is not part of this test")
+            }
             /// Rejects memory queries in this test host.
             fn query_overload_1(&self, _query: String, _folderPath: Option<String>, _limit: Option<f64>, _startTime: Option<String>, _endTime: Option<String>, _snapshotId: Option<String>, _threshold: Option<f64>, _targetOwnerKey: Option<String>) -> operit_plugin_sdk::js_sdk::JsFuture<operit_plugin_sdk::js_sdk::results::MemoryQueryResultData> {
                 $crate::javascript::TestJsToolsHost::rejecting_js_future("Memory.query is not part of this test")

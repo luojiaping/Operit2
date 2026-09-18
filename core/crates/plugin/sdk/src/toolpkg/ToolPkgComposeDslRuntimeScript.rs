@@ -10,10 +10,12 @@ pub fn buildComposeDslRuntimeWrappedScript(script: &str) -> String {
                 return !!(__value && typeof __value.then === 'function');
             }}
 
-            function __operit_wrap_compose_response(__bundle, __tree, __actionResult) {{
+            /// Keeps navigation queued during intermediate renders until the action completes.
+            function __operit_wrap_compose_response(__bundle, __tree, __actionResult, __includeNavigation = true) {{
                 var __response = {{
                     state: __bundle.state,
-                    memo: __bundle.memo
+                    memo: __bundle.memo,
+                    navigationCommands: __includeNavigation ? __bundle.takeNavigationCommands() : []
                 }};
                 if (typeof __tree !== 'undefined') {{
                     __response.tree = __tree;
@@ -24,18 +26,20 @@ pub fn buildComposeDslRuntimeWrappedScript(script: &str) -> String {
                 return __response;
             }}
 
-            function __operit_build_compose_response(__bundle, __entry, __actionResult) {{
+            /// Builds a response while preserving the caller's navigation delivery policy.
+            function __operit_build_compose_response(__bundle, __entry, __actionResult, __includeNavigation = true) {{
                 var __tree = __entry(__bundle.ctx);
                 if (__operit_is_promise(__tree)) {{
                     return __tree.then(function(__resolvedTree) {{
                         return __operit_wrap_compose_response(
                             __bundle,
                             __resolvedTree,
-                            __actionResult
+                            __actionResult,
+                            __includeNavigation
                         );
                     }});
                 }}
-                return __operit_wrap_compose_response(__bundle, __tree, __actionResult);
+                return __operit_wrap_compose_response(__bundle, __tree, __actionResult, __includeNavigation);
             }}
 
             function __operitResolveComposeEntry() {{
@@ -207,7 +211,7 @@ pub fn buildComposeDslRuntimeWrappedScript(script: &str) -> String {
                         return null;
                     }}
                     try {{
-                        var __intermediateResponse = __operit_build_compose_response(__bundle, __entry);
+                        var __intermediateResponse = __operit_build_compose_response(__bundle, __entry, undefined, false);
                         if (__operit_is_promise(__intermediateResponse)) {{
                             return __intermediateResponse.then(function(__resolvedIntermediate) {{
                                 if (!__actionSettled) {{

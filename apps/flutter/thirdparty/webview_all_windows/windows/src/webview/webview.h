@@ -259,6 +259,8 @@ public:
   bool SetZoomControlEnabled(bool enabled);
   bool OpenDevTools();
   bool SetBackgroundColor(int32_t color);
+  /// Updates the browser profile's native prefers-color-scheme preference.
+  bool SetPreferredColorScheme(bool dark);
   bool SetZoomFactor(double factor);
   bool Suspend();
   bool Resume();

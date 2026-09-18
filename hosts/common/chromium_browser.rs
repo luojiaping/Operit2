@@ -4,7 +4,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -921,10 +921,7 @@ fn spawn_browser(
             .arg(format!("--remote-debugging-port={port}"))
             .arg(format!("--user-data-dir={}", profile_dir.display()))
             .args(extra_args)
-            .arg("about:blank")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .arg("about:blank");
         match command.spawn() {
             Ok(child) => return Ok(child),
             Err(error) => errors.push(format!("{candidate}: {error}")),

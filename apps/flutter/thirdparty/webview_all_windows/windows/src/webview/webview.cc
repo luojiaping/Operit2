@@ -1173,6 +1173,17 @@ bool Webview::SetZoomControlEnabled(bool enabled) {
   return false;
 }
 
+/// Sets the native profile preference without changing page content or navigation.
+bool Webview::SetPreferredColorScheme(bool dark) {
+  auto webview13 = webview_.try_query<ICoreWebView2_13>();
+  if (!webview13) return false;
+  wil::com_ptr<ICoreWebView2Profile> profile;
+  if (FAILED(webview13->get_Profile(profile.put()))) return false;
+  return SUCCEEDED(profile->put_PreferredColorScheme(
+      dark ? COREWEBVIEW2_PREFERRED_COLOR_SCHEME_DARK
+           : COREWEBVIEW2_PREFERRED_COLOR_SCHEME_LIGHT));
+}
+
 bool Webview::SetBackgroundColor(int32_t color) {
   if (!IsValid()) {
     return false;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <flutter/plugin_registrar_windows.h>
+#include <flutter/method_channel.h>
 #include <windows.h>
 
 #include <memory>
@@ -31,6 +32,8 @@ private:
   WNDCLASS window_class_ = {};
   flutter::TextureRegistrar *textures_;
   flutter::BinaryMessenger *messenger_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> theme_channel_;
+  std::optional<bool> preferred_dark_;
 
   bool InitPlatform();
 

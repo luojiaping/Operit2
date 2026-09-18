@@ -13,3 +13,6 @@ quote = "1"
 syn = { version = "2", features = ["full", "visit"] }
 tree-sitter = "0.25"
 tree-sitter-javascript = "0.23"
+
+[dev-dependencies]
+operit-proxy-scan = { path = "../../proxy/scan" }

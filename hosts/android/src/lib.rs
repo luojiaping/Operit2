@@ -55,7 +55,9 @@ pub use tts_playback::{AndroidTtsPlaybackCommand, AndroidTtsPlaybackHost};
 pub use tts_synthesis::AndroidTtsSynthesisHost;
 pub use web_visit::AndroidWebVisitHost;
 #[cfg(target_os = "android")]
-pub use operit_host_native_plugin_sdk_ipc::UnixPluginSdkIpcHost as AndroidPluginSdkIpcHost;
+pub use plugin_sdk_ipc::{AndroidPluginSdkIpcHost, setAndroidPluginSdkBridge, acceptAndroidPluginSdkPipes};
+#[cfg(target_os = "android")]
+mod plugin_sdk_ipc;
 
 /// Creates the Android-owned runtime host manager for explicit storage roots.
 #[cfg(target_os = "android")]

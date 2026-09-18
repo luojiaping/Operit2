@@ -11,6 +11,7 @@ import { OperitRuntimeChannel } from './OperitRuntimeChannel';
 export default class EntryAbility extends FlutterAbility {
   private operitRuntimeChannel: OperitRuntimeChannel | null = null;
   private crashChannel: MethodChannel | null = null;
+  private themeChannel: MethodChannel | null = null;
   private currentWindowStage: window.WindowStage | null = null;
 
   /// Captures the notification activation that launched this application process.
@@ -29,6 +30,23 @@ export default class EntryAbility extends FlutterAbility {
   configureFlutterEngine(flutterEngine: FlutterEngine) {
     super.configureFlutterEngine(flutterEngine)
     GeneratedPluginRegistrant.registerWith(flutterEngine)
+    this.themeChannel = new MethodChannel(flutterEngine.getDartExecutor(), 'operit/webview_theme')
+    // Updates ArkWeb preferences without overriding the application's system theme source.
+    this.themeChannel.setMethodCallHandler({
+      onMethodCall: (call, result): void => {
+        if (call.method !== 'setPreferredColorScheme') {
+          result.notImplemented()
+          return
+        }
+        const scheme = call.args as string
+        if (scheme !== 'dark' && scheme !== 'light') {
+          result.error('invalid_color_scheme', 'Expected dark or light', null)
+          return
+        }
+        AppStorage.setOrCreate<boolean>('operitWebViewDark', scheme === 'dark')
+        result.success(null)
+      }
+    })
     const channel = new MethodChannel(flutterEngine.getDartExecutor(), 'operit/runtime')
     this.operitRuntimeChannel = OperitRuntimeChannel.register(channel, this.context, this.currentWindowStage)
     this.crashChannel = new MethodChannel(flutterEngine.getDartExecutor(), 'operit/crash')
@@ -70,6 +88,8 @@ export default class EntryAbility extends FlutterAbility {
 
   /// Releases the native Operit runtime bridge.
   onDestroy(): void {
+    this.themeChannel?.setMethodCallHandler(null)
+    this.themeChannel = null
     this.crashChannel?.setMethodCallHandler(null)
     this.crashChannel = null
     this.operitRuntimeChannel?.destroy()

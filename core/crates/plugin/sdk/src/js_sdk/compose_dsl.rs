@@ -2710,8 +2710,107 @@ pub enum ComposeChildren {
 /// Factory that encodes component properties and children as a Compose node.
 pub type ComposeNodeFactory<TProps = BTreeMap<String, serde_json::Value>> =
     Arc<dyn Fn(Option<TProps>, Option<ComposeChildren>) -> ComposeNode + Send + Sync>;
+/// Completion returned by dialog actions.
+pub enum ComposeDialogActionOutput {
+    /// Completes immediately.
+    Variant1(()),
+    /// Completes asynchronously.
+    Variant2(JsFuture<()>),
+}
+/// Dialog text supplied as a literal or a node slot.
+pub enum ComposeDialogText {
+    /// Displays a text literal.
+    Variant1(String),
+    /// Renders child nodes.
+    Variant2(ComposeChildren),
+}
+/// Modal dismissal and window layout policies.
+pub struct DialogProperties {
+    /// Allows dismissal requests from the back button.
+    pub dismissOnBackPress: Option<bool>,
+    /// Allows dismissal requests from the modal barrier.
+    pub dismissOnClickOutside: Option<bool>,
+    /// Applies the platform's preferred dialog width.
+    pub usePlatformDefaultWidth: Option<bool>,
+    /// Insets dialog content around system UI.
+    pub decorFitsSystemWindows: Option<bool>,
+}
+/// Properties for a custom modal dialog.
+pub struct DialogProps {
+    /// Shared node properties.
+    pub base_compose_common_props: ComposeCommonProps,
+    /// Custom modal content.
+    pub content: Option<ComposeChildren>,
+    /// Receives back-button and outside-click dismissal requests.
+    pub onDismissRequest: Option<Arc<dyn Fn() -> ComposeDialogActionOutput + Send + Sync>>,
+    /// Closes the modal after a dismissal request; defaults to true.
+    pub closeOnDismissRequest: Option<bool>,
+    /// Modal background color.
+    pub containerColor: Option<ComposeColor>,
+    /// Modal foreground color.
+    pub contentColor: Option<ComposeColor>,
+    /// Modal elevation.
+    pub tonalElevation: Option<f64>,
+    /// Modal surface shape.
+    pub shape: Option<ComposeShape>,
+    /// Modal window policies.
+    pub properties: Option<DialogProperties>,
+}
+/// Properties for a modal confirmation dialog.
+pub struct AlertDialogProps {
+    /// Shared node properties.
+    pub base_compose_common_props: ComposeCommonProps,
+    /// Dialog heading as text or child nodes.
+    pub title: Option<ComposeDialogText>,
+    /// Dialog body as text or child nodes.
+    pub text: Option<ComposeDialogText>,
+    /// Markdown body content.
+    pub markdown: Option<String>,
+    /// Custom body content.
+    pub content: Option<ComposeChildren>,
+    /// Leading dialog icon.
+    pub icon: Option<ComposeChildren>,
+    /// Custom confirmation control.
+    pub confirmButton: Option<ComposeChildren>,
+    /// Custom dismissal control.
+    pub dismissButton: Option<ComposeChildren>,
+    /// Confirmation button label.
+    pub confirmText: Option<String>,
+    /// Dismissal button label.
+    pub dismissText: Option<String>,
+    /// Receives confirmation button actions.
+    pub onConfirm: Option<Arc<dyn Fn() -> ComposeDialogActionOutput + Send + Sync>>,
+    /// Receives dismissal button actions.
+    pub onDismiss: Option<Arc<dyn Fn() -> ComposeDialogActionOutput + Send + Sync>>,
+    /// Receives back-button and outside-click dismissal requests.
+    pub onDismissRequest: Option<Arc<dyn Fn() -> ComposeDialogActionOutput + Send + Sync>>,
+    /// Closes after confirmation; defaults to true.
+    pub closeOnConfirm: Option<bool>,
+    /// Closes after dismissal; defaults to true.
+    pub closeOnDismiss: Option<bool>,
+    /// Closes after a dismissal request; defaults to true.
+    pub closeOnDismissRequest: Option<bool>,
+    /// Modal background color.
+    pub containerColor: Option<ComposeColor>,
+    /// Icon foreground color.
+    pub iconContentColor: Option<ComposeColor>,
+    /// Title foreground color.
+    pub titleContentColor: Option<ComposeColor>,
+    /// Body foreground color.
+    pub textContentColor: Option<ComposeColor>,
+    /// Modal elevation.
+    pub tonalElevation: Option<f64>,
+    /// Modal surface shape.
+    pub shape: Option<ComposeShape>,
+    /// Modal window policies.
+    pub properties: Option<DialogProperties>,
+}
 /// Core component factories available through `ComposeDslContext::UI`.
 pub struct ComposeUiFactoryRegistry {
+    /// Creates a custom modal dialog.
+    pub Dialog: ComposeNodeFactory<DialogProps>,
+    /// Creates a modal confirmation dialog.
+    pub AlertDialog: ComposeNodeFactory<AlertDialogProps>,
     /// Creates a vertical layout container.
     pub Column: ComposeNodeFactory<ColumnProps>,
     /// Creates a horizontal layout container.
@@ -2800,12 +2899,18 @@ pub enum ComposeFilePickerMode {
     /// Opens the platform photo selector.
     #[serde(rename = "photo")]
     Photo,
+    /// Opens the image selector using the v1 mode name.
+    #[serde(rename = "image")]
+    Image,
     /// Opens the platform video selector.
     #[serde(rename = "video")]
     Video,
     /// Opens the platform photo and video selector.
     #[serde(rename = "media")]
     Media,
+    /// Opens the platform directory selector.
+    #[serde(rename = "directory")]
+    Directory,
 }
 /// Selection behavior for the host file picker.
 pub struct ComposeFilePickerOptions {
@@ -2813,6 +2918,8 @@ pub struct ComposeFilePickerOptions {
     pub picker: Option<ComposeFilePickerMode>,
     /// Whether the user may select more than one document or visual-media item.
     pub allowMultiple: Option<bool>,
+    /// MIME types accepted by the document selector.
+    pub mimeTypes: Option<Vec<String>>,
 }
 /// File metadata returned by the host picker.
 pub struct ComposePickedFile {

@@ -529,6 +529,12 @@ class WebWebViewController extends PlatformWebViewController {
     }
   }
 
+  /// Lets the browser propagate the iframe's color scheme to embedded media queries.
+  @override
+  Future<void> setPreferredColorScheme(Brightness brightness) async {
+    _webWebViewParams.iFrame.style.setProperty('color-scheme', brightness.name);
+  }
+
   @override
   Future<void> setBackgroundColor(Color color) async {
     _webWebViewParams.iFrame.style.backgroundColor = _cssColorFrom(color);

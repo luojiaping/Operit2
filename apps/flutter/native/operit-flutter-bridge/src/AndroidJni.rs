@@ -1,7 +1,20 @@
 use crate::*;
-use jni::objects::{JByteArray, JClass, JObject, JString};
-use jni::sys::{jbyteArray, jlong, jstring};
+use jni::objects::{JClass, JObject, JString};
+use jni::sys::{jlong, jstring};
 use jni::JNIEnv;
+
+/// Accepts the borrowed pipe descriptors delivered by the Android Binder endpoint.
+#[no_mangle]
+pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_acceptPluginSdkPipes(
+    mut env: JNIEnv,
+    _class: JClass,
+    reader: jni::sys::jint,
+    writer: jni::sys::jint,
+) {
+    if let Err(error) = operit_host_android_native::acceptAndroidPluginSdkPipes(reader, writer) {
+        let _ = env.throw_new("java/lang/IllegalStateException", error.to_string());
+    }
+}
 
 fn jni_bool_arg(env: &mut JNIEnv, value: &JString, name: &str) -> Result<bool, String> {
     let value = env
@@ -19,6 +32,7 @@ fn jni_bool_arg(env: &mut JNIEnv, value: &JString, name: &str) -> Result<bool, S
     }
 }
 
+/// Creates the reference-counted runtime and installs Android's Java host services.
 #[no_mangle]
 pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_create(
     mut env: JNIEnv,
@@ -62,7 +76,7 @@ pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_create(
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         OperitFlutterBridge::new_with_storage_roots(runtime_root, workspace_root)
     })) {
-        Ok(Ok(bridge)) => Box::into_raw(Box::new(bridge)) as jlong,
+        Ok(Ok(bridge)) => Arc::into_raw(Arc::new(bridge)) as jlong,
         Ok(Err(error)) => {
             operit_host_android_native::clearAndroidHostSecretStoreBridge();
             set_last_create_error(error);
@@ -163,6 +177,7 @@ pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_runtimeBootstr
     )
 }
 
+/// Releases the Android owner's reference while active Dart connections retain the runtime.
 #[no_mangle]
 pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_destroy(
     _env: JNIEnv,
@@ -170,208 +185,21 @@ pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_destroy(
     handle: jlong,
 ) {
     operit_flutter_bridge_destroy(handle as *mut OperitFlutterBridge);
-    operit_host_android_native::clearAndroidHostSecretStoreBridge();
 }
 
+/// Creates one direct Dart connection while preserving Android's runtime ownership.
 #[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_call(
-    mut env: JNIEnv,
+pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_connectCoreFfi(
+    env: JNIEnv,
     _class: JClass,
     handle: jlong,
-    request: JByteArray,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *const OperitFlutterBridge).as_ref() else {
-        return new_java_bytes(
-            &mut env,
-            &native_result_error_vec("flutter-bridge-null", "runtime bridge is not initialized"),
-        );
-    };
-    let bytes = match env.convert_byte_array(request) {
-        Ok(value) => value,
-        Err(error) => {
-            return new_java_bytes(
-                &mut env,
-                &native_result_error_vec(
-                    "flutter-bridge-invalid-request",
-                    format!("invalid JNI request bytes: {error}"),
-                ),
-            );
-        }
-    };
-    new_java_bytes(&mut env, &bridge_native_call(bridge, &bytes))
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_pushOpen(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    request: JByteArray,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *mut OperitFlutterBridge).as_ref() else {
-        return new_java_bytes(
-            &mut env,
-            &native_result_error_vec("flutter-bridge-null", "runtime bridge is not initialized"),
-        );
-    };
-    let bytes = match env.convert_byte_array(request) {
-        Ok(value) => value,
-        Err(error) => {
-            return new_java_bytes(
-                &mut env,
-                &native_result_error_vec("flutter-bridge-invalid-request", error.to_string()),
-            );
-        }
-    };
-    new_java_bytes(&mut env, &bridge_push_open(bridge, &bytes))
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_pushItem(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    item: JByteArray,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *mut OperitFlutterBridge).as_ref() else {
-        return new_java_bytes(
-            &mut env,
-            &native_result_error_vec("flutter-bridge-null", "runtime bridge is not initialized"),
-        );
-    };
-    let bytes = match env.convert_byte_array(item) {
-        Ok(value) => value,
-        Err(error) => {
-            return new_java_bytes(
-                &mut env,
-                &native_result_error_vec("flutter-bridge-invalid-request", error.to_string()),
-            );
-        }
-    };
-    new_java_bytes(&mut env, &bridge_push_item(bridge, &bytes))
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_pushClose(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    push_id: JString,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *mut OperitFlutterBridge).as_ref() else {
-        return new_java_bytes(
-            &mut env,
-            &native_result_error_vec("flutter-bridge-null", "runtime bridge is not initialized"),
-        );
-    };
-    let pushId = match env.get_string(&push_id) {
-        Ok(value) => String::from(value),
-        Err(error) => {
-            return new_java_bytes(
-                &mut env,
-                &native_result_error_vec("flutter-bridge-invalid-request", error.to_string()),
-            );
-        }
-    };
-    let response = native_result_vec(bridge.pushClose(&pushId));
-    new_java_bytes(&mut env, &response)
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_watchSnapshot(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    request: JByteArray,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *const OperitFlutterBridge).as_ref() else {
-        return new_java_bytes(
-            &mut env,
-            &native_result_error_vec("flutter-bridge-null", "runtime bridge is not initialized"),
-        );
-    };
-    let bytes = match env.convert_byte_array(request) {
-        Ok(value) => value,
-        Err(error) => {
-            return new_java_bytes(
-                &mut env,
-                &native_result_error_vec(
-                    "flutter-bridge-invalid-request",
-                    format!("invalid JNI watch request bytes: {error}"),
-                ),
-            );
-        }
-    };
-    new_java_bytes(&mut env, &bridge_watch_snapshot(bridge, &bytes))
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_watchStream(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    request: JByteArray,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *const OperitFlutterBridge).as_ref() else {
-        return new_java_bytes(
-            &mut env,
-            &native_result_error_vec("flutter-bridge-null", "runtime bridge is not initialized"),
-        );
-    };
-    let bytes = match env.convert_byte_array(request) {
-        Ok(value) => value,
-        Err(error) => {
-            return new_java_bytes(
-                &mut env,
-                &native_result_error_vec(
-                    "flutter-bridge-invalid-request",
-                    format!("invalid JNI watch request bytes: {error}"),
-                ),
-            );
-        }
-    };
-    new_java_bytes(&mut env, &bridge_watch_stream(bridge, &bytes))
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_nextWatchChannelEvent(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *mut OperitFlutterBridge).as_ref() else {
-        return std::ptr::null_mut();
-    };
-    match bridge.nextWatchChannelEvent() {
-        Ok(frame) => new_java_bytes(&mut env, &frame),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_closeWatchStream(
-    mut env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    subscriptionId: JString,
-) -> jbyteArray {
-    let Some(bridge) = (handle as *mut OperitFlutterBridge).as_ref() else {
-        return new_java_bytes(
-            &mut env,
-            &native_result_error_vec("flutter-bridge-null", "runtime bridge is not initialized"),
-        );
-    };
-    let subscription_id = match env.get_string(&subscriptionId) {
-        Ok(value) => String::from(value),
-        Err(error) => {
-            return new_java_bytes(
-                &mut env,
-                &native_result_error_vec("flutter-bridge-invalid-request", error.to_string()),
-            );
-        }
-    };
-    bridge.closeWatchStream(&subscription_id);
-    new_java_bytes(&mut env, &native_result_vec(Ok::<(), CoreLinkError>(())))
+) -> jstring {
+    let descriptor = crate::PlatformRuntimeFactory::FfiTransport::operit_flutter_bridge_ffi_connect(
+        handle as *const OperitFlutterBridge,
+    );
+    let result = new_java_string(env, CStr::from_ptr(descriptor).to_str().expect("FFI JSON"));
+    operit_flutter_bridge_free_string(descriptor);
+    result
 }
 
 #[no_mangle]
@@ -591,12 +419,5 @@ pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_emitHostRuntim
 fn new_java_string(mut env: JNIEnv, value: &str) -> jstring {
     env.new_string(value)
         .expect("JNI string allocation must succeed")
-        .into_raw()
-}
-
-/// Allocates a Java byte array containing one encoded Link payload.
-fn new_java_bytes(env: &mut JNIEnv, value: &[u8]) -> jbyteArray {
-    env.byte_array_from_slice(value)
-        .expect("JNI byte array allocation must succeed")
         .into_raw()
 }

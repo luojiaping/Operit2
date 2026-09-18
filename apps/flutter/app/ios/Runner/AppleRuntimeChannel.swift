@@ -15,9 +15,6 @@ final class AppleRuntimeChannel: NSObject {
   private static var notificationActivationReceiverReady = false
   private var channel: FlutterMethodChannel
   private let workQueue = DispatchQueue(label: "operit.runtime.apple", qos: .userInitiated)
-  private let watchQueue = DispatchQueue(label: "operit.runtime.apple.watch", qos: .utility)
-  private let watchLock = NSLock()
-  private var watchPumpRunning = false
   private var handle: UnsafeMutableRawPointer?
   private var audioPlayers: [String: AVAudioPlayer] = [:]
   private var musicPlayer: AVPlayer?
@@ -97,20 +94,10 @@ final class AppleRuntimeChannel: NSObject {
 
   private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
-    case "call":
-      callRuntime(call: call, result: result, nativeCall: operit_flutter_bridge_native_call)
-    case "pushOpen":
-      callRuntime(call: call, result: result, nativeCall: operit_flutter_bridge_push_open)
-    case "pushItem":
-      callRuntime(call: call, result: result, nativeCall: operit_flutter_bridge_push_item)
-    case "pushClose":
-      pushClose(call: call, result: result)
-    case "watchSnapshot":
-      callRuntime(call: call, result: result, nativeCall: operit_flutter_bridge_watch_snapshot)
-    case "watchStream":
-      watchStream(call: call, result: result)
-    case "closeWatchStream":
-      closeWatchStream(call: call, result: result)
+    case "connectCoreFfi":
+      runRuntime(result: result) { handle in
+        self.takeString(operit_flutter_bridge_ffi_connect(handle))
+      }
     case "startWebAccessServer":
       startWebAccessServer(call: call, result: result)
     case "restartApplication":
@@ -167,7 +154,6 @@ final class AppleRuntimeChannel: NSObject {
   /// Releases runtime resources and terminates the iOS host process.
   private func restartApplication(result: @escaping FlutterResult) {
     workQueue.async {
-      self.stopWatchPump()
       if let handle = self.handle {
         operit_flutter_bridge_destroy(handle)
         self.handle = nil
@@ -539,113 +525,6 @@ final class AppleRuntimeChannel: NSObject {
         }
       }
     }
-  }
-
-  /// Runs one binary Link operation and returns Flutter typed data.
-  private func runRuntimeBytes(result: @escaping FlutterResult, _ body: @escaping (UnsafeMutableRawPointer) throws -> Data) {
-    workQueue.async {
-      do {
-        let handle = try self.ensureRuntimeHandle()
-        let response = try body(handle)
-        DispatchQueue.main.async { result(FlutterStandardTypedData(bytes: response)) }
-      } catch {
-        DispatchQueue.main.async {
-          result(FlutterError(code: "OPERIT_RUNTIME_ERROR", message: error.localizedDescription, details: nil))
-        }
-      }
-    }
-  }
-
-  private func callRuntime(
-    call: FlutterMethodCall,
-    result: @escaping FlutterResult,
-    nativeCall: @escaping (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt) -> OperitByteBuffer
-  ) {
-    guard let request = (call.arguments as? FlutterStandardTypedData)?.data else {
-      result(FlutterError(code: "INVALID_ARGS", message: "\(call.method) expects MessagePack bytes", details: nil))
-      return
-    }
-    runRuntimeBytes(result: result) { handle in
-      request.withUnsafeBytes { bytes in
-        self.takeBytes(nativeCall(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt(bytes.count)))
-      }
-    }
-  }
-
-  private func watchStream(call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard let request = (call.arguments as? FlutterStandardTypedData)?.data else {
-      result(FlutterError(code: "INVALID_ARGS", message: "watchStream expects MessagePack bytes", details: nil))
-      return
-    }
-    runRuntimeBytes(result: result) { handle in
-      let response = request.withUnsafeBytes { bytes in
-        self.takeBytes(operit_flutter_bridge_watch_stream(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt(bytes.count)))
-      }
-      self.ensureWatchPump()
-      return response
-    }
-  }
-
-  private func closeWatchStream(call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard let subscriptionId = call.arguments as? String else {
-      result(FlutterError(code: "INVALID_ARGS", message: "closeWatchStream expects a subscription id", details: nil))
-      return
-    }
-    runRuntimeBytes(result: result) { handle in
-      self.takeBytes(operit_flutter_bridge_close_watch_stream(handle, subscriptionId))
-    }
-  }
-
-  /// Closes one local Link push stream.
-  private func pushClose(call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard let pushId = call.arguments as? String else {
-      result(FlutterError(code: "INVALID_ARGS", message: "pushClose expects a push id", details: nil))
-      return
-    }
-    runRuntimeBytes(result: result) { handle in
-      self.takeBytes(operit_flutter_bridge_push_close(handle, pushId))
-    }
-  }
-
-  private func ensureWatchPump() {
-    watchLock.lock()
-    if watchPumpRunning {
-      watchLock.unlock()
-      return
-    }
-    watchPumpRunning = true
-    watchLock.unlock()
-    watchQueue.async {
-      while true {
-        self.watchLock.lock()
-        let running = self.watchPumpRunning
-        self.watchLock.unlock()
-        if !running {
-          return
-        }
-        do {
-          let handle = try self.ensureRuntimeHandle()
-          let frameBuffer = operit_flutter_bridge_next_watch_channel_event(handle)
-          guard frameBuffer.ptr != nil else {
-            self.stopWatchPump()
-            return
-          }
-          let frame = self.takeBytes(frameBuffer)
-          DispatchQueue.main.async {
-            self.channel.invokeMethod("watchChannelEvent", arguments: FlutterStandardTypedData(bytes: frame))
-          }
-        } catch {
-          self.stopWatchPump()
-          return
-        }
-      }
-    }
-  }
-
-  private func stopWatchPump() {
-    watchLock.lock()
-    watchPumpRunning = false
-    watchLock.unlock()
   }
 
   private func startWebAccessServer(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -1234,15 +1113,6 @@ final class AppleRuntimeChannel: NSObject {
     return value
   }
 
-  /// Copies and releases one owned Rust Link byte buffer.
-  private func takeBytes(_ buffer: OperitByteBuffer) -> Data {
-    guard let pointer = buffer.ptr else {
-      return Data()
-    }
-    let data = Data(bytes: pointer, count: Int(buffer.len))
-    operit_flutter_bridge_free_bytes(buffer)
-    return data
-  }
 }
 
 private enum AppleCrashChannel {

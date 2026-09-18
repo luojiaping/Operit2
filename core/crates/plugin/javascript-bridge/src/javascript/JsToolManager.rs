@@ -460,6 +460,11 @@ mod tests {
             Ok(None)
         }
 
+        /// Ignores environment writes in manager tests.
+        fn write_environment_variable(&self, _key: &str, _value: &str) -> Result<(), String> {
+            Ok(())
+        }
+
         /// Rejects plugin configuration access in manager tests.
         fn plugin_config_dir(&self, _plugin_id: &str) -> Result<String, String> {
             Err("Plugin configuration is not part of this test".to_string())

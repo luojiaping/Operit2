@@ -1133,8 +1133,10 @@ pub trait BrowserSessionHost: Send + Sync {
 pub enum ComposeDslFilePickerMode {
     Document,
     Photo,
+    Image,
     Video,
     Media,
+    Directory,
 }
 
 /// Compose DSL options that describe one file-picker request.
@@ -1143,6 +1145,8 @@ pub enum ComposeDslFilePickerMode {
 pub struct ComposeDslFilePickerOptions {
     pub picker: Option<ComposeDslFilePickerMode>,
     pub allowMultiple: Option<bool>,
+    /// Restricts selectable documents by MIME type.
+    pub mimeTypes: Option<Vec<String>>,
 }
 
 /// A fully validated file-picker request issued by a Compose DSL screen.
@@ -1153,6 +1157,8 @@ pub struct ComposeDslFilePickerRequest {
     pub executionContextKey: String,
     pub picker: ComposeDslFilePickerMode,
     pub allowMultiple: bool,
+    /// MIME filters passed unchanged to the platform selector.
+    pub mimeTypes: Vec<String>,
 }
 
 impl ComposeDslFilePickerRequest {
@@ -1187,6 +1193,7 @@ impl ComposeDslFilePickerRequest {
             routeInstanceId: raw.routeInstanceId.trim().to_string(),
             executionContextKey: executionContextKey.to_string(),
             allowMultiple: options.allowMultiple.unwrap_or(false),
+            mimeTypes: options.mimeTypes.unwrap_or_default(),
             picker,
         })
     }
@@ -2789,15 +2796,30 @@ mod tests {
         assert!(!request.allowMultiple);
     }
 
-    /// Verifies that the unpublished MIME-only option is rejected by the cross-platform contract.
+    /// Verifies that MIME filters reach the cross-platform owner without alteration.
     #[test]
-    fn composeDslFilePickerRejectsMimeTypes() {
-        let error = ComposeDslFilePickerRequest::parse(
+    fn composeDslFilePickerPreservesMimeTypes() {
+        let request = ComposeDslFilePickerRequest::parse(
             r#"{"executionContextKey":"compose-route","options":{"mimeTypes":["image/png"]}}"#,
         )
-        .expect_err("MIME-only filter must be rejected");
+        .expect("MIME filters must parse");
 
-        assert!(error.to_string().contains("mimeTypes"));
+        assert_eq!(request.mimeTypes, vec!["image/png"]);
+    }
+
+    /// Verifies that v1 image and directory modes retain their explicit selection source.
+    #[test]
+    fn composeDslFilePickerAcceptsImageAndDirectory() {
+        for (token, expected) in [
+            ("image", ComposeDslFilePickerMode::Image),
+            ("directory", ComposeDslFilePickerMode::Directory),
+        ] {
+            let payload = format!(
+                r#"{{"executionContextKey":"compose-route","options":{{"picker":"{token}"}}}}"#
+            );
+            let request = ComposeDslFilePickerRequest::parse(&payload).expect("mode must parse");
+            assert_eq!(request.picker, expected);
+        }
     }
 
     /// Verifies that visual-media requests retain their multi-selection flag.

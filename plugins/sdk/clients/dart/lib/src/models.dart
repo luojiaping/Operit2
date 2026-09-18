@@ -24,7 +24,7 @@ class EnvVar {
     'name': name,
     'description': description.toMessagePackValue(),
     'required': required,
-    'default_value': default_value,
+    'default_value': default_value == null ? null : default_value!,
   };
 
   final String name;
@@ -46,7 +46,7 @@ class LocalizedText {
 
   /// Encodes this model into a MessagePack-compatible value map.
   Map<String, Object?> toMessagePackValue() => <String, Object?>{
-    'values': values,
+    'values': values.map((key, item) => MapEntry(key, item)),
   };
 
   final Map<String, String> values;
@@ -254,8 +254,8 @@ class ToolPkgContainerDetails {
     'description': description,
     'version': version,
     'apiVersion': apiVersion,
-    'logoResourceKey': logoResourceKey,
-    'logoMimeType': logoMimeType,
+    'logoResourceKey': logoResourceKey == null ? null : logoResourceKey!,
+    'logoMimeType': logoMimeType == null ? null : logoMimeType!,
     'author': author.map((item) => item).toList(growable: false),
     'requires': requires.map((item) => item.toMessagePackValue()).toList(growable: false),
     'resourceCount': resourceCount,
@@ -396,7 +396,7 @@ class ToolPkgToolboxUiModule {
     'screen': screen,
     'title': title,
     'description': description,
-    'moduleSpec': moduleSpec,
+    'moduleSpec': moduleSpec.map((key, item) => MapEntry(key, item)),
     'keepAlive': keepAlive,
   };
 
@@ -471,7 +471,7 @@ class ToolPkgAiProviderHandlerRuntime {
   /// Encodes this model into a MessagePack-compatible value map.
   Map<String, Object?> toMessagePackValue() => <String, Object?>{
     'function': function,
-    'functionSource': functionSource,
+    'functionSource': functionSource == null ? null : functionSource!,
   };
 
   final String function;
@@ -543,7 +543,7 @@ class ToolPkgAppLifecycleHookRuntime {
     'id': id,
     'event': event,
     'function': function,
-    'functionSource': functionSource,
+    'functionSource': functionSource == null ? null : functionSource!,
   };
 
   final String id;
@@ -604,12 +604,12 @@ class ToolPkgChatMessageMenuItemRuntime {
   Map<String, Object?> toMessagePackValue() => <String, Object?>{
     'id': id,
     'title': title.toMessagePackValue(),
-    'icon': icon,
+    'icon': icon == null ? null : icon!,
     'order': order,
     'senders': senders.map((item) => item).toList(growable: false),
     'function': function,
-    'functionSource': functionSource,
-    'dialog': dialog?.toMessagePackValue(),
+    'functionSource': functionSource == null ? null : functionSource!,
+    'dialog': dialog == null ? null : dialog!.toMessagePackValue(),
   };
 
   final String id;
@@ -754,8 +754,8 @@ class ToolPkgContainerRuntime {
     'promptEstimateFinalizeHooks': promptEstimateFinalizeHooks.map((item) => item.toMessagePackValue()).toList(growable: false),
     'summaryGenerateHooks': summaryGenerateHooks.map((item) => item.toMessagePackValue()).toList(growable: false),
     'aiProviders': aiProviders.map((item) => item.toMessagePackValue()).toList(growable: false),
-    'logoResource': logoResource?.toMessagePackValue(),
-    'marketOrigin': marketOrigin?.toMessagePackValue(),
+    'logoResource': logoResource == null ? null : logoResource!.toMessagePackValue(),
+    'marketOrigin': marketOrigin == null ? null : marketOrigin!.toMessagePackValue(),
   };
 
   final String packageName;
@@ -834,7 +834,7 @@ class ToolPkgDesktopWidgetRuntime {
     'title': title.toMessagePackValue(),
     'subtitle': subtitle.toMessagePackValue(),
     'description': description.toMessagePackValue(),
-    'icon': icon,
+    'icon': icon == null ? null : icon!,
     'order': order,
   };
 
@@ -867,7 +867,7 @@ class ToolPkgFunctionHookRuntime {
   Map<String, Object?> toMessagePackValue() => <String, Object?>{
     'id': id,
     'function': function,
-    'functionSource': functionSource,
+    'functionSource': functionSource == null ? null : functionSource!,
   };
 
   final String id;
@@ -902,7 +902,7 @@ class ToolPkgHostEventHookRuntime {
     'source': source,
     'trigger': trigger,
     'function': function,
-    'functionSource': functionSource,
+    'functionSource': functionSource == null ? null : functionSource!,
     'enabled': enabled,
   };
 
@@ -935,8 +935,8 @@ class ToolPkgManifestRequirement {
   Map<String, Object?> toMessagePackValue() => <String, Object?>{
     'id': id,
     'description': description,
-    'min_version': minVersion,
-    'max_version': maxVersion,
+    'min_version': minVersion == null ? null : minVersion!,
+    'max_version': maxVersion == null ? null : maxVersion!,
   };
 
   final String id;
@@ -992,7 +992,7 @@ class ToolPkgNavigationActionHookRuntime {
   /// Encodes this model into a MessagePack-compatible value map.
   Map<String, Object?> toMessagePackValue() => <String, Object?>{
     'function': function,
-    'functionSource': functionSource,
+    'functionSource': functionSource == null ? null : functionSource!,
   };
 
   final String function;
@@ -1028,8 +1028,8 @@ class ToolPkgNavigationEntryRuntime {
     'routeId': routeId,
     'surface': surface,
     'title': title.toMessagePackValue(),
-    'action': action?.toMessagePackValue(),
-    'icon': icon,
+    'action': action == null ? null : action!.toMessagePackValue(),
+    'icon': icon == null ? null : icon!,
     'order': order,
   };
 
@@ -1160,7 +1160,7 @@ class ToolPkgTagFunctionHookRuntime {
     'id': id,
     'tag': tag,
     'function': function,
-    'functionSource': functionSource,
+    'functionSource': functionSource == null ? null : functionSource!,
   };
 
   final String id;
@@ -1366,7 +1366,7 @@ class ToolResult {
     'toolName': toolName,
     'success': success,
     'result': result,
-    'error': error,
+    'error': error == null ? null : error!,
   };
 
   final String toolName;

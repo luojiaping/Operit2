@@ -1996,6 +1996,7 @@ dependencies = [
  "operit-host-ios-native",
  "operit-host-linux-native",
  "operit-host-macos-native",
+ "operit-host-native-common",
  "operit-host-native-storage",
  "operit-host-ohos-native",
  "operit-host-web",
@@ -2155,7 +2156,6 @@ name = "operit-host-native-plugin-sdk-ipc"
 version = "0.1.0"
 dependencies = [
  "operit-host-api",
- "windows-sys 0.59.0",
 ]
 
 [[package]]

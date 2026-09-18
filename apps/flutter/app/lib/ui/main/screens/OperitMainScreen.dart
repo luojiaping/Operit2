@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:desktop_widgets/desktop_widgets.dart';
 
 import '../../../core/bridge/ProxyCoreRuntimeBridge.dart';
 import '../../../core/notifications/NotificationActivationService.dart';
@@ -22,6 +23,7 @@ import '../navigation/AppNavigationModels.dart';
 import '../navigation/AppRouteCatalog.dart';
 import '../navigation/ToolPkgCatalogChangeBus.dart';
 import 'OperitScreens.dart';
+import '../../features/packages/screens/ToolPkgUiLauncherScreen.dart';
 
 class OperitMainScreen extends StatefulWidget {
   const OperitMainScreen({super.key});
@@ -84,6 +86,92 @@ class _OperitMainScreenState extends State<OperitMainScreen> {
       }
     });
     unawaited(_initializeDrawerData());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_initializeDesktopWidgets());
+      }
+    });
+  }
+
+  /// Supplies application content and navigation callbacks to the unified widget plugin.
+  Future<void> _initializeDesktopWidgets() async {
+    try {
+      await DesktopWidgets.setActionHandler(_handleDesktopWidgetAction);
+      if (!mounted) return;
+      await DesktopWidgets.setSnapshotRenderer((payload, size) async {
+        final instanceId = payload['instanceId'] as String;
+        final frame = await ToolPkgDesktopWidgetFrame.load(
+          clients: _clients,
+          definition: core_proxy.ToolPkgDesktopWidget.fromJson(
+            (payload['definition'] as Map).cast<String, Object?>(),
+          ),
+          instanceId: instanceId,
+          useEnglish: Localizations.localeOf(context).languageCode == 'en',
+        );
+        if (!mounted) throw StateError('The widget content owner is closed');
+        final png = await DesktopWidgetRasterizer.render(
+          context: context,
+          size: size,
+          child: frame.buildContent(
+            clients: _clients,
+            instanceId: instanceId,
+            onOpenRoute: (package, route) async {
+              await _handleDesktopWidgetAction(
+                MethodCall('openDesktopWidgetRoute', {
+                  'packageName': package,
+                  'routeId': route,
+                }),
+              );
+            },
+          ),
+        );
+        return DesktopWidgetSnapshot(
+          png: png,
+          description: frame.definition.title,
+          action: 'openDesktopWidgetRoute',
+          actionArguments: {
+            'packageName': frame.definition.containerPackageName,
+            'routeId': frame.definition.routeId,
+          },
+        );
+      });
+    } catch (error) {
+      if (!mounted) rethrow;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  /// Resolves widget clicks through the existing route catalog and navigation gateway.
+  Future<Object?> _handleDesktopWidgetAction(MethodCall call) async {
+    try {
+      if (call.method != 'openDesktopWidgetRoute') {
+        throw UnsupportedError('Unknown widget action: ${call.method}');
+      }
+      if (!mounted) throw StateError('The widget navigation owner is closed');
+      final args = (call.arguments as Map).cast<String, Object?>();
+      final package = args['packageName'] as String;
+      final route = args['routeId'] as String;
+      await _refreshToolPkgNavigationModel();
+      if (!mounted) throw StateError('The widget navigation owner is closed');
+      final spec = _navigationModel.routesById[route];
+      if (spec == null ||
+          spec.ownerPackageName != package ||
+          spec.runtime != RouteRuntime.toolPkgComposeDsl) {
+        throw StateError('Widget route is not registered for $package: $route');
+      }
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      AppRouterGateway.navigate(routeId: route);
+      return null;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+      rethrow;
+    }
   }
 
   /// Loads drawer data before subscribing to its live updates.
@@ -114,6 +202,8 @@ class _OperitMainScreenState extends State<OperitMainScreen> {
 
   @override
   void dispose() {
+    unawaited(DesktopWidgets.setActionHandler(null));
+    unawaited(DesktopWidgets.setSnapshotRenderer(null));
     AppRouterGateway.clear();
     AppRouteDiscoveryGateway.clear();
     NotificationActivationService.instance.clearChatHandler();
@@ -889,7 +979,6 @@ class _OperitMainScreenState extends State<OperitMainScreen> {
       },
     );
   }
-
 }
 
 bool _useEnglishForToolPkgText(BuildContext context) {

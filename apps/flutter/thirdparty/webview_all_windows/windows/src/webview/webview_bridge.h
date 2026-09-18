@@ -72,6 +72,8 @@ public:
   bool SetJavaScriptEnabled(bool enabled);
   bool SetZoomControlEnabled(bool enabled);
   bool SetBackgroundColor(int64_t color);
+  /// Forwards the app appearance to the owned browser profile.
+  bool SetPreferredColorScheme(bool dark);
   bool SetZoomFactor(double zoom_factor);
   bool OpenDevTools();
   void SetJavaScriptDialogCallbacksEnabled(bool alert, bool confirm,

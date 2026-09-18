@@ -23,7 +23,7 @@ pub use operit_host_apple_native::{
     AppleTtsPlaybackHost as MacosTtsPlaybackHost, AppleTtsSynthesisHost as MacosTtsSynthesisHost,
 };
 
-pub use operit_host_native_plugin_sdk_ipc::UnixPluginSdkIpcHost as MacosPluginSdkIpcHost;
+pub use operit_host_apple_native::ApplePluginSdkIpcHost as MacosPluginSdkIpcHost;
 
 #[cfg(target_os = "macos")]
 pub use operit_host_apple_native::{

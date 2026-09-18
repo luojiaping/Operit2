@@ -17,7 +17,6 @@ class RuntimeMethodChannelRouter(
 
     fun configure(messenger: BinaryMessenger) {
         runtimeChannel = MethodChannel(messenger, "operit/runtime").also { channel ->
-            coreLinkChannel.attach(channel)
             channel.setMethodCallHandler { call, result ->
                 when {
                     call.method == "notificationActivationInitial" ->
@@ -38,7 +37,6 @@ class RuntimeMethodChannelRouter(
     }
 
     fun clear() {
-        coreLinkChannel.clear()
         snapshotImportInputChannel.clear()
         runtimeChannel?.setMethodCallHandler(null)
         runtimeChannel = null

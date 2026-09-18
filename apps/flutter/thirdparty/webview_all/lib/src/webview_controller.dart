@@ -125,6 +125,10 @@ class WebViewController {
   /// Implementation of [PlatformWebViewController] for the current platform.
   final PlatformWebViewController platform;
 
+  /// Updates the browser color preference without navigating or reloading content.
+  Future<void> setPreferredColorScheme(Brightness brightness) =>
+      platform.setPreferredColorScheme(brightness);
+
   /// Loads the file located on the specified [absoluteFilePath].
   ///
   /// The [absoluteFilePath] parameter should contain the absolute path to the

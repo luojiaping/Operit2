@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 
+pub mod DartPort;
+
 #[cfg(feature = "fs")]
 pub use operit_host_native_filesystem::PosixFileSystemHost;
 #[cfg(feature = "http")]

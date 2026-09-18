@@ -14,6 +14,7 @@ import 'package:operit2/ui/common/markdown/MarkdownNodeGrouper.dart';
 import 'package:operit2/ui/common/markdown/StreamMarkdownRenderer.dart';
 import 'package:operit2/ui/common/markdown/StreamMarkdownRendererState.dart';
 import 'package:operit2/ui/features/chat/components/ChatArea.dart';
+import 'package:operit2/ui/features/chat/components/ChatScrollNavigator.dart';
 import 'package:operit2/ui/features/chat/components/part/StructuredMessagePartRenderer.dart';
 import 'package:operit2/ui/features/chat/components/part/ThinkToolsXmlNodeGrouper.dart';
 import 'package:operit2/ui/features/chat/components/part/ToolDisplayComponents.dart';
@@ -22,7 +23,182 @@ import 'package:operit2/ui/features/chat/components/style/cursor/CursorStyleChat
 import 'package:operit2/ui/features/chat/viewmodel/ChatViewModel.dart';
 import 'package:operit2/ui/theme/OperitTheme.dart';
 
+/// Verifies transcript rendering and scroll ownership across asynchronous updates.
 void main() {
+  testWidgets('keeps following disabled when scrolling away from the bottom', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final autoScrollToBottom = ValueNotifier<bool>(true);
+    addTearDown(scrollController.dispose);
+    addTearDown(autoScrollToBottom.dispose);
+    await tester.pumpWidget(
+      _chatArea(
+        message: _aiMessage(parts: const []),
+        isLoading: false,
+        bottomContentInset: 1600,
+        scrollController: scrollController,
+        autoScrollToBottom: autoScrollToBottom,
+        onAutoScrollToBottomChanged: (value) =>
+            autoScrollToBottom.value = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final scrollableContext = tester.element(find.byType(Scrollable).first);
+    final metrics = scrollController.position.copyWith(
+      pixels: scrollController.position.maxScrollExtent - 1,
+    );
+    UserScrollNotification(
+      metrics: metrics,
+      context: scrollableContext,
+      direction: ScrollDirection.forward,
+    ).dispatch(scrollableContext);
+    ScrollUpdateNotification(
+      metrics: metrics,
+      context: scrollableContext,
+      scrollDelta: -1,
+    ).dispatch(scrollableContext);
+    expect(autoScrollToBottom.value, isFalse);
+    UserScrollNotification(
+      metrics: metrics,
+      context: scrollableContext,
+      direction: ScrollDirection.idle,
+    ).dispatch(scrollableContext);
+    expect(autoScrollToBottom.value, isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('ignores nested scroll updates at their own bottom', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final autoScrollToBottom = ValueNotifier<bool>(false);
+    addTearDown(scrollController.dispose);
+    addTearDown(autoScrollToBottom.dispose);
+    await tester.pumpWidget(
+      _chatArea(
+        message: _aiMessage(parts: const []),
+        isLoading: false,
+        bottomContentInset: 1600,
+        scrollController: scrollController,
+        autoScrollToBottom: autoScrollToBottom,
+        onAutoScrollToBottomChanged: (value) =>
+            autoScrollToBottom.value = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final scrollableContext = tester.element(find.byType(Scrollable).first);
+    ScrollUpdateNotification(
+      metrics: FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 100,
+        pixels: 100,
+        viewportDimension: 100,
+        axisDirection: AxisDirection.down,
+        devicePixelRatio: 1,
+      ),
+      context: scrollableContext,
+      depth: 1,
+      scrollDelta: 10,
+    ).dispatch(scrollableContext);
+    expect(autoScrollToBottom.value, isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('does not enable following after a programmatic scroll', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final autoScrollToBottom = ValueNotifier<bool>(false);
+    addTearDown(scrollController.dispose);
+    addTearDown(autoScrollToBottom.dispose);
+    await tester.pumpWidget(
+      _chatArea(
+        message: _aiMessage(parts: const []),
+        isLoading: false,
+        bottomContentInset: 1600,
+        scrollController: scrollController,
+        autoScrollToBottom: autoScrollToBottom,
+        onAutoScrollToBottomChanged: (value) =>
+            autoScrollToBottom.value = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    scrollController.jumpTo(scrollController.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(autoScrollToBottom.value, isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final window in [
+    (hasNewer: false, loading: false, follows: true),
+    (hasNewer: true, loading: false, follows: false),
+    (hasNewer: false, loading: true, follows: false),
+  ]) {
+    testWidgets('follows user scrolling to the bottom only for $window', (
+      tester,
+    ) async {
+      final scrollController = ScrollController();
+      final autoScrollToBottom = ValueNotifier<bool>(false);
+      addTearDown(scrollController.dispose);
+      addTearDown(autoScrollToBottom.dispose);
+      await tester.pumpWidget(
+        _chatArea(
+          message: _aiMessage(parts: const []),
+          isLoading: false,
+          hasNewerDisplayHistory: window.hasNewer,
+          isLoadingDisplayWindow: window.loading,
+          bottomContentInset: 1600,
+          scrollController: scrollController,
+          autoScrollToBottom: autoScrollToBottom,
+          onAutoScrollToBottomChanged: (value) =>
+              autoScrollToBottom.value = value,
+        ),
+      );
+      await tester.pumpAndSettle();
+      scrollController.jumpTo(scrollController.position.maxScrollExtent - 60);
+      await tester.pump();
+      await tester.drag(find.byType(ListView), const Offset(0, -200));
+      await tester.pumpAndSettle();
+      expect(autoScrollToBottom.value, window.follows);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  testWidgets('cancels locator correction when the user takes over scrolling', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final autoScrollToBottom = ValueNotifier<bool>(false);
+    addTearDown(scrollController.dispose);
+    addTearDown(autoScrollToBottom.dispose);
+    await tester.pumpWidget(
+      _chatArea(
+        messages: [
+          _aiMessage(parts: const [], timestamp: 10001),
+          _aiMessage(parts: const [], timestamp: 10002),
+        ],
+        isLoading: false,
+        bottomContentInset: 1600,
+        scrollController: scrollController,
+        autoScrollToBottom: autoScrollToBottom,
+        onAutoScrollToBottomChanged: (value) =>
+            autoScrollToBottom.value = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester
+        .widget<ChatScrollNavigator>(find.byType(ChatScrollNavigator))
+        .onJumpToMessage(0);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 270));
+    await tester.pump();
+    await tester.drag(find.byType(ListView), const Offset(0, -200));
+    await tester.pumpAndSettle();
+    expect(scrollController.offset, greaterThan(100));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'rebuilds Markdown nodes when a routed stream starts a snapshot',
     (tester) async {
@@ -1174,6 +1350,8 @@ Widget _chatArea({
   required ScrollController scrollController,
   required ValueNotifier<bool> autoScrollToBottom,
   bool isLoading = true,
+  bool hasNewerDisplayHistory = false,
+  bool isLoadingDisplayWindow = false,
   double bottomContentInset = 0,
   ValueChanged<bool>? onAutoScrollToBottomChanged,
 }) {
@@ -1202,8 +1380,8 @@ Widget _chatArea({
         packageManager: clients.application.packageManager(),
         autoScrollToBottomListenable: autoScrollToBottom,
         hasOlderDisplayHistory: false,
-        hasNewerDisplayHistory: false,
-        isLoadingDisplayWindow: false,
+        hasNewerDisplayHistory: hasNewerDisplayHistory,
+        isLoadingDisplayWindow: isLoadingDisplayWindow,
         loadLocatorEntries: (chatId, query) async => const [],
         onRevealMessageForLocator: (timestamp) async => false,
         onAutoScrollToBottomChanged: onAutoScrollToBottomChanged ?? (_) {},

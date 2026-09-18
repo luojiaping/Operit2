@@ -31,6 +31,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::core::chat::ChatRuntimeHolder::ChatRuntimeHolder;
 use crate::core::chat::ChatRuntimeSlot::ChatRuntimeSlot;
 use crate::data::preferences::CharacterCardManager::CharacterCardManager;
+use crate::data::preferences::SharedMemoryStoreManager::SharedMemoryStoreManager;
 use crate::data::preferences::CharacterCardToolAccessResolver::CharacterCardToolAccessResolver;
 use crate::data::preferences::EnvPreferences::EnvPreferences;
 use crate::data::preferences::MemorySearchSettingsPreferences::MemorySearchSettingsPreferences;
@@ -595,6 +596,26 @@ impl ToolRuntimeSupport for RuntimeToolSupport {
                 sharedMemoryId: card.sharedMemoryId,
             })
             .map_err(|error| error.to_string())
+    }
+
+    /// Rejects memory owner keys that are not a registered character card or shared store.
+    #[allow(non_snake_case)]
+    fn assertMemoryOwnerExists(&self, ownerKey: &str) -> Result<(), String> {
+        let parsed = operit_util::OperitPaths::parseMemoryOwnerKey(ownerKey)?;
+        match parsed.kind {
+            operit_util::OperitPaths::MemoryOwnerKind::Character => CharacterCardManager::getInstance()
+                .getCharacterCard(&parsed.id)
+                .map(|_| ())
+                .map_err(|error| format!("character memory owner not found: {error}")),
+            operit_util::OperitPaths::MemoryOwnerKind::Shared => {
+                let stores = SharedMemoryStoreManager::getInstance().getAllSharedMemoryStores()?;
+                if stores.iter().any(|store| store.id == parsed.id) {
+                    Ok(())
+                } else {
+                    Err(format!("shared memory store not found: {}", parsed.id))
+                }
+            }
+        }
     }
 
     /// Loads memory search settings for an owner scope.

@@ -22,7 +22,6 @@ import notificationManager from '@ohos.notificationManager';
 import pasteboard from '@ohos.pasteboard';
 import connection from '@ohos.net.connection';
 import promptAction from '@ohos.promptAction';
-import taskpool from '@ohos.taskpool';
 import util from '@ohos.util';
 import window from '@ohos.window';
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
@@ -248,15 +247,9 @@ interface RuntimeNativeModule {
   runtimeBootstrapRead(defaultRuntimeRoot: string): string;
   /** Writes the client bootstrap record before the native Runtime is created. */
   runtimeBootstrapWrite(defaultRuntimeRoot: string, content: string): string;
+  /** Creates a retained direct Dart connection to the host runtime. */
+  connectCoreFfi(handle: bigint): string;
   destroy(handle: bigint): void;
-  call(handle: bigint, request: ArrayBuffer): ArrayBuffer;
-  pushOpen(handle: bigint, request: ArrayBuffer): ArrayBuffer;
-  pushItem(handle: bigint, item: ArrayBuffer): ArrayBuffer;
-  pushClose(handle: bigint, pushId: string): ArrayBuffer;
-  watchSnapshot(handle: bigint, request: ArrayBuffer): ArrayBuffer;
-  watchStream(handle: bigint, request: ArrayBuffer): ArrayBuffer;
-  nextWatchChannelEvent(handle: bigint): ArrayBuffer;
-  closeWatchStream(handle: bigint, subscriptionId: string): ArrayBuffer;
   startWebAccessServer(
     handle: bigint,
     bindAddress: string,
@@ -278,20 +271,6 @@ interface RuntimeEventDeliveryResponse {
 
 const nativeBridge = runtimeNative as RuntimeNativeModule;
 
-/// Reads the next runtime watch event on an ArkTS taskpool worker.
-@Concurrent
-function readWatchChannelEvent(handle: bigint): ArrayBuffer {
-  const bridge = runtimeNative as RuntimeNativeModule;
-  return bridge.nextWatchChannelEvent(handle);
-}
-
-/// Dispatches one CoreProxy call on an ArkTS taskpool worker.
-@Concurrent
-function dispatchRuntimeCoreCall(handle: bigint, request: ArrayBuffer): ArrayBuffer {
-  const bridge = runtimeNative as RuntimeNativeModule;
-  return bridge.call(handle, request);
-}
-
 export class OperitRuntimeChannel {
   private static activeRuntimeChannel: OperitRuntimeChannel | null = null;
   private static pendingNotificationActivations: Array<JsonPayload> = [];
@@ -302,7 +281,6 @@ export class OperitRuntimeChannel {
   private runtimeRoot: string = '';
   private workspaceRoot: string = '';
   private windowStage: window.WindowStage | null = null;
-  private watchPumpRunning: boolean = false;
   private musicPlayer: media.AVPlayer | null = null;
   private musicState: string = 'stopped';
   private musicSource: string | null = null;
@@ -439,36 +417,8 @@ export class OperitRuntimeChannel {
               result.error('APPLICATION_TERMINATION_ERROR', `${error}`, null);
             });
           return;
-        case 'call': {
-          const handle = this.ensureRuntimeHandle();
-          const request = this.requiredArrayBuffer(call, call.method);
-          taskpool.execute(dispatchRuntimeCoreCall, handle, request)
-            .then((response: Object): void => {
-              result.success(response as ArrayBuffer);
-            })
-            .catch((error: Object): void => {
-              result.error('RUNTIME_BRIDGE_ERROR', `${error}`, null);
-            });
-          return;
-        }
-        case 'pushOpen':
-          result.success(nativeBridge.pushOpen(this.ensureRuntimeHandle(), this.requiredArrayBuffer(call, call.method)));
-          return;
-        case 'pushItem':
-          result.success(nativeBridge.pushItem(this.ensureRuntimeHandle(), this.requiredArrayBuffer(call, call.method)));
-          return;
-        case 'pushClose':
-          result.success(nativeBridge.pushClose(this.ensureRuntimeHandle(), this.requiredStringArg(call, 'pushClose')));
-          return;
-        case 'watchSnapshot':
-          result.success(nativeBridge.watchSnapshot(this.ensureRuntimeHandle(), this.requiredArrayBuffer(call, call.method)));
-          return;
-        case 'watchStream':
-          result.success(nativeBridge.watchStream(this.ensureRuntimeHandle(), this.requiredArrayBuffer(call, call.method)));
-          this.ensureWatchPump();
-          return;
-        case 'closeWatchStream':
-          result.success(nativeBridge.closeWatchStream(this.ensureRuntimeHandle(), this.requiredStringArg(call, 'closeWatchStream')));
+        case 'connectCoreFfi':
+          result.success(nativeBridge.connectCoreFfi(this.ensureRuntimeHandle()));
           return;
         case 'startWebAccessServer':
           result.success(this.startWebAccessServer(call));
@@ -606,7 +556,6 @@ export class OperitRuntimeChannel {
 
   /// Releases the native runtime bridge handle.
   destroy(): void {
-    this.watchPumpRunning = false;
     this.releaseHostEventMonitoring();
     if (this.runtimeHandle !== BigInt(0)) {
       nativeBridge.destroy(this.runtimeHandle);
@@ -1029,30 +978,6 @@ export class OperitRuntimeChannel {
     if (!response.ok) {
       throw new Error(response.error ?? 'OpenHarmony host event delivery failed');
     }
-  }
-
-  /// Starts the watch-channel event pump.
-  private ensureWatchPump(): void {
-    if (this.watchPumpRunning) {
-      return;
-    }
-    this.watchPumpRunning = true;
-    this.pumpWatchChannel();
-  }
-
-  /// Pumps watch-channel events from Rust into Dart.
-  private pumpWatchChannel(): void {
-    taskpool.execute(readWatchChannelEvent, this.ensureRuntimeHandle())
-      .then((frame: Object) => {
-        if (!this.watchPumpRunning) {
-          return;
-        }
-        this.channel.invokeMethod('watchChannelEvent', frame as ArrayBuffer);
-        this.pumpWatchChannel();
-      })
-      .catch(() => {
-        this.watchPumpRunning = false;
-      });
   }
 
   /// Starts the Web Access server through the Rust bridge.
@@ -2492,15 +2417,6 @@ export class OperitRuntimeChannel {
       success: false,
       error: `${error}`
     };
-  }
-
-  /// Reads one required ArrayBuffer argument.
-  private requiredArrayBuffer(call: MethodCall, method: string): ArrayBuffer {
-    const value: Object | null = call.args as Object | null;
-    if (!(value instanceof ArrayBuffer)) {
-      throw new Error(`${method} expects MessagePack bytes`);
-    }
-    return value;
   }
 
   /// Reads one required string argument.

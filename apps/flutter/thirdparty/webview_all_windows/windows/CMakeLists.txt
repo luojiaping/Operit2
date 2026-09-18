@@ -20,7 +20,11 @@ set(PLUGIN_NAME "webview_all_windows_plugin")
 set(NUGET_URL https://dist.nuget.org/win-x86-commandline/v5.10.0/nuget.exe)
 set(NUGET_SHA256 852b71cc8c8c2d40d09ea49d321ff56fd2397b9d6ea9f96e532530307bbbafd3)
 
-find_program(NUGET nuget)
+find_program(NUGET nuget
+  HINTS
+    "$ENV{CARGO_HOME}/bin"
+    "${CMAKE_BINARY_DIR}"
+)
 if(NOT NUGET)
   message(NOTICE "Nuget is not installed.")
   set(NUGET ${CMAKE_BINARY_DIR}/nuget.exe)
@@ -36,14 +40,36 @@ if(NOT NUGET)
 endif()
 
 set(DEPS_TARGET_NAME "webview_all_windows_deps")
-add_custom_target(${DEPS_TARGET_NAME} ALL)
+set(DEPS_OUTPUT_DIR "${CMAKE_BINARY_DIR}/packages")
+set(DEPS_STAMP "${DEPS_OUTPUT_DIR}/.webview_all_windows_deps.stamp")
+set(WIL_TARGET_FILE
+  "${DEPS_OUTPUT_DIR}/Microsoft.Windows.ImplementationLibrary/build/native/Microsoft.Windows.ImplementationLibrary.targets")
+set(WEBVIEW_TARGET_FILE
+  "${DEPS_OUTPUT_DIR}/Microsoft.Web.WebView2/build/native/Microsoft.Web.WebView2.targets")
 
+# NuGet installation used to be a PRE_BUILD command on an ALL target, so it
+# ran for every Flutter build even when both packages were already present.
+# Track the package targets instead; a missing package or version change then
+# still causes a fresh install.
 add_custom_command(
-  TARGET ${DEPS_TARGET_NAME} PRE_BUILD
+  OUTPUT
+    "${DEPS_STAMP}"
+    "${WIL_TARGET_FILE}"
+    "${WEBVIEW_TARGET_FILE}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${DEPS_OUTPUT_DIR}"
   COMMAND ${CMAKE_COMMAND} -E echo "Downloading dependencies..."
-  COMMAND ${NUGET} install Microsoft.Windows.ImplementationLibrary -Version ${WIL_VERSION} -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages
-  COMMAND ${NUGET} install Microsoft.Web.WebView2 -Version ${WEBVIEW_VERSION} -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages
+  COMMAND ${NUGET} install Microsoft.Windows.ImplementationLibrary -Version ${WIL_VERSION} -ExcludeVersion -OutputDirectory "${DEPS_OUTPUT_DIR}"
+  COMMAND ${NUGET} install Microsoft.Web.WebView2 -Version ${WEBVIEW_VERSION} -ExcludeVersion -OutputDirectory "${DEPS_OUTPUT_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E touch "${DEPS_STAMP}"
+  DEPENDS "${CMAKE_CURRENT_LIST_FILE}"
   COMMENT "Downloading and installing NuGet packages"
+  VERBATIM
+)
+add_custom_target(${DEPS_TARGET_NAME}
+  DEPENDS
+    "${DEPS_STAMP}"
+    "${WIL_TARGET_FILE}"
+    "${WEBVIEW_TARGET_FILE}"
 )
 
 set(PLUGIN_SOURCES

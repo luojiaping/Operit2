@@ -1,10 +1,16 @@
 //! Generated external Plugin SDK client wrappers.
 
 pub use operit_plugin_sdk_ipc::PluginSdkClient;
+pub use operit_plugin_sdk_host::registerAndroidClient as register_android_client;
 
 mod generated;
 
 pub use generated::*;
+
+/// Activates the installed Operit application and connects through its platform IPC carrier.
+pub fn connect() -> Result<PluginSdkClient, operit_link::CoreLinkError> {
+    PluginSdkClient::connect(operit_plugin_sdk_host::createPluginSdkHost(), operit_host_api::PluginSdkIpcEndpoint::standard())
+}
 
 /// Decodes one Core MessagePack value into a Rust SDK model.
 pub fn decode_messagepack_value<T: serde::de::DeserializeOwned>(value: &operit_link::CoreValue) -> Result<T, operit_link::CoreLinkError> {

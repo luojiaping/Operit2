@@ -145,6 +145,11 @@ impl JsExecutionHost for TestPluginConfigExecutionHost {
         panic!("Environment access is not part of the plugin config test")
     }
 
+    /// Rejects unexpected environment writes.
+    fn write_environment_variable(&self, _key: &str, _value: &str) -> Result<(), String> {
+        panic!("Environment writes are not part of the plugin config test")
+    }
+
     /// Resolves plugin configuration through the real runtime path contract.
     fn plugin_config_dir(&self, plugin_id: &str) -> Result<String, String> {
         let safeBaseName = plugin_id.trim().replace(':', "_");

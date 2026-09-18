@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:desktop_widgets/desktop_widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operit2/core/bridge/OperitRuntimeBridge.dart';
 import 'package:operit2/core/link/CoreLinkCodec.dart';
@@ -11,9 +12,366 @@ import 'package:operit2/core/proxy/generated/CoreProxyClients.g.dart';
 import 'package:operit2/core/proxy/generated/CoreProxyModels.g.dart'
     as core_proxy;
 import 'package:operit2/ui/features/packages/screens/ToolPkgUiLauncherScreen.dart';
+import 'package:operit2/ui/main/navigation/AppNavigationModels.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('one DSL frame builds both window content and published pixels', (
+    tester,
+  ) async {
+    final bridge = _ToolPkgDslTestBridge();
+    final clients = GeneratedCoreProxyClients(bridge);
+    const definition = core_proxy.ToolPkgDesktopWidget(
+      containerPackageName: 'demo_toolpkg',
+      toolPkgId: 'demo_toolpkg',
+      widgetId: 'summary',
+      routeId: 'old-route',
+      renderRouteId: 'widget_summary',
+      title: 'Old title',
+      subtitle: '',
+      description: '',
+      icon: null,
+      order: 0,
+    );
+    late BuildContext hostContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            hostContext = context;
+            return const Scaffold(body: Text('Host'));
+          },
+        ),
+      ),
+    );
+    final frame = await ToolPkgDesktopWidgetFrame.load(
+      clients: clients,
+      definition: definition,
+      instanceId: 'shared-frame',
+      useEnglish: true,
+    );
+    String? opened;
+
+    /// Records the common action destination for either presentation.
+    Future<void> openRoute(String package, String route) async {
+      opened = '$package/$route';
+    }
+
+    final pixels = DesktopWidgetRasterizer.render(
+      context: hostContext,
+      size: const Size(180, 120),
+      child: frame.buildContent(
+        clients: clients,
+        instanceId: 'shared-frame',
+        onOpenRoute: openRoute,
+      ),
+    );
+    await tester.pump();
+    await tester.runAsync(() async {
+      expect((await pixels).take(4), [137, 80, 78, 71]);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: frame.buildContent(
+            clients: clients,
+            instanceId: 'shared-frame',
+            onOpenRoute: openRoute,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Widget loaded'));
+    expect(opened, 'demo_toolpkg/main');
+    expect(frame.definition.title, 'Summary');
+    expect(
+      bridge.calls.where(
+        (call) => call.methodName == 'renderToolPkgDesktopWidget',
+      ),
+      hasLength(1),
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'renders registered desktop widget and opens its application route',
+    (tester) async {
+      final bridge = _ToolPkgDslTestBridge();
+      String? openedRoute;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ToolPkgDesktopWidgetView(
+              clients: GeneratedCoreProxyClients(bridge),
+              definition: const core_proxy.ToolPkgDesktopWidget(
+                containerPackageName: 'demo_toolpkg',
+                toolPkgId: 'demo_toolpkg',
+                widgetId: 'summary',
+                routeId: 'main',
+                renderRouteId: 'widget_summary',
+                title: 'Summary',
+                subtitle: '',
+                description: '',
+                icon: null,
+                order: 0,
+              ),
+              instanceId: 'desktop-instance-1',
+              onOpenRoute: (package, route) async {
+                openedRoute = '$package/$route';
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Widget loaded'), findsOneWidget);
+      final call = bridge.calls.singleWhere(
+        (call) => call.methodName == 'renderToolPkgDesktopWidget',
+      );
+      expect(call.args, containsPair('widgetId', 'summary'));
+      expect(call.args, containsPair('instanceId', 'desktop-instance-1'));
+      await tester.tap(find.text('Widget loaded'));
+      await tester.pumpAndSettle();
+      expect(openedRoute, 'demo_toolpkg/main');
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('keeps alert dialog open according to close policy', (
+    tester,
+  ) async {
+    final bridge = _ToolPkgDslTestBridge(
+      renderResult: (_) => jsonEncode({
+        'success': true,
+        'tree': _node(
+          'alertdialog',
+          props: {
+            'title': 'Confirm operation',
+            'text': 'Dialog body',
+            'confirmText': 'Apply',
+            'closeOnConfirm': false,
+            'onConfirm': {'__actionId': 'confirm'},
+          },
+        ),
+      }),
+    );
+    await tester.pumpWidget(_screen(bridge));
+    await tester.pumpAndSettle();
+    expect(find.text('Dialog body'), findsOneWidget);
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dialog body'), findsOneWidget);
+    expect(bridge.calls.last.args, containsPair('actionId', 'confirm'));
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pumpAndSettle();
+    expect(find.text('Dialog body'), findsNothing);
+  });
+
+  testWidgets('builds lazy list entries only near the viewport', (
+    tester,
+  ) async {
+    final bridge = _ToolPkgDslTestBridge(
+      renderResult: (_) => jsonEncode({
+        'success': true,
+        'tree': _node(
+          'LazyColumn',
+          props: {'height': 200, 'spacing': 8},
+          children: [
+            for (var index = 0; index < 200; index++)
+              _node(
+                'Text',
+                props: {'key': index, 'height': 48, 'text': 'Entry $index'},
+              ),
+          ],
+        ),
+      }),
+    );
+    await tester.pumpWidget(_screen(bridge));
+    await tester.pumpAndSettle();
+    expect(find.text('Entry 0'), findsOneWidget);
+    expect(find.text('Entry 199'), findsNothing);
+    final list = tester.widget<ListView>(find.byType(ListView));
+    list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(find.text('Entry 199'), findsOneWidget);
+  });
+
+  testWidgets('applies column and row spacing between children', (
+    tester,
+  ) async {
+    final bridge = _ToolPkgDslTestBridge(
+      renderResult: (_) => jsonEncode({
+        'success': true,
+        'tree': _node(
+          'Column',
+          props: {'spacing': 10, 'padding': 14},
+          children: [
+            _node('Text', props: {'text': 'Section', 'height': 24}),
+            _node(
+              'Row',
+              props: {'spacing': 12},
+              children: [
+                _node(
+                  'Text',
+                  props: {'text': 'Logo', 'width': 34, 'height': 20},
+                ),
+                _node(
+                  'Text',
+                  props: {'text': 'Title', 'width': 40, 'height': 20},
+                ),
+              ],
+            ),
+          ],
+        ),
+      }),
+    );
+    await tester.pumpWidget(_screen(bridge));
+    await tester.pumpAndSettle();
+
+    final section = tester.getRect(find.text('Section'));
+    final logo = tester.getRect(find.text('Logo'));
+    final title = tester.getRect(find.text('Title'));
+    expect(logo.top, section.bottom + 10);
+    expect(title.left, logo.right + 12);
+    expect(section.left, greaterThan(10));
+  });
+
+  testWidgets('clickable site card navigates without an action return value', (
+    tester,
+  ) async {
+    final navigated = <String>[];
+    AppRouterGateway.install(
+      handler: (routeId, args, source) {
+        navigated.add(routeId);
+        expect(source, RouteEntrySource.script);
+        expect(args['id'], 'doubao');
+      },
+      reset: (_, __, ___) {},
+    );
+    addTearDown(AppRouterGateway.clear);
+    var clicked = false;
+    final bridge = _ToolPkgDslTestBridge(
+      onAction: (args) {
+        expect(args['actionId'], 'open');
+        clicked = true;
+      },
+      renderResult: (_) => jsonEncode({
+        'success': true,
+        'tree': _node(
+          'Card',
+          props: {
+            'fillMaxWidth': true,
+            'modifier': {
+              '__modifierOps': [
+                {'name': 'fillMaxWidth', 'args': []},
+                {
+                  'name': 'clickable',
+                  'args': [
+                    {'__actionId': 'open'},
+                  ],
+                },
+              ],
+            },
+          },
+          children: [
+            _node('Text', props: {'text': 'Open site'}),
+          ],
+        ),
+        'navigationCommands': [
+          if (clicked)
+            {
+              'route':
+                  'toolpkg:com.operit.sidebar_model_sites:ui:model_sites_viewer',
+              'args': {'id': 'doubao'},
+            },
+        ],
+      }),
+    );
+    await tester.pumpWidget(_screen(bridge));
+    await tester.pumpAndSettle();
+    expect(navigated, isEmpty);
+    await tester.tap(find.text('Open site'));
+    await tester.pumpAndSettle();
+    expect(navigated, [
+      'toolpkg:com.operit.sidebar_model_sites:ui:model_sites_viewer',
+    ]);
+  });
+
+  testWidgets('serializes rapid input and ignores delayed echoes', (
+    tester,
+  ) async {
+    var echo = '';
+    final bridge = _ToolPkgDslTestBridge(
+      holdActionCompletion: true,
+      onAction: (args) {
+        if (args['actionId'] == 'edit') echo = args['payload'] as String;
+      },
+      renderResult: (_) => jsonEncode({
+        'success': true,
+        'tree': _node(
+          'TextField',
+          props: {
+            'value': echo,
+            'onValueChange': {'__actionId': 'edit'},
+          },
+        ),
+      }),
+    );
+    await tester.pumpWidget(_screen(bridge));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'a');
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'ab');
+    await tester.pump();
+    expect(echo, 'a');
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      'ab',
+    );
+    bridge.actionCompletion!.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(echo, 'ab');
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      'ab',
+    );
+    bridge.actionCompletion!.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('dispatches long press from combined clickable', (tester) async {
+    final bridge = _ToolPkgDslTestBridge(
+      renderResult: (_) => jsonEncode({
+        'success': true,
+        'tree': _node(
+          'Text',
+          props: {
+            'text': 'Hold here',
+            'modifier': {
+              '__modifierOps': [
+                {
+                  'name': 'combinedClickable',
+                  'args': [
+                    {
+                      'onClick': {'__actionId': 'click'},
+                      'onLongClick': {'__actionId': 'hold'},
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ),
+      }),
+    );
+    await tester.pumpWidget(_screen(bridge));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Hold here'));
+    await tester.pumpAndSettle();
+    expect(bridge.calls.last.args, containsPair('actionId', 'hold'));
+  });
 
   testWidgets('renders compose dsl tree from toolpkg route', (tester) async {
     final bridge = _ToolPkgDslTestBridge();
@@ -986,25 +1344,48 @@ class _ToolPkgDslTestBridge extends OperitRuntimeBridge {
   _ToolPkgDslTestBridge({
     String Function(int count)? renderResult,
     this.holdActionCompletion = false,
+    this.onAction,
   }) : _renderResult = renderResult ?? _counterRenderResult;
 
   final List<CoreCallRequest> calls = <CoreCallRequest>[];
   final String Function(int count) _renderResult;
   final bool holdActionCompletion;
+  final void Function(Map<String, Object?>)? onAction;
   Completer<void>? actionCompletion;
   var _count = 0;
   var _checked = false;
 
-  /// Rejects encoded calls because this test models decoded tool package calls.
+  /// Encodes decoded test responses using the current native bridge envelope.
   @override
-  Future<Uint8List> callBytes(CoreCallRequest request) {
-    throw UnimplementedError();
+  Future<Uint8List> callBytes(CoreCallRequest request) async {
+    return encodeCoreLink(<Object?>[0, await call(request)]);
   }
 
   @override
   Future<Object?> call(CoreCallRequest request) async {
     calls.add(request);
     switch (request.methodName) {
+      case 'renderToolPkgDesktopWidget':
+        return jsonEncode({
+          'widget': const core_proxy.ToolPkgDesktopWidget(
+            containerPackageName: 'demo_toolpkg',
+            toolPkgId: 'demo_toolpkg',
+            widgetId: 'summary',
+            routeId: 'main',
+            renderRouteId: 'widget_summary',
+            title: 'Summary',
+            subtitle: '',
+            description: '',
+            icon: null,
+            order: 0,
+          ).toJson(),
+          'renderResult': {
+            'success': true,
+            'tree': _node('Text', props: {'text': 'Widget loaded'}),
+            'state': <String, Object?>{},
+            'memo': <String, Object?>{},
+          },
+        });
       case 'acquireToolPkgExecutionEngine':
       case 'releaseToolPkgExecutionEngine':
         return null;
@@ -1067,6 +1448,7 @@ class _ToolPkgDslTestBridge extends OperitRuntimeBridge {
     );
     final args = request.args as Map<String, Object?>;
     final actionId = args['actionId'];
+    onAction?.call(args);
     if (actionId == 'increment') {
       _count += 1;
     }
@@ -1076,35 +1458,46 @@ class _ToolPkgDslTestBridge extends OperitRuntimeBridge {
     final result = actionId == 'toggle'
         ? _toggleRenderResult(_checked)
         : _renderResult(_count);
+    final intermediateResult = jsonDecode(result) as Map<String, Object?>;
+    intermediateResult['navigationCommands'] = <Object?>[];
     if (holdActionCompletion) {
       actionCompletion = Completer<void>();
     }
-    yield CoreEvent(
+    yield CoreEvent.raw(
       requestId: request.requestId,
       targetObjectId: request.targetObjectId,
       propertyName: request.propertyName,
       kind: 'Changed',
-      value: jsonEncode(<String, Object?>{
-        'phase': 'intermediate',
-        'result': result,
-      }),
+      decodeValue: decodeCoreLink<Object?>,
+      valueBytes: encodeCoreLink(
+        jsonEncode(<String, Object?>{
+          'phase': 'intermediate',
+          'result': jsonEncode(intermediateResult),
+        }),
+      ),
     );
     if (actionCompletion != null) {
       await actionCompletion!.future;
     }
-    yield CoreEvent(
+    yield CoreEvent.raw(
       requestId: request.requestId,
       targetObjectId: request.targetObjectId,
       propertyName: request.propertyName,
       kind: 'Changed',
-      value: jsonEncode(<String, Object?>{'phase': 'final', 'result': result}),
+      decodeValue: decodeCoreLink<Object?>,
+      valueBytes: encodeCoreLink(
+        jsonEncode(<String, Object?>{'phase': 'final', 'result': result}),
+      ),
     );
-    yield CoreEvent(
+    yield CoreEvent.raw(
       requestId: request.requestId,
       targetObjectId: request.targetObjectId,
       propertyName: request.propertyName,
       kind: 'Completed',
-      value: jsonEncode(<String, Object?>{'phase': 'complete'}),
+      decodeValue: decodeCoreLink<Object?>,
+      valueBytes: encodeCoreLink(
+        jsonEncode(<String, Object?>{'phase': 'complete'}),
+      ),
     );
   }
 }

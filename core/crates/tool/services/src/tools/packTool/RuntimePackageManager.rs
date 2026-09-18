@@ -1545,6 +1545,20 @@ impl RuntimePackageManager {
         ToolPkgPackageService::new(self).getToolPkgDesktopWidgets(useEnglish)
     }
 
+    /// Renders a registered desktop widget and settles its initial load action for any host.
+    #[allow(non_snake_case)]
+    pub async fn renderToolPkgDesktopWidget(
+        &self,
+        containerPackageName: &str,
+        widgetId: &str,
+        instanceId: &str,
+        useEnglish: bool,
+    ) -> Result<String, String> {
+        super::ToolPkgDesktopWidgetService::render(
+            self, containerPackageName, widgetId, instanceId, useEnglish,
+        ).await
+    }
+
     #[allow(non_snake_case)]
     /// Returns navigation entries exposed by enabled ToolPkg containers.
     pub fn getToolPkgNavigationEntries(&self, useEnglish: bool) -> Vec<ToolPkgNavigationEntry> {
@@ -1603,8 +1617,8 @@ impl RuntimePackageManager {
     }
 
     #[allow(non_snake_case)]
-    /// Runs a ToolPkg navigation entry action hook.
-    pub fn runToolPkgNavigationEntryAction(
+    /// Runs a navigation hook asynchronously so proxy dispatch releases the package manager lock.
+    pub async fn runToolPkgNavigationEntryAction(
         &self,
         containerPackageName: &str,
         entryId: &str,
@@ -1612,18 +1626,46 @@ impl RuntimePackageManager {
         inlineFunctionSource: Option<&str>,
         eventPayload: serde_json::Value,
     ) -> Result<Option<String>, String> {
-        self.runToolPkgMainHook(
-            containerPackageName,
-            functionName,
-            operit_plugin_sdk::toolpkg::ToolPkgCommonPluginConstants::TOOLPKG_EVENT_NAVIGATION_ENTRY_ACTION,
-            Some("navigation_entry_action"),
-            Some(entryId),
-            inlineFunctionSource,
-            eventPayload,
-            None,
-            None,
-            None,
-        )
+        let actionContext = format!(
+            "package={containerPackageName}, entryId={entryId}, function={functionName}"
+        );
+        AppLogger::i(
+            PACKAGE_MANAGER_LOG_TAG,
+            &format!("Navigation action started: {actionContext}"),
+        );
+        let result = self
+            .toolPkgManager()
+            .dispatchToolPkgHookAsync(
+                &self.getEnabledPackageNames(),
+                ToolPkgHookInvocation {
+                    containerPackageName: self.normalizePackageName(containerPackageName),
+                    functionName: functionName.to_string(),
+                    event: operit_plugin_sdk::toolpkg::ToolPkgCommonPluginConstants::TOOLPKG_EVENT_NAVIGATION_ENTRY_ACTION.to_string(),
+                    eventName: Some("navigation_entry_action".to_string()),
+                    pluginId: Some(entryId.to_string()),
+                    inlineFunctionSource: inlineFunctionSource.map(str::to_string),
+                    eventPayload,
+                    executionContextKey: None,
+                    runtimeKind: None,
+                    envOverrides: BTreeMap::new(),
+                    timestampMs: currentTimeMillis(),
+                    timeoutMillis: 60_000,
+                    dispatchIntermediateOnMain: true,
+                    onIntermediateResult: None,
+                },
+            )
+            .await;
+        match &result {
+            Ok(_) => AppLogger::i(
+                PACKAGE_MANAGER_LOG_TAG,
+                &format!("Navigation action completed: {actionContext}"),
+            ),
+            Err(error) => AppLogger::e(
+                PACKAGE_MANAGER_LOG_TAG,
+                &format!("Navigation action failed: {actionContext}, error={error}"),
+            ),
+        };
+        result
     }
 
     #[allow(non_snake_case)]

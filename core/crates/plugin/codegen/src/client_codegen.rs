@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use operit_rslink_codegen::{
-    CallProtocol, MethodProtocol, SerializableType, SerializableTypeKind, SourceObject,
+    CallProtocol, MethodProtocol, SerializableType, SerializableTypeKind, SourceArg, SourceObject,
 };
 
 /// Writes the four external SDK clients from the canonical Core proxy scan.
@@ -107,6 +107,10 @@ fn collect_objects(objects: &[SourceObject]) -> Vec<SdkObject> {
                     }
                     Some(SdkMethod {
                         name: method.name.clone(),
+                        args: method.args.iter().filter(|arg| match &method.protocol {
+                            MethodProtocol::ReverseStream(stream) => arg.name != stream.argument_name,
+                            _ => true,
+                        }).cloned().collect(),
                         mode,
                         return_type: call_return_type(&method.protocol),
                     })
@@ -131,6 +135,7 @@ enum SdkMode {
 
 struct SdkMethod {
     name: String,
+    args: Vec<SourceArg>,
     mode: SdkMode,
     return_type: Option<String>,
 }
@@ -214,6 +219,78 @@ fn method_name(name: &str) -> String {
     }
 }
 
+/// Names the strongly typed language surface being rendered.
+#[derive(Clone, Copy)]
+enum SdkLanguage { Rust, Dart, Kotlin, TypeScript }
+
+/// Rejects argument types that cannot be represented faithfully by generated SDK models.
+fn validate_argument_type(ty: &str, all: &HashMap<String, SerializableType>) {
+    if let Some(inner) = ty.strip_prefix('&') { validate_argument_type(inner, all); return; }
+    for constructor in ["Option", "Vec", "BTreeMap", "std::collections::BTreeMap", "HashMap", "std::collections::HashMap"] {
+        if let Some(args) = generic_args(ty, constructor) { for arg in args { validate_argument_type(arg, all); } return; }
+    }
+    if matches!(ty, "str" | "String" | "bool" | "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64" | "usize" | "f32" | "f64" | "serde_json::Value") { return; }
+    assert!(matches!(all.get(ty).map(|model| &model.kind), Some(SerializableTypeKind::Struct { .. } | SerializableTypeKind::Enum { unit_only: true, .. })), "Unsupported Plugin SDK argument type: {ty}");
+}
+
+/// Renders concrete public parameters and their named Link argument map.
+fn sdk_parameters(method: &SdkMethod, all: &HashMap<String, SerializableType>, language: SdkLanguage) -> (String, String) {
+    let mut parameters = Vec::new();
+    let mut arguments = Vec::new();
+    for arg in &method.args {
+        validate_argument_type(&arg.ty, all);
+        let name = method_name(&arg.name);
+        match language {
+            SdkLanguage::Rust => {
+                let ty = if arg.ty == "&str" { "&str".to_string() } else { rust_type(arg.ty.trim_start_matches('&'), all) };
+                parameters.push(format!("{name}: {ty}"));
+                arguments.push(format!("(\"{}\".to_string(), operit_link::toCoreValue(&{name}).map_err(|error| CoreLinkError::internal(error.to_string()))?)", arg.name));
+            }
+            SdkLanguage::Dart => {
+                let ty = dart_type(&arg.ty, all);
+                parameters.push(format!("required {ty} {name}"));
+                arguments.push(format!("'{}': {}", arg.name, dart_messagepack_encode(&name, &ty)));
+            }
+            SdkLanguage::Kotlin => {
+                let ty = kotlin_type(&arg.ty, all);
+                parameters.push(format!("{name}: {ty}"));
+                arguments.push(format!("\"{}\" to {}", arg.name, kotlin_encode_expr(&name, &ty)));
+            }
+            SdkLanguage::TypeScript => {
+                parameters.push(format!("{name}: {}", ts_public_type(&arg.ty, all)));
+                arguments.push(format!("'{}': {}", arg.name, ts_encode_expr(&name, &ts_type(&arg.ty, all))));
+            }
+        }
+    }
+    let joined = parameters.join(", ");
+    match language {
+        SdkLanguage::Rust => (if joined.is_empty() { joined } else { format!(", {joined}") }, format!("CoreValue::Map(std::collections::BTreeMap::from([{}]))", arguments.join(", "))),
+        SdkLanguage::Dart => (if joined.is_empty() { joined } else { format!("{{{joined}}}") }, format!("<String, Object?>{{{}}}", arguments.join(", "))),
+        SdkLanguage::Kotlin => (joined, format!("mapOf<String, Any?>({})", arguments.join(", "))),
+        SdkLanguage::TypeScript => (joined, format!("{{{}}}", arguments.join(", "))),
+    }
+}
+
+/// Encodes a typed Kotlin value into the canonical Link argument representation.
+fn kotlin_encode_expr(value: &str, ty: &str) -> String {
+    if matches!(ty, "Any?" | "Boolean" | "String" | "Int" | "Double") { return value.to_string(); }
+    if let Some(inner) = ty.strip_suffix('?') { return format!("{value}?.let {{ {} }}", kotlin_encode_expr("it", inner)); }
+    if ty == "ByteArray" { return format!("{value}.map {{ it.toInt() and 255 }}"); }
+    if let Some(inner) = ty.strip_prefix("List<").and_then(|v| v.strip_suffix('>')) { return format!("{value}.map {{ item -> {} }}", kotlin_encode_expr("item", inner)); }
+    if let Some(args) = generic_args(ty, "Map") { assert_eq!(args.len(), 2); return format!("{value}.entries.associate {{ entry -> entry.key to {} }}", kotlin_encode_expr("entry.value", args[1])); }
+    format!("{value}.toMessagePackValue()")
+}
+
+/// Encodes a typed TypeScript value into the canonical Link argument representation.
+fn ts_encode_expr(value: &str, ty: &str) -> String {
+    if matches!(ty, "unknown" | "boolean" | "string" | "number") { return value.to_string(); }
+    if let Some(inner) = ty.strip_suffix(" | null") { return format!("{value} === null ? null : {}", ts_encode_expr(value, inner)); }
+    if ty == "Uint8Array" { return format!("Array.from({value})"); }
+    if let Some(inner) = ty.strip_prefix("Array<").and_then(|v| v.strip_suffix('>')) { return format!("{value}.map(item => {})", ts_encode_expr("item", inner)); }
+    if let Some(args) = generic_args(ty, "Record") { assert_eq!(args.len(), 2); return format!("Object.fromEntries(Object.entries({value}).map(([key, item]) => [key, {}]))", ts_encode_expr("item", args[1])); }
+    format!("models.encode{ty}({value})")
+}
+
 /// Renders the Rust client wrappers over the canonical PluginSdkClient.
 fn render_rust(objects: &[SdkObject], serializable_types: &HashMap<String, SerializableType>) -> String {
     let mut output = String::from(
@@ -227,17 +304,18 @@ fn render_rust(objects: &[SdkObject], serializable_types: &HashMap<String, Seria
         ));
         for method in &object.methods {
             let method_name = method_name(&method.name);
+            let (parameters, arguments) = sdk_parameters(method, serializable_types, SdkLanguage::Rust);
             match method.mode {
                 SdkMode::Call => output.push_str(&format!(
-                        "    /// Calls `{}` through the Core Link route.\n    pub async fn {}(&self, args: CoreValue) -> Result<{}, CoreLinkError> {{\n        let response = self.client.call(operit_link::CoreCallRequest::new(self.client.nextRequestId()?, {}, \"{}\", args)).await;\n        let value = response.result?;\n        decode_messagepack_value(&value)\n    }}\n",
+                        "    /// Calls `{}` through the Core Link route.\n    pub async fn {}(&self{parameters}) -> Result<{}, CoreLinkError> {{\n        let args = {arguments};\n        let response = self.client.call(operit_link::CoreCallRequest::new(self.client.nextRequestId()?, {}, \"{}\", args)).await;\n        let value = response.result?;\n        decode_messagepack_value(&value)\n    }}\n",
                     method.name, method_name, rust_method_type(method.return_type.as_deref(), serializable_types), object.object_id, method.name
                 )),
                 SdkMode::Watch => output.push_str(&format!(
-                    "    /// Watches `{}` through the Core Link route.\n    pub async fn {}(&self, args: CoreValue) -> Result<OperitPluginSdkTypedEventStream<{}>, CoreLinkError> {{\n        let stream = self.client.watch(operit_link::CoreWatchRequest::new(self.client.nextRequestId()?, {}, \"{}\", args)).await?;\n        Ok(OperitPluginSdkTypedEventStream::new(stream))\n    }}\n",
+                    "    /// Watches `{}` through the Core Link route.\n    pub async fn {}(&self{parameters}) -> Result<OperitPluginSdkTypedEventStream<{}>, CoreLinkError> {{\n        let args = {arguments};\n        let stream = self.client.watch(operit_link::CoreWatchRequest::new(self.client.nextRequestId()?, {}, \"{}\", args)).await?;\n        Ok(OperitPluginSdkTypedEventStream::new(stream))\n    }}\n",
                     method.name, method_name, rust_method_type(method.return_type.as_deref(), serializable_types), object.object_id, method.name
                 )),
                 SdkMode::Push => output.push_str(&format!(
-                    "    /// Opens the caller-owned `{}` Core input stream.\n    pub async fn {}(&self, args: CoreValue) -> Result<Box<dyn CoreLinkPushSession>, CoreLinkError> {{\n        self.client.openPush(operit_link::CorePushRequest::new(self.client.nextRequestId()?, {}, \"{}\").withArgs(args)).await\n    }}\n",
+                    "    /// Opens the caller-owned `{}` Core input stream.\n    pub async fn {}(&self{parameters}) -> Result<Box<dyn CoreLinkPushSession>, CoreLinkError> {{\n        let args = {arguments};\n        self.client.openPush(operit_link::CorePushRequest::new(self.client.nextRequestId()?, {}, \"{}\").withArgs(args)).await\n    }}\n",
                     method.name, method_name, object.object_id, method.name
                 )),
             }
@@ -305,14 +383,15 @@ fn render_dart(
         ));
         for method in &object.methods {
             let method_name = method_name(&method.name);
+            let (parameters, arguments) = sdk_parameters(method, serializable_types, SdkLanguage::Dart);
             match method.mode {
                 SdkMode::Call => match dart_value_type(method.return_type.as_deref(), serializable_types) {
                     None => output.push_str(&format!(
-                        "  /// Calls `{}` through the Core Link route.\n  Future<void> {}([Object? args]) async {{ await _client.call({}, '{}', args); }}\n",
+                        "  /// Calls `{}` through the Core Link route.\n  Future<void> {}({parameters}) async {{ await _client.call({}, '{}', {arguments}); }}\n",
                         method.name, method_name, object.object_id, method.name
                     )),
                     Some(return_type) => output.push_str(&format!(
-                        "  /// Calls `{}` through the Core Link route.\n  Future<{}> {}([Object? args]) async {{ return await _client.callTyped<{}>({}, '{}', args, {}); }}\n",
+                        "  /// Calls `{}` through the Core Link route.\n  Future<{}> {}({parameters}) async {{ return await _client.callTyped<{}>({}, '{}', {arguments}, {}); }}\n",
                         method.name,
                         return_type,
                         method_name,
@@ -325,7 +404,7 @@ fn render_dart(
                 SdkMode::Watch => {
                     let item_type = dart_value_type(method.return_type.as_deref(), serializable_types).unwrap_or_else(|| "Object?".to_string());
                     output.push_str(&format!(
-                        "  /// Watches `{}` through the Core Link route.\n  Stream<{}> {}([Object? args]) => _client.watchTyped<{}>({}, '{}', args, {});\n",
+                        "  /// Watches `{}` through the Core Link route.\n  Stream<{}> {}({parameters}) => _client.watchTyped<{}>({}, '{}', {arguments}, {});\n",
                         method.name,
                         item_type,
                         method_name,
@@ -336,7 +415,7 @@ fn render_dart(
                     ));
                 },
                 SdkMode::Push => output.push_str(&format!(
-                    "  /// Opens the caller-owned `{}` Core input stream.\n  Future<PluginSdkPushSink> {}([Object? args]) => _client.push({}, '{}', args);\n",
+                    "  /// Opens the caller-owned `{}` Core input stream.\n  Future<PluginSdkPushSink> {}({parameters}) => _client.push({}, '{}', {arguments});\n",
                     method.name, method_name, object.object_id, method.name
                 )),
             }
@@ -348,6 +427,8 @@ fn render_dart(
 
 /// Maps one scanner Rust type into a concrete SDK Dart type.
 fn dart_type(ty: &str, serializable_types: &HashMap<String, SerializableType>) -> String {
+    if ty == "str" { return "String".to_string(); }
+    if let Some(inner) = ty.strip_prefix('&') { return dart_type(inner, serializable_types); }
     if ty == "Vec<u8>" { return "Uint8List".to_string(); }
     if let Some(inner) = generic_arg(ty, "Option") { return nullable_type(dart_type(inner, serializable_types)); }
     if let Some(inner) = generic_arg(ty, "Vec") { return format!("List<{}>", dart_type(inner, serializable_types)); }
@@ -427,8 +508,7 @@ fn dart_decode_value_expr(value: &str, dart: &str) -> String {
 
 /// Renders the SDK-owned serializable model classes reachable from exposed methods.
 fn render_dart_models(objects: &[SdkObject], serializable_types: &HashMap<String, SerializableType>) -> String {
-    let mut reachable = BTreeSet::new();
-    for object in objects { for method in &object.methods { if let Some(ty) = &method.return_type { collect_reachable(ty, serializable_types, &mut reachable); } } }
+    let reachable = reachable_sdk_types(objects, serializable_types);
     let mut output = String::from("// GENERATED FILE. Source: operit-proxy-scan.\n\nimport 'dart:typed_data';\n\n");
     for name in reachable {
         let Some(ty) = serializable_types.get(&name) else { continue; };
@@ -440,6 +520,7 @@ fn render_dart_models(objects: &[SdkObject], serializable_types: &HashMap<String
 
 /// Computes recursively reachable serializable model names.
 fn collect_reachable(ty: &str, all: &HashMap<String, SerializableType>, out: &mut BTreeSet<String>) {
+    if let Some(inner) = ty.strip_prefix('&') { collect_reachable(inner, all, out); return; }
     for constructor in ["Option", "Vec", "BTreeMap", "std::collections::BTreeMap", "HashMap", "std::collections::HashMap"] {
         if let Some(args) = generic_args(ty, constructor) { for arg in args { collect_reachable(arg, all, out); } return; }
     }
@@ -475,7 +556,14 @@ fn dart_field_name(name: &str) -> String { name.trim_start_matches("r#").replace
 fn dart_messagepack_decode(value: &str, dart: &str) -> String { if dart == "Object?" { return value.to_string(); } if dart == "Uint8List" { return format!("Uint8List.fromList((({value} as List).cast<int>()))"); } if dart == "int" { return format!("({value} as num).toInt()"); } if dart == "double" { return format!("({value} as num).toDouble()"); } if dart == "bool" || dart == "String" { return format!("{value} as {dart}"); } if let Some(inner) = dart.strip_suffix('?') { return format!("{value} == null ? null : {}", dart_messagepack_decode(value, inner)); } if let Some(inner) = dart.strip_prefix("List<").and_then(|v| v.strip_suffix('>')) { return format!("({value} as List<Object?>).map((item) => {}).toList(growable: false)", dart_messagepack_decode("item", inner)); } if let Some(args) = generic_args(dart, "Map") { if args.len() == 2 { return format!("({value} as Map).map((key, item) => MapEntry({}, {}))", dart_messagepack_decode("key", args[0]), dart_messagepack_decode("item", args[1])); } } format!("{}.fromMessagePackValue({} as Map<String, Object?>)", dart, value) }
 
 /// Renders a MessagePack-compatible value encoding expression.
-fn dart_messagepack_encode(value: &str, dart: &str) -> String { if dart == "Object?" || dart == "bool" || dart == "String" || dart == "int" || dart == "double" { return value.to_string(); } if dart == "Uint8List" { return format!("{value}.toList(growable: false)"); } if let Some(inner) = dart.strip_suffix('?') { return if inner == "Uint8List" { format!("{value}?.toList(growable: false)") } else if matches!(inner, "Object?" | "bool" | "String" | "int" | "double") { value.to_string() } else { format!("{value}?.toMessagePackValue()") }; } if let Some(inner) = dart.strip_prefix("List<").and_then(|v| v.strip_suffix('>')) { return format!("{value}.map((item) => {}).toList(growable: false)", dart_messagepack_encode("item", inner)); } if dart.starts_with("Map<") { return value.to_string(); } format!("{value}.toMessagePackValue()") }
+fn dart_messagepack_encode(value: &str, dart: &str) -> String {
+    if matches!(dart, "Object?" | "bool" | "String" | "int" | "double") { return value.to_string(); }
+    if let Some(inner) = dart.strip_suffix('?') { return format!("{value} == null ? null : {}", dart_messagepack_encode(&format!("{value}!"), inner)); }
+    if dart == "Uint8List" { return format!("{value}.toList(growable: false)"); }
+    if let Some(inner) = dart.strip_prefix("List<").and_then(|v| v.strip_suffix('>')) { return format!("{value}.map((item) => {}).toList(growable: false)", dart_messagepack_encode("item", inner)); }
+    if let Some(args) = generic_args(dart, "Map") { assert_eq!(args.len(), 2); return format!("{value}.map((key, item) => MapEntry(key, {}))", dart_messagepack_encode("item", args[1])); }
+    format!("{value}.toMessagePackValue()")
+}
 
 /// Renders Kotlin wrappers over the package's concrete IPC client.
 fn render_kotlin(objects: &[SdkObject], serializable_types: &HashMap<String, SerializableType>) -> String {
@@ -489,17 +577,18 @@ fn render_kotlin(objects: &[SdkObject], serializable_types: &HashMap<String, Ser
         ));
         for method in &object.methods {
             let method_name = method_name(&method.name);
+            let (parameters, arguments) = sdk_parameters(method, serializable_types, SdkLanguage::Kotlin);
             match method.mode {
                 SdkMode::Call => {
                     let return_type = method.return_type.as_deref().map(|value| kotlin_type(value, serializable_types)).unwrap_or_else(|| "Unit".to_string());
-                    output.push_str(&format!("    /** Calls `{}` through the Core Link route. */\n    suspend fun {}(args: Any? = null): {} = client.callTyped({}, \"{}\", args, ::decode{})\n", method.name, method_name, return_type, object.object_id, method.name, kotlin_decoder_name(&return_type)));
+                    output.push_str(&format!("    /** Calls `{}` through the Core Link route. */\n    suspend fun {}({parameters}): {} = client.callTyped({}, \"{}\", {arguments}, ::decode{})\n", method.name, method_name, return_type, object.object_id, method.name, kotlin_decoder_name(&return_type)));
                 },
                 SdkMode::Watch => output.push_str(&format!(
-                    "    /** Watches `{}` through the Core Link route. */\n    fun {}(args: Any? = null): kotlinx.coroutines.flow.Flow<{}> = client.watchTyped({}, \"{}\", args, ::decode{})\n",
+                    "    /** Watches `{}` through the Core Link route. */\n    fun {}({parameters}): kotlinx.coroutines.flow.Flow<{}> = client.watchTyped({}, \"{}\", {arguments}, ::decode{})\n",
                     method.name, method_name, method.return_type.as_deref().map(|value| kotlin_type(value, serializable_types)).unwrap_or_else(|| "Any?".to_string()), object.object_id, method.name, method.return_type.as_deref().map(|value| kotlin_decoder_name(&kotlin_type(value, serializable_types))).unwrap_or_else(|| "Any".to_string())
                 )),
                 SdkMode::Push => output.push_str(&format!(
-                    "    /** Opens the caller-owned `{}` Core input stream. */\n    suspend fun {}(args: Any? = null): OperitPluginSdkPushSink = client.push({}, \"{}\", args)\n",
+                    "    /** Opens the caller-owned `{}` Core input stream. */\n    suspend fun {}({parameters}): OperitPluginSdkPushSink = client.push({}, \"{}\", {arguments})\n",
                     method.name, method_name, object.object_id, method.name
                 )),
             }
@@ -524,22 +613,23 @@ fn render_typescript(
         ));
         for method in &object.methods {
             let method_name = method_name(&method.name);
+            let (parameters, arguments) = sdk_parameters(method, serializable_types, SdkLanguage::TypeScript);
             match method.mode {
                 SdkMode::Call => {
                     let return_type = method.return_type.as_deref().map(|value| ts_public_type(value, serializable_types)).unwrap_or_else(|| "void".to_string());
                     if return_type == "void" {
-                        output.push_str(&format!("  /** Calls `{}` through the Core Link route. */\n  public {}(args?: unknown): Promise<void> {{ return this.client.call({}, '{}', args).then(() => undefined); }}\n", method.name, method_name, object.object_id, method.name));
+                        output.push_str(&format!("  /** Calls `{}` through the Core Link route. */\n  public {}({parameters}): Promise<void> {{ return this.client.call({}, '{}', {arguments}).then(() => undefined); }}\n", method.name, method_name, object.object_id, method.name));
                     } else {
                         let decode_type = method.return_type.as_deref().map(|value| ts_type(value, serializable_types)).unwrap_or_else(|| "unknown".to_string());
-                        output.push_str(&format!("  /** Calls `{}` through the Core Link route. */\n  public {}(args?: unknown): Promise<{}> {{ return this.client.callTyped<{}>({}, '{}', args, {}); }}\n", method.name, method_name, return_type, return_type, object.object_id, method.name, ts_decoder_expr(&decode_type)));
+                        output.push_str(&format!("  /** Calls `{}` through the Core Link route. */\n  public {}({parameters}): Promise<{}> {{ return this.client.callTyped<{}>({}, '{}', {arguments}, {}); }}\n", method.name, method_name, return_type, return_type, object.object_id, method.name, ts_decoder_expr(&decode_type)));
                     }
                 },
                 SdkMode::Watch => output.push_str(&format!(
-                    "  /** Watches `{}` through the Core Link route. */\n  public {}(args?: unknown): AsyncIterable<{}> {{ return this.client.watchTyped<{}>({}, '{}', args, {}); }}\n",
+                    "  /** Watches `{}` through the Core Link route. */\n  public {}({parameters}): AsyncIterable<{}> {{ return this.client.watchTyped<{}>({}, '{}', {arguments}, {}); }}\n",
                     method.name, method_name, method.return_type.as_deref().map(|value| ts_public_type(value, serializable_types)).unwrap_or_else(|| "unknown".to_string()), method.return_type.as_deref().map(|value| ts_public_type(value, serializable_types)).unwrap_or_else(|| "unknown".to_string()), object.object_id, method.name, method.return_type.as_deref().map(|value| ts_decoder_expr(&ts_type(value, serializable_types))).unwrap_or_else(|| "(value) => value".to_string())
                 )),
                 SdkMode::Push => output.push_str(&format!(
-                    "  /** Opens the caller-owned `{}` Core input stream. */\n  public {}(args?: unknown): Promise<OperitPluginSdkPushSink> {{ return this.client.push({}, '{}', args); }}\n",
+                    "  /** Opens the caller-owned `{}` Core input stream. */\n  public {}({parameters}): Promise<OperitPluginSdkPushSink> {{ return this.client.push({}, '{}', {arguments}); }}\n",
                     method.name, method_name, object.object_id, method.name
                 )),
             }
@@ -593,11 +683,17 @@ fn render_typescript_models(objects: &[SdkObject], serializable_types: &HashMap<
             output.push_str(&format!("export function decode{}(value: unknown): {} {{\n  const input = value as Record<string, unknown>;\n  return {{\n", class_name, class_name));
             for field in fields { output.push_str(&format!("    {}: {} as {},\n", dart_field_name(&field.name), ts_decode_expr(&format!("input['{}']", field.json_name), &ts_type(&field.ty, serializable_types)), ts_type(&field.ty, serializable_types))); }
             output.push_str("  };\n}\n\n");
+            output.push_str(&format!("/** Encodes a typed SDK model into its Link argument representation. */\nexport function encode{}(value: {}): Record<string, unknown> {{\n  return {{\n", class_name, class_name));
+            for field in fields {
+                output.push_str(&format!("    '{}': {},\n", field.json_name, ts_encode_expr(&format!("value.{}", dart_field_name(&field.name)), &ts_type(&field.ty, serializable_types)).replace("models.", "")));
+            }
+            output.push_str("  };\n}\n\n");
         }
         if let SerializableTypeKind::Enum { variants, unit_only: true } = &ty.kind {
             let class_name = dart_class_name(&ty.full_type);
             output.push_str(&format!("export type {} = {};\n", class_name, variants.iter().map(|variant| format!("'{}'", variant.json_name)).collect::<Vec<_>>().join(" | ")));
             output.push_str(&format!("export function decode{}(value: unknown): {} {{ return value as {}; }}\n\n", class_name, class_name, class_name));
+            output.push_str(&format!("/** Encodes the declared Link enum scalar. */\nexport function encode{}(value: {}): string {{ return value; }}\n\n", class_name, class_name));
         }
     }
     output
@@ -605,6 +701,7 @@ fn render_typescript_models(objects: &[SdkObject], serializable_types: &HashMap<
 
 /// Produces a TypeScript value decoder expression for one concrete type.
 fn ts_decode_expr(value: &str, ty: &str) -> String {
+    if ty == "Uint8Array" { return format!("new Uint8Array({value} as number[])"); }
     if ty == "boolean" || ty == "string" || ty == "number" || ty == "unknown" { return value.to_string(); }
     if let Some(inner) = ty.strip_suffix(" | null") { return format!("{} == null ? null : {}", value, ts_decode_expr(value, inner)); }
     if let Some(inner) = ty.strip_prefix("Array<").and_then(|v| v.strip_suffix('>')) { return format!("({value} as unknown[]).map((item) => {})", ts_decode_expr("item", inner)); }
@@ -625,7 +722,7 @@ fn render_kotlin_models(objects: &[SdkObject], serializable_types: &HashMap<Stri
         } else if let Some(inner) = ty.strip_prefix("List<").and_then(|v| v.strip_suffix('>')) {
             output.push_str(&format!("fun decode{}(value: Any?): List<{}> = (value as List<*>).map {{ decode{}(it) }}\n", name, inner, kotlin_decoder_name(inner)));
         } else if ty.starts_with("Map<") {
-            output.push_str(&format!("fun decode{}(value: Any?): {} = value as {}\n", name, ty, ty));
+            output.push_str(&format!("/** Decodes a typed SDK map from its Link representation. */\nfun decode{}(value: Any?): {} = {}\n", name, ty, kotlin_decode_expr("value", &ty)));
         }
     }
     output.push('\n');
@@ -639,11 +736,19 @@ fn render_kotlin_models(objects: &[SdkObject], serializable_types: &HashMap<Stri
             output.push_str(&format!("fun decode{}(value: Any?): {} {{\n    val input = value as Map<*, *>\n    return {}(\n", class_name, class_name, class_name));
             for field in fields { output.push_str(&format!("        {} = {} as {},\n", dart_field_name(&field.name), kotlin_decode_expr(&format!("input[\"{}\"]", field.json_name), &kotlin_type(&field.ty, serializable_types)), kotlin_type(&field.ty, serializable_types))); }
             output.push_str("    )\n}\n\n");
+            output.push_str(&format!("/** Encodes a typed SDK model into its Link argument representation. */\nfun {}.toMessagePackValue(): Map<String, Any?> = mapOf(\n", class_name));
+            for field in fields {
+                output.push_str(&format!("    \"{}\" to {},\n", field.json_name, kotlin_encode_expr(&format!("this.{}", dart_field_name(&field.name)), &kotlin_type(&field.ty, serializable_types))));
+            }
+            output.push_str(")\n\n");
         }
         if let SerializableTypeKind::Enum { variants, unit_only: true } = &ty.kind {
             let class_name = dart_class_name(&ty.full_type);
             output.push_str(&format!("enum class {} {{ {} }}\n", class_name, variants.iter().map(|variant| dart_field_name(&variant.name)).collect::<Vec<_>>().join(", ")));
             output.push_str(&format!("fun decode{}(value: Any?): {} = {}.valueOf(value.toString())\n\n", class_name, class_name, class_name));
+            output.push_str(&format!("/** Encodes the declared Link enum scalar. */\nfun {}.toMessagePackValue(): String = when (this) {{\n", class_name));
+            for variant in variants { output.push_str(&format!("    {}.{} -> \"{}\"\n", class_name, dart_field_name(&variant.name), variant.json_name)); }
+            output.push_str("}\n\n");
         }
     }
     output
@@ -659,11 +764,72 @@ fn kotlin_type(ty: &str, serializable_types: &HashMap<String, SerializableType>)
 fn kotlin_decoder_name(ty: &str) -> String { let nullable = ty.ends_with('?'); let base = ty.trim_end_matches('?'); let name = if base == "Boolean" { "Boolean".to_string() } else if base == "String" { "String".to_string() } else if base == "Int" { "Int".to_string() } else if base == "Double" { "Double".to_string() } else if base == "Unit" { "Unit".to_string() } else { base.replace(['<', '>', ',', ' '], "") }; if nullable { format!("Nullable{name}") } else { name } }
 
 /// Produces a Kotlin value decoder expression for one generated type.
-fn kotlin_decode_expr(value: &str, ty: &str) -> String { if ty == "Any?" { return value.to_string(); } if ty.ends_with('?') { return format!("{}?.let {{ {} }}", value, kotlin_decode_expr("it", ty.trim_end_matches('?'))); } if ty == "Boolean" || ty == "String" || ty == "Int" || ty == "Double" { return format!("{value} as {ty}"); } format!("decode{}({value})", kotlin_decoder_name(ty)) }
+fn kotlin_decode_expr(value: &str, ty: &str) -> String {
+    if ty == "Any?" { return value.to_string(); }
+    if let Some(inner) = ty.strip_suffix('?') { return format!("{value}?.let {{ {} }}", kotlin_decode_expr("it", inner)); }
+    if ty == "Int" { return format!("({value} as Number).toInt()"); }
+    if ty == "Double" { return format!("({value} as Number).toDouble()"); }
+    if matches!(ty, "Boolean" | "String") { return format!("{value} as {ty}"); }
+    if ty == "ByteArray" { return format!("({value} as List<*>).map {{ (it as Number).toByte() }}.toByteArray()"); }
+    if let Some(inner) = ty.strip_prefix("List<").and_then(|v| v.strip_suffix('>')) {
+        return format!("({value} as List<*>).map {{ item -> {} }}", kotlin_decode_expr("item", inner));
+    }
+    if let Some(args) = generic_args(ty, "Map") {
+        if args.len() == 2 {
+            return format!("({value} as Map<*, *>).entries.associate {{ entry -> {} to {} }}", kotlin_decode_expr("entry.key", args[0]), kotlin_decode_expr("entry.value", args[1]));
+        }
+    }
+    format!("decode{}({value})", kotlin_decoder_name(ty))
+}
 
 /// Collects serializable types reachable from the exposed SDK methods.
 fn reachable_sdk_types(objects: &[SdkObject], all: &HashMap<String, SerializableType>) -> BTreeSet<String> {
     let mut reachable = BTreeSet::new();
-    for object in objects { for method in &object.methods { if let Some(ty) = &method.return_type { collect_reachable(ty, all, &mut reachable); } } }
+    for object in objects { for method in &object.methods {
+        if let Some(ty) = &method.return_type { collect_reachable(ty, all, &mut reachable); }
+        for arg in &method.args { collect_reachable(&arg.ty, all, &mut reachable); }
+    } }
     reachable
+}
+
+#[cfg(test)]
+mod parameter_tests {
+    use super::*;
+
+    /// Builds a route with real string and boolean input metadata.
+    fn objects() -> Vec<SdkObject> {
+        vec![SdkObject { object_id: 4, schema_key: "application.packageManager".to_string(), class_name: "PackageManagerClient".to_string(), methods: vec![SdkMethod {
+            name: "getToolPkgContainerDetails".to_string(), mode: SdkMode::Call, return_type: Some("String".to_string()),
+            args: vec![SourceArg { name: "packageName".to_string(), ty: "&str".to_string() }, SourceArg { name: "useEnglish".to_string(), ty: "bool".to_string() }],
+        }] }]
+    }
+
+    /// Ensures each public language client retains required parameter types and Link keys.
+    #[test]
+    fn all_languages_preserve_route_parameters() {
+        let objects = objects();
+        let models = HashMap::new();
+        let dart = render_dart(&objects, &models);
+        assert!(dart.contains("getToolPkgContainerDetails({required String packageName, required bool useEnglish})"));
+        assert!(dart.contains("'packageName': packageName, 'useEnglish': useEnglish"));
+        assert!(render_kotlin(&objects, &models).contains("getToolPkgContainerDetails(packageName: String, useEnglish: Boolean)"));
+        assert!(render_typescript(&objects, &models).contains("getToolPkgContainerDetails(packageName: string, useEnglish: boolean)"));
+        assert!(render_rust(&objects, &models).contains("getToolPkgContainerDetails(&self, packageName: &str, useEnglish: bool)"));
+    }
+
+    /// Ensures input-only DTOs are generated and explicitly serialized as argument values.
+    #[test]
+    fn input_only_models_are_reachable() {
+        let mut objects = objects();
+        objects[0].methods[0].args = vec![SourceArg { name: "options".to_string(), ty: "dto::Options".to_string() }];
+        let models = HashMap::from([("dto::Options".to_string(), SerializableType {
+            full_type: "dto::Options".to_string(), supports_serialize: true, supports_deserialize: true,
+            kind: SerializableTypeKind::Struct { fields: vec![operit_rslink_codegen::SerializableField { name: "enabled".to_string(), json_name: "is_enabled".to_string(), ty: "bool".to_string(), has_serde_default: false }] },
+        })]);
+        assert!(render_dart(&objects, &models).contains("required Options options"));
+        assert!(render_dart_models(&objects, &models).contains("class Options"));
+        assert!(render_dart(&objects, &models).contains("options.toMessagePackValue()"));
+        assert!(render_typescript_models(&objects, &models).contains("'is_enabled': value.enabled"));
+        assert!(render_kotlin_models(&objects, &models).contains("\"is_enabled\" to this.enabled"));
+    }
 }

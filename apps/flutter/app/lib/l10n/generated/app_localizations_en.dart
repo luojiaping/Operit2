@@ -1565,6 +1565,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsModelAddModelShort => 'Add';
 
   @override
+  String get settingsModelAvailableFetchedOnly => 'Fetched only';
+
+  @override
+  String get settingsModelAvailableIncludeHistory => 'Include history';
+
+  @override
+  String get settingsModelAvailableSourceFetched => 'Fetched';
+
+  @override
+  String get settingsModelAvailableSourceHistory => 'History';
+
+  @override
+  String get settingsModelAvailableEmptyFetched =>
+      'No fetched models. Choose Include history to see catalog IDs.';
+
+  @override
   String get settingsModelCustomModel => 'Custom model';
 
   @override

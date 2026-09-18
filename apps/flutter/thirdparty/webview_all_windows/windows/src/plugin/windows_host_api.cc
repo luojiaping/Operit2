@@ -1,6 +1,7 @@
 #include "plugin/windows_host_api.h"
 
 #include <windows.h>
+#include <flutter/standard_method_codec.h>
 
 #include <format>
 #include <functional>
@@ -43,13 +44,39 @@ void WindowsHostApi::RegisterWithRegistrar(
 WindowsHostApi::WindowsHostApi(flutter::TextureRegistrar *textures,
                                flutter::BinaryMessenger *messenger)
     : textures_(textures), messenger_(messenger) {
+  theme_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      messenger, "operit/webview_theme", &flutter::StandardMethodCodec::GetInstance());
+  // Applies the application preference to live views and retains it for new views.
+  theme_channel_->SetMethodCallHandler([this](const auto &call, auto result) {
+    if (call.method_name() != "setPreferredColorScheme") {
+      result->NotImplemented();
+      return;
+    }
+    const auto *scheme = call.arguments() == nullptr
+        ? nullptr : std::get_if<std::string>(call.arguments());
+    if (scheme == nullptr || (*scheme != "dark" && *scheme != "light")) {
+      result->Error("invalid_color_scheme", "Expected dark or light");
+      return;
+    }
+    preferred_dark_ = *scheme == "dark";
+    for (const auto &entry : instances_) {
+      if (!entry.second->SetPreferredColorScheme(*preferred_dark_)) {
+        result->Error("color_scheme_failed", "WebView2 rejected the color preference");
+        return;
+      }
+    }
+    result->Success();
+  });
   window_class_.lpszClassName = L"FlutterWebviewMessage";
   window_class_.lpfnWndProc = &DefWindowProc;
   RegisterClass(&window_class_);
 }
 
+/// Releases WebView resources after the engine has stopped dispatching messages.
 WindowsHostApi::~WindowsHostApi() {
-  webview_all_windows::WindowsWebViewHostApi::SetUp(messenger_, nullptr);
+  // Engine teardown owns channel cleanup. Its messenger is already detached
+  // when the registrar destroys this plugin; channel handlers must not be
+  // changed here, including the theme channel handler.
   instances_.clear();
   UnregisterClass(window_class_.lpszClassName, nullptr);
 }
@@ -146,6 +173,11 @@ void WindowsHostApi::CreateWebView(
               kErrorCodeWebviewCreationFailed, "Creating the webview failed."));
         }
 
+        if (preferred_dark_.has_value() &&
+            !webview->SetPreferredColorScheme(*preferred_dark_)) {
+          return result(webview_all_windows::FlutterError(
+              kErrorMethodFailed, "WebView2 rejected the color preference"));
+        }
         auto bridge = std::make_unique<WebviewBridge>(
             messenger_, textures_, platform_->graphics_context(),
             std::move(webview));

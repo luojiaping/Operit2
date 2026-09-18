@@ -6,25 +6,26 @@ final class OperitPluginSdkClient {
 
   final PluginSdkIpcConnection _connection;
 
-  /// Connects to the standard TCP loopback endpoint.
-  static Future<OperitPluginSdkClient> connectTcp({
-    String host = '127.0.0.1',
-    int port = 18732,
+  /// Activates Operit and connects through the SDK's packaged platform host.
+  static Future<OperitPluginSdkClient> connect({
+    String nativeLibraryPath = 'liboperit_plugin_sdk.so',
   }) async {
     return OperitPluginSdkClient._(
-      await PluginSdkIpcConnection.connectTcp(host: host, port: port),
+      await PluginSdkIpcConnection.connect(
+        nativeLibraryPath: nativeLibraryPath,
+      ),
     );
   }
 
-  /// Connects to a Unix-domain socket endpoint.
-  static Future<OperitPluginSdkClient> connectUnix(String path) async {
-    return OperitPluginSdkClient._(
-      await PluginSdkIpcConnection.connectUnix(path),
-    );
-  }
+  /// Releases the SDK session and its pending operations.
+  void close() => _connection.close();
 
   /// Calls one generated Core object method through Link IPC.
-  Future<Object?> call(int targetObjectId, String methodName, Object? args) async {
+  Future<Object?> call(
+    int targetObjectId,
+    String methodName,
+    Object? args,
+  ) async {
     final response = await _connection.call(targetObjectId, methodName, args);
     return response['value'];
   }
@@ -53,7 +54,11 @@ final class OperitPluginSdkClient {
     String propertyName,
     Object? args,
     T Function(Object? value) decode,
-  ) => watch(targetObjectId, propertyName, args).map((event) => decode(event.value));
+  ) => watch(
+    targetObjectId,
+    propertyName,
+    args,
+  ).map((event) => decode(event.value));
 
   /// Opens one generated caller-owned Core input stream through Link IPC.
   Future<PluginSdkPushSink> push(

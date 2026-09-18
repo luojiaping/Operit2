@@ -244,7 +244,7 @@ pub fn buildRuntimeBootstrapScript() -> String {
         var console = {{
             log: function() {{ NativeInterface.logInfoForCall('', Array.prototype.slice.call(arguments).join(' ')); }},
             info: function() {{ NativeInterface.logInfoForCall('', Array.prototype.slice.call(arguments).join(' ')); }},
-            warn: function() {{ NativeInterface.logInfoForCall('', Array.prototype.slice.call(arguments).join(' ')); }},
+            warn: function() {{ NativeInterface.logWarningForCall('', Array.prototype.slice.call(arguments).join(' ')); }},
             error: function() {{ NativeInterface.logErrorForCall('', Array.prototype.slice.call(arguments).join(' ')); }}
         }};
         var NativeInterface = {{
@@ -293,8 +293,18 @@ pub fn buildRuntimeBootstrapScript() -> String {
                     }}
                 }}
             }},
-            logInfoForCall: function() {{}},
-            logErrorForCall: function() {{}},
+            /// Forwards plugin informational output to the shared application logger.
+            logInfoForCall: function(callId, message) {{
+                __operitNativeLog('info', String(callId || ''), String(message));
+            }},
+            /// Preserves warning severity for plugin console output.
+            logWarningForCall: function(callId, message) {{
+                __operitNativeLog('warn', String(callId || ''), String(message));
+            }},
+            /// Forwards plugin failures without suppressing their messages.
+            logErrorForCall: function(callId, message) {{
+                __operitNativeLog('error', String(callId || ''), String(message));
+            }},
             reportErrorForCall: function() {{}},
             sendCallIntermediateResult: function(callId, result) {{
                 __operitSendIntermediateResult(
@@ -359,6 +369,12 @@ pub fn buildRuntimeBootstrapScript() -> String {
             }},
             getEnvForCall: function(callId, key) {{
                 return __operitNativeGetEnvForCall(String(callId || ''), String(key || ''));
+            }},
+            setEnv: function(key, value) {{
+                return __operitNativeSetEnv(String(key || ''), value == null ? '' : String(value));
+            }},
+            setEnvs: function(valuesJson) {{
+                return __operitNativeSetEnvs(String(valuesJson || '{{}}'));
             }},
             getPluginConfigDir: function(pluginId) {{
                 return __operitNativeGetPluginConfigDir(String(pluginId || ''));

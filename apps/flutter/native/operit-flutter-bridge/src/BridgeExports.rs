@@ -5,11 +5,12 @@ use crate::RuntimeBootstrapStore::{
     readNativeRuntimeBootstrapConfig, writeNativeRuntimeBootstrapConfig,
 };
 
+/// Creates a reference-counted runtime using the platform storage roots.
 #[no_mangle]
 #[cfg(not(target_env = "ohos"))]
 pub extern "C" fn operit_flutter_bridge_create() -> *mut OperitFlutterBridge {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(OperitFlutterBridge::new)) {
-        Ok(Ok(bridge)) => Box::into_raw(Box::new(bridge)),
+        Ok(Ok(bridge)) => Arc::into_raw(Arc::new(bridge)) as *mut OperitFlutterBridge,
         Ok(Err(error)) => {
             set_last_create_error(error);
             std::ptr::null_mut()
@@ -73,7 +74,7 @@ pub unsafe extern "C" fn operit_flutter_bridge_create_with_storage_roots(
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         OperitFlutterBridge::new_with_storage_roots(runtime_root, workspace_root)
     })) {
-        Ok(Ok(bridge)) => Box::into_raw(Box::new(bridge)),
+        Ok(Ok(bridge)) => Arc::into_raw(Arc::new(bridge)) as *mut OperitFlutterBridge,
         Ok(Err(error)) => {
             set_last_create_error(error);
             std::ptr::null_mut()
@@ -140,7 +141,7 @@ pub unsafe extern "C" fn operit_flutter_bridge_create_with_storage_roots_and_sys
         workspace_root,
         system_language_code,
     ) {
-        Ok(bridge) => Box::into_raw(Box::new(bridge)),
+        Ok(bridge) => Arc::into_raw(Arc::new(bridge)) as *mut OperitFlutterBridge,
         Err(error) => {
             set_last_create_error(error);
             std::ptr::null_mut()
@@ -236,10 +237,11 @@ pub unsafe extern "C" fn operit_flutter_bridge_runtime_bootstrap_write(
     ))
 }
 
+/// Releases one host reference without invalidating retained FFI connections.
 #[no_mangle]
 pub unsafe extern "C" fn operit_flutter_bridge_destroy(handle: *mut OperitFlutterBridge) {
     if !handle.is_null() {
-        drop(Box::from_raw(handle));
+        drop(Arc::from_raw(handle));
     }
 }
 
@@ -590,7 +592,7 @@ pub unsafe extern "C" fn operit_flutter_bridge_watch_snapshot(
         ));
     }
     let request_bytes = std::slice::from_raw_parts(request_ptr, request_len);
-    bytes_to_buffer(bridge_watch_snapshot(&mut *handle, request_bytes))
+    bytes_to_buffer(bridge_watch_snapshot(&*handle, request_bytes))
 }
 
 #[no_mangle]
@@ -613,7 +615,7 @@ pub unsafe extern "C" fn operit_flutter_bridge_watch_stream(
         ));
     }
     let request_bytes = std::slice::from_raw_parts(request_ptr, request_len);
-    bytes_to_buffer(bridge_watch_stream(&mut *handle, request_bytes))
+    bytes_to_buffer(bridge_watch_stream(&*handle, request_bytes))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

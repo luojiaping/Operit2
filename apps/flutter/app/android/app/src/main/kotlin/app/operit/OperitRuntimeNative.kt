@@ -1,6 +1,8 @@
 package app.operit
 
 object OperitRuntimeNative {
+    /** Accepts borrowed pipe handles from the Plugin SDK Binder endpoint. */
+    @JvmStatic external fun acceptPluginSdkPipes(reader: Int, writer: Int)
     init {
         System.loadLibrary("operit_flutter_bridge")
     }
@@ -17,14 +19,8 @@ object OperitRuntimeNative {
     @JvmStatic
     external fun runtimeBootstrapWrite(defaultRuntimeRoot: String, content: String): String
     @JvmStatic external fun destroy(handle: Long)
-    @JvmStatic external fun call(handle: Long, request: ByteArray): ByteArray
-    @JvmStatic external fun pushOpen(handle: Long, request: ByteArray): ByteArray
-    @JvmStatic external fun pushItem(handle: Long, item: ByteArray): ByteArray
-    @JvmStatic external fun pushClose(handle: Long, pushId: String): ByteArray
-    @JvmStatic external fun watchSnapshot(handle: Long, request: ByteArray): ByteArray
-    @JvmStatic external fun watchStream(handle: Long, request: ByteArray): ByteArray
-    @JvmStatic external fun nextWatchChannelEvent(handle: Long): ByteArray?
-    @JvmStatic external fun closeWatchStream(handle: Long, subscriptionId: String): ByteArray
+    /** Creates a retained direct FFI connection to the host runtime. */
+    @JvmStatic external fun connectCoreFfi(handle: Long): String
     @JvmStatic
     external fun startWebAccessServer(
         handle: Long,

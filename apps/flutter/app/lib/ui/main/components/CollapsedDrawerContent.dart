@@ -32,6 +32,9 @@ class CollapsedDrawerContent extends StatelessWidget {
   final VoidCallback onConversationActivated;
   final OperitRuntimeBridge bridge;
   static const double _topBarHeight = 64;
+  static const EdgeInsets _collapsedItemPadding = EdgeInsets.symmetric(
+    vertical: 2,
+  );
 
   Future<void> _createConversation() async {
     // Arm before creating so the intro overlay sees the flag when the new
@@ -96,9 +99,9 @@ class CollapsedDrawerContent extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 8),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: _collapsedItemPadding,
                 child: Center(
                   child: _RoundDrawerButton(
                     selected:
@@ -110,7 +113,7 @@ class CollapsedDrawerContent extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: _collapsedItemPadding,
                 child: Center(
                   child: _RoundDrawerButton(
                     selected: false,
@@ -122,13 +125,14 @@ class CollapsedDrawerContent extends StatelessWidget {
               ),
               if (pluginEntries.isNotEmpty) ...<Widget>[
                 Divider(
+                  height: 12,
                   indent: 14,
                   endIndent: 14,
                   color: appearance.dividerColor,
                 ),
                 for (final entry in pluginEntries)
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: _collapsedItemPadding,
                     child: Center(
                       child: _RoundDrawerButton(
                         selected: selectedRouteId == entry.routeId,
@@ -143,25 +147,30 @@ class CollapsedDrawerContent extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: EdgeInsets.only(bottom: bottomPadding + 24),
+          padding: EdgeInsets.only(bottom: bottomPadding + 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Center(
-                child: _RoundDrawerButton(
-                  selected: selectedRouteId == _packageManagerRouteId,
-                  appearance: appearance,
-                  icon: Icons.inventory_2_outlined,
-                  onClick: _openPackageManager,
+              Padding(
+                padding: _collapsedItemPadding,
+                child: Center(
+                  child: _RoundDrawerButton(
+                    selected: selectedRouteId == _packageManagerRouteId,
+                    appearance: appearance,
+                    icon: Icons.inventory_2_outlined,
+                    onClick: _openPackageManager,
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Center(
-                child: _RoundDrawerButton(
-                  selected: selectedRouteId == _settingsRouteId,
-                  appearance: appearance,
-                  icon: Icons.settings_outlined,
-                  onClick: _openSettings,
+              Padding(
+                padding: _collapsedItemPadding,
+                child: Center(
+                  child: _RoundDrawerButton(
+                    selected: selectedRouteId == _settingsRouteId,
+                    appearance: appearance,
+                    icon: Icons.settings_outlined,
+                    onClick: _openSettings,
+                  ),
                 ),
               ),
             ],

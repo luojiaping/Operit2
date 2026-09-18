@@ -370,6 +370,10 @@ pub trait ToolRuntimeSupport: Send + Sync {
     fn characterMemoryBinding(&self, cardId: &str)
         -> Result<RuntimeCharacterMemoryBinding, String>;
 
+    /// Rejects memory owner keys that are not a registered character card or shared store.
+    #[allow(non_snake_case)]
+    fn assertMemoryOwnerExists(&self, ownerKey: &str) -> Result<(), String>;
+
     /// Loads memory search settings for an owner scope.
     #[allow(non_snake_case)]
     fn loadMemorySearchSettings(&self, ownerScope: &str) -> Result<(), String>;

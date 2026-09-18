@@ -9,6 +9,7 @@ import '../../../../core/proxy/generated/CoreProxyClients.g.dart';
 import '../../../../core/proxy/generated/CoreProxyModels.g.dart' as core_proxy;
 import '../../../../l10n/generated/app_localizations.dart';
 import '../utils/PackageDisplayUtils.dart';
+import '../screens/ToolPkgDesktopWidgetsScreen.dart';
 
 class PluginDetailsDialog extends StatefulWidget {
   const PluginDetailsDialog({
@@ -210,6 +211,17 @@ class _PluginDetailsDialogState extends State<PluginDetailsDialog> {
                 const SizedBox(height: 14),
                 const Center(child: CircularProgressIndicator()),
               ],
+              if (widget.enabled && widget.plugin.desktopWidgets.isNotEmpty)
+                TextButton.icon(
+                  icon: const Icon(Icons.widgets_outlined),
+                  label: Text(l10n.desktopWidgetsCount(widget.plugin.desktopWidgets.length)),
+                  onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute(
+                    builder: (_) => ToolPkgDesktopWidgetsScreen(
+                      clients: GeneratedCoreProxyClients(widget.packageManager.bridge),
+                      plugin: widget.plugin,
+                    ),
+                  )),
+                ),
               if (details != null &&
                   details.toolboxUiModules.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 14),

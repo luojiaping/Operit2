@@ -181,17 +181,34 @@ pub fn run_model_command(
             }));
         }
         "provider-model-available-list" => {
-            let providerId = requiredArg(
-                args,
-                1,
-                "usage: operit2 model provider-model-available-list <provider-id>",
-            )?;
+            let usage = "usage: operit2 model provider-model-available-list <provider-id> [fetched|all]";
+            let providerId = requiredArg(args, 1, usage)?;
+            let includeHistory = match args.get(2).map(String::as_str) {
+                None | Some("fetched") => false,
+                Some("all") => true,
+                Some(other) => {
+                    return Err(format!(
+                        "invalid model list scope: {other}; expected fetched | all"
+                    ));
+                }
+            };
             let mut models = command
                 .modelManager()
                 .getAvailableProviderModels(providerId)
                 .map_err(|error| error.to_string())?;
+            if !includeHistory {
+                models.retain(|model| model.isFetched());
+            }
             models.sort_by(|left, right| left.modelId.cmp(&right.modelId));
-            output.push_stdout_line(format!("Available provider models: {}", models.len()));
+            let scope = if includeHistory {
+                "all, including history"
+            } else {
+                "fetched"
+            };
+            output.push_stdout_line(format!(
+                "Available provider models ({scope}): {}",
+                models.len()
+            ));
             for model in &models {
                 output.push_stdout_line(format!(
                     "- {} | source: {:?} | pricing: {} | context: {} | capabilities: {} | request: {}",
@@ -944,7 +961,7 @@ fn print_model_usage(output: &mut CoreCommandOutput) {
         "operit2 model provider-create <name> <provider-type-id> <endpoint>",
         "operit2 model provider-set-key <provider-id> <api-key>",
         "operit2 model provider-set-endpoint <provider-id> <endpoint>",
-        "operit2 model provider-model-available-list <provider-id>",
+        "operit2 model provider-model-available-list <provider-id> [fetched|all]",
         "operit2 model provider-model-add <provider-id> <provider-model-id>",
         "operit2 model provider-model-create <provider-id> <provider-model-id>",
         "operit2 model list",

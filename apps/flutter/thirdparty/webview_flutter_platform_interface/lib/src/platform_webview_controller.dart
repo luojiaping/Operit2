@@ -4,6 +4,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'platform_navigation_delegate.dart';
@@ -19,6 +20,25 @@ import 'webview_platform.dart' show WebViewPlatform;
 /// `implements` this interface will be broken by newly added
 /// [PlatformWebViewController] methods.
 abstract class PlatformWebViewController extends PlatformInterface {
+  /// Scopes an injected script and applies main-frame filtering when requested.
+  @protected
+  String buildUserScriptSource(
+    WebViewUserScript userScript, {
+    required bool platformHandlesMainFrameOnly,
+  }) {
+    final guard = userScript.forMainFrameOnly && !platformHandlesMainFrameOnly
+        ? 'if (globalThis.top !== globalThis) return;'
+        : '';
+    return '(function() {\n$guard\n${userScript.source}\n}).call(globalThis);';
+  }
+
+  /// Applies the embedding application's color preference through its native host.
+  Future<void> setPreferredColorScheme(Brightness brightness) {
+    return const MethodChannel('operit/webview_theme').invokeMethod<void>(
+      'setPreferredColorScheme', brightness.name,
+    );
+  }
+
   /// Creates a new [PlatformWebViewController]
   factory PlatformWebViewController(
     PlatformWebViewControllerCreationParams params,

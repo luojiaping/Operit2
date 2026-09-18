@@ -56,6 +56,9 @@ impl PluginSdkIpcSessionCallbacks {
 
 /// Platform IPC carrier that admits third-party Plugin SDK clients into Operit.
 pub trait PluginSdkIpcHost: Send + Sync {
+    /// Starts the Operit process that owns the Plugin SDK listener and waits until it is ready.
+    fn activate(&self, endpoint: PluginSdkIpcEndpoint) -> HostResult<()>;
+
     /// Starts listening for third-party Plugin SDK connections on the given endpoint.
     fn startListener(
         &self,

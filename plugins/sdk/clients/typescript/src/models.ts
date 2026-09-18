@@ -17,6 +17,16 @@ export function decodeEnvVar(value: unknown): EnvVar {
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeEnvVar(value: EnvVar): Record<string, unknown> {
+  return {
+    'name': value.name,
+    'description': encodeLocalizedText(value.description),
+    'required': value.required,
+    'default_value': value.default_value === null ? null : value.default_value,
+  };
+}
+
 export interface LocalizedText {
   readonly values: Record<string, string>;
 }
@@ -25,6 +35,13 @@ export function decodeLocalizedText(value: unknown): LocalizedText {
   const input = value as Record<string, unknown>;
   return {
     values: input['values'] as Record<string, string>,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeLocalizedText(value: LocalizedText): Record<string, unknown> {
+  return {
+    'values': Object.fromEntries(Object.entries(value.values).map(([key, item]) => [key, item])),
   };
 }
 
@@ -47,6 +64,17 @@ export function decodePackageTool(value: unknown): PackageTool {
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodePackageTool(value: PackageTool): Record<string, unknown> {
+  return {
+    'name': value.name,
+    'description': encodeLocalizedText(value.description),
+    'parameters': value.parameters.map(item => encodePackageToolParameter(item)),
+    'script': value.script,
+    'advice': value.advice,
+  };
+}
+
 export interface PackageToolParameter {
   readonly name: string;
   readonly description: LocalizedText;
@@ -61,6 +89,16 @@ export function decodePackageToolParameter(value: unknown): PackageToolParameter
     description: decodeLocalizedText(input['description']) as LocalizedText,
     parameter_type: input['parameter_type'] as string,
     required: input['required'] as boolean,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodePackageToolParameter(value: PackageToolParameter): Record<string, unknown> {
+  return {
+    'name': value.name,
+    'description': encodeLocalizedText(value.description),
+    'parameter_type': value.parameter_type,
+    'required': value.required,
   };
 }
 
@@ -93,6 +131,22 @@ export function decodeToolPackage(value: unknown): ToolPackage {
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPackage(value: ToolPackage): Record<string, unknown> {
+  return {
+    'name': value.name,
+    'description': encodeLocalizedText(value.description),
+    'tools': value.tools.map(item => encodePackageTool(item)),
+    'states': value.states.map(item => encodeToolPackageState(item)),
+    'env': value.env.map(item => encodeEnvVar(item)),
+    'is_built_in': value.is_built_in,
+    'enabled_by_default': value.enabled_by_default,
+    'display_name': encodeLocalizedText(value.display_name),
+    'category': value.category,
+    'author': value.author.map(item => item),
+  };
+}
+
 export interface ToolPackageState {
   readonly id: string;
   readonly condition: string;
@@ -109,6 +163,17 @@ export function decodeToolPackageState(value: unknown): ToolPackageState {
     inherit_tools: input['inherit_tools'] as boolean,
     exclude_tools: (input['exclude_tools'] as unknown[]).map((item) => item) as Array<string>,
     tools: (input['tools'] as unknown[]).map((item) => decodePackageTool(item)) as Array<PackageTool>,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPackageState(value: ToolPackageState): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'condition': value.condition,
+    'inherit_tools': value.inherit_tools,
+    'exclude_tools': value.exclude_tools.map(item => item),
+    'tools': value.tools.map(item => encodePackageTool(item)),
   };
 }
 
@@ -151,6 +216,27 @@ export function decodeToolPkgContainerDetails(value: unknown): ToolPkgContainerD
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgContainerDetails(value: ToolPkgContainerDetails): Record<string, unknown> {
+  return {
+    'packageName': value.packageName,
+    'displayName': value.displayName,
+    'description': value.description,
+    'version': value.version,
+    'apiVersion': value.apiVersion,
+    'logoResourceKey': value.logoResourceKey === null ? null : value.logoResourceKey,
+    'logoMimeType': value.logoMimeType === null ? null : value.logoMimeType,
+    'author': value.author.map(item => item),
+    'requires': value.requires.map(item => encodeToolPkgManifestRequirement(item)),
+    'resourceCount': value.resourceCount,
+    'workspaceTemplateCount': value.workspaceTemplateCount,
+    'uiModuleCount': value.uiModuleCount,
+    'toolboxUiModules': value.toolboxUiModules.map(item => encodeToolPkgToolboxUiModule(item)),
+    'subpackages': value.subpackages.map(item => encodeToolPkgSubpackageInfo(item)),
+    'workspaceTemplates': value.workspaceTemplates.map(item => encodeToolPkgWorkspaceTemplate(item)),
+  };
+}
+
 export interface ToolPkgLogoBytes {
   readonly resourceKey: string;
   readonly mimeType: string;
@@ -164,7 +250,17 @@ export function decodeToolPkgLogoBytes(value: unknown): ToolPkgLogoBytes {
     resourceKey: input['resourceKey'] as string,
     mimeType: input['mimeType'] as string,
     fileName: input['fileName'] as string,
-    bytes: decodeUint8Array(input['bytes']) as Uint8Array,
+    bytes: new Uint8Array(input['bytes'] as number[]) as Uint8Array,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgLogoBytes(value: ToolPkgLogoBytes): Record<string, unknown> {
+  return {
+    'resourceKey': value.resourceKey,
+    'mimeType': value.mimeType,
+    'fileName': value.fileName,
+    'bytes': Array.from(value.bytes),
   };
 }
 
@@ -188,6 +284,19 @@ export function decodeToolPkgSubpackageInfo(value: unknown): ToolPkgSubpackageIn
     enabledByDefault: input['enabledByDefault'] as boolean,
     toolCount: input['toolCount'] as number,
     enabled: input['enabled'] as boolean,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgSubpackageInfo(value: ToolPkgSubpackageInfo): Record<string, unknown> {
+  return {
+    'packageName': value.packageName,
+    'subpackageId': value.subpackageId,
+    'displayName': value.displayName,
+    'description': value.description,
+    'enabledByDefault': value.enabledByDefault,
+    'toolCount': value.toolCount,
+    'enabled': value.enabled,
   };
 }
 
@@ -220,6 +329,22 @@ export function decodeToolPkgToolboxUiModule(value: unknown): ToolPkgToolboxUiMo
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgToolboxUiModule(value: ToolPkgToolboxUiModule): Record<string, unknown> {
+  return {
+    'containerPackageName': value.containerPackageName,
+    'toolPkgId': value.toolPkgId,
+    'routeId': value.routeId,
+    'uiModuleId': value.uiModuleId,
+    'runtime': value.runtime,
+    'screen': value.screen,
+    'title': value.title,
+    'description': value.description,
+    'moduleSpec': Object.fromEntries(Object.entries(value.moduleSpec).map(([key, item]) => [key, item])),
+    'keepAlive': value.keepAlive,
+  };
+}
+
 export interface ToolPkgWorkspaceTemplate {
   readonly containerPackageName: string;
   readonly toolPkgId: string;
@@ -243,6 +368,19 @@ export function decodeToolPkgWorkspaceTemplate(value: unknown): ToolPkgWorkspace
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgWorkspaceTemplate(value: ToolPkgWorkspaceTemplate): Record<string, unknown> {
+  return {
+    'containerPackageName': value.containerPackageName,
+    'toolPkgId': value.toolPkgId,
+    'templateId': value.templateId,
+    'displayName': value.displayName,
+    'description': value.description,
+    'resourceKey': value.resourceKey,
+    'projectType': value.projectType,
+  };
+}
+
 export interface ToolPkgAiProviderHandlerRuntime {
   readonly function: string;
   readonly functionSource: string | null;
@@ -253,6 +391,14 @@ export function decodeToolPkgAiProviderHandlerRuntime(value: unknown): ToolPkgAi
   return {
     function: input['function'] as string,
     functionSource: input['functionSource'] == null ? null : input['functionSource'] as string | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgAiProviderHandlerRuntime(value: ToolPkgAiProviderHandlerRuntime): Record<string, unknown> {
+  return {
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
   };
 }
 
@@ -279,6 +425,19 @@ export function decodeToolPkgAiProviderRuntime(value: unknown): ToolPkgAiProvide
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgAiProviderRuntime(value: ToolPkgAiProviderRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'displayName': value.displayName,
+    'description': value.description,
+    'listModelsHandler': encodeToolPkgAiProviderHandlerRuntime(value.listModelsHandler),
+    'sendMessageHandler': encodeToolPkgAiProviderHandlerRuntime(value.sendMessageHandler),
+    'testConnectionHandler': encodeToolPkgAiProviderHandlerRuntime(value.testConnectionHandler),
+    'calculateInputTokensHandler': encodeToolPkgAiProviderHandlerRuntime(value.calculateInputTokensHandler),
+  };
+}
+
 export interface ToolPkgAppLifecycleHookRuntime {
   readonly id: string;
   readonly event: string;
@@ -296,6 +455,16 @@ export function decodeToolPkgAppLifecycleHookRuntime(value: unknown): ToolPkgApp
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgAppLifecycleHookRuntime(value: ToolPkgAppLifecycleHookRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'event': value.event,
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
+  };
+}
+
 export interface ToolPkgChatMessageMenuDialogRuntime {
   readonly screen: string;
   readonly title: LocalizedText;
@@ -306,6 +475,14 @@ export function decodeToolPkgChatMessageMenuDialogRuntime(value: unknown): ToolP
   return {
     screen: input['screen'] as string,
     title: decodeLocalizedText(input['title']) as LocalizedText,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgChatMessageMenuDialogRuntime(value: ToolPkgChatMessageMenuDialogRuntime): Record<string, unknown> {
+  return {
+    'screen': value.screen,
+    'title': encodeLocalizedText(value.title),
   };
 }
 
@@ -331,6 +508,20 @@ export function decodeToolPkgChatMessageMenuItemRuntime(value: unknown): ToolPkg
     function: input['function'] as string,
     functionSource: input['functionSource'] == null ? null : input['functionSource'] as string | null,
     dialog: input['dialog'] == null ? null : decodeToolPkgChatMessageMenuDialogRuntime(input['dialog']) as ToolPkgChatMessageMenuDialogRuntime | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgChatMessageMenuItemRuntime(value: ToolPkgChatMessageMenuItemRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'title': encodeLocalizedText(value.title),
+    'icon': value.icon === null ? null : value.icon,
+    'order': value.order,
+    'senders': value.senders.map(item => item),
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
+    'dialog': value.dialog === null ? null : encodeToolPkgChatMessageMenuDialogRuntime(value.dialog),
   };
 }
 
@@ -425,6 +616,53 @@ export function decodeToolPkgContainerRuntime(value: unknown): ToolPkgContainerR
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgContainerRuntime(value: ToolPkgContainerRuntime): Record<string, unknown> {
+  return {
+    'packageName': value.packageName,
+    'displayName': encodeLocalizedText(value.displayName),
+    'description': encodeLocalizedText(value.description),
+    'version': value.version,
+    'apiVersion': value.apiVersion,
+    'requires': value.requires.map(item => encodeToolPkgManifestRequirement(item)),
+    'author': value.author.map(item => item),
+    'mainEntry': value.mainEntry,
+    'sourceType': encodeToolPkgSourceType(value.sourceType),
+    'sourcePath': value.sourcePath,
+    'subpackages': value.subpackages.map(item => encodeToolPkgSubpackageRuntime(item)),
+    'resources': value.resources.map(item => encodeToolPkgResourceRuntime(item)),
+    'wasmModules': value.wasmModules.map(item => encodeToolPkgWasmModuleRuntime(item)),
+    'workflowTemplates': value.workflowTemplates.map(item => encodeToolPkgWorkflowTemplateRuntime(item)),
+    'workspaceTemplates': value.workspaceTemplates.map(item => encodeToolPkgWorkspaceTemplateRuntime(item)),
+    'uiModules': value.uiModules.map(item => encodeToolPkgUiModuleRuntime(item)),
+    'uiRoutes': value.uiRoutes.map(item => encodeToolPkgUiRouteRuntime(item)),
+    'navigationEntries': value.navigationEntries.map(item => encodeToolPkgNavigationEntryRuntime(item)),
+    'desktopWidgets': value.desktopWidgets.map(item => encodeToolPkgDesktopWidgetRuntime(item)),
+    'appLifecycleHooks': value.appLifecycleHooks.map(item => encodeToolPkgAppLifecycleHookRuntime(item)),
+    'messageProcessingPlugins': value.messageProcessingPlugins.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'xmlRenderPlugins': value.xmlRenderPlugins.map(item => encodeToolPkgTagFunctionHookRuntime(item)),
+    'inputMenuTogglePlugins': value.inputMenuTogglePlugins.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'chatInputHooks': value.chatInputHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'chatViewHooks': value.chatViewHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'chatMessageHooks': value.chatMessageHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'chatMessageMenuItems': value.chatMessageMenuItems.map(item => encodeToolPkgChatMessageMenuItemRuntime(item)),
+    'chatRuntimeHooks': value.chatRuntimeHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'hostEventHooks': value.hostEventHooks.map(item => encodeToolPkgHostEventHookRuntime(item)),
+    'toolLifecycleHooks': value.toolLifecycleHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'promptInputHooks': value.promptInputHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'promptHistoryHooks': value.promptHistoryHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'promptEstimateHistoryHooks': value.promptEstimateHistoryHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'systemPromptComposeHooks': value.systemPromptComposeHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'toolPromptComposeHooks': value.toolPromptComposeHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'promptFinalizeHooks': value.promptFinalizeHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'promptEstimateFinalizeHooks': value.promptEstimateFinalizeHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'summaryGenerateHooks': value.summaryGenerateHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'aiProviders': value.aiProviders.map(item => encodeToolPkgAiProviderRuntime(item)),
+    'logoResource': value.logoResource === null ? null : encodeToolPkgResourceRuntime(value.logoResource),
+    'marketOrigin': value.marketOrigin === null ? null : encodeToolPkgMarketOrigin(value.marketOrigin),
+  };
+}
+
 export interface ToolPkgDesktopWidgetRuntime {
   readonly id: string;
   readonly routeId: string;
@@ -450,6 +688,20 @@ export function decodeToolPkgDesktopWidgetRuntime(value: unknown): ToolPkgDeskto
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgDesktopWidgetRuntime(value: ToolPkgDesktopWidgetRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'routeId': value.routeId,
+    'renderRouteId': value.renderRouteId,
+    'title': encodeLocalizedText(value.title),
+    'subtitle': encodeLocalizedText(value.subtitle),
+    'description': encodeLocalizedText(value.description),
+    'icon': value.icon === null ? null : value.icon,
+    'order': value.order,
+  };
+}
+
 export interface ToolPkgFunctionHookRuntime {
   readonly id: string;
   readonly function: string;
@@ -462,6 +714,15 @@ export function decodeToolPkgFunctionHookRuntime(value: unknown): ToolPkgFunctio
     id: input['id'] as string,
     function: input['function'] as string,
     functionSource: input['functionSource'] == null ? null : input['functionSource'] as string | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgFunctionHookRuntime(value: ToolPkgFunctionHookRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
   };
 }
 
@@ -486,6 +747,18 @@ export function decodeToolPkgHostEventHookRuntime(value: unknown): ToolPkgHostEv
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgHostEventHookRuntime(value: ToolPkgHostEventHookRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'source': value.source,
+    'trigger': value.trigger,
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
+    'enabled': value.enabled,
+  };
+}
+
 export interface ToolPkgManifestRequirement {
   readonly id: string;
   readonly description: string;
@@ -500,6 +773,16 @@ export function decodeToolPkgManifestRequirement(value: unknown): ToolPkgManifes
     description: input['description'] as string,
     minVersion: input['min_version'] == null ? null : input['min_version'] as string | null,
     maxVersion: input['max_version'] == null ? null : input['max_version'] as string | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgManifestRequirement(value: ToolPkgManifestRequirement): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'description': value.description,
+    'min_version': value.minVersion === null ? null : value.minVersion,
+    'max_version': value.maxVersion === null ? null : value.maxVersion,
   };
 }
 
@@ -520,6 +803,16 @@ export function decodeToolPkgMarketOrigin(value: unknown): ToolPkgMarketOrigin {
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgMarketOrigin(value: ToolPkgMarketOrigin): Record<string, unknown> {
+  return {
+    'market': value.market,
+    'toolpkgId': value.toolpkgId,
+    'version': value.version,
+    'author': value.author.map(item => item),
+  };
+}
+
 export interface ToolPkgNavigationActionHookRuntime {
   readonly function: string;
   readonly functionSource: string | null;
@@ -530,6 +823,14 @@ export function decodeToolPkgNavigationActionHookRuntime(value: unknown): ToolPk
   return {
     function: input['function'] as string,
     functionSource: input['functionSource'] == null ? null : input['functionSource'] as string | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgNavigationActionHookRuntime(value: ToolPkgNavigationActionHookRuntime): Record<string, unknown> {
+  return {
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
   };
 }
 
@@ -556,6 +857,19 @@ export function decodeToolPkgNavigationEntryRuntime(value: unknown): ToolPkgNavi
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgNavigationEntryRuntime(value: ToolPkgNavigationEntryRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'routeId': value.routeId,
+    'surface': value.surface,
+    'title': encodeLocalizedText(value.title),
+    'action': value.action === null ? null : encodeToolPkgNavigationActionHookRuntime(value.action),
+    'icon': value.icon === null ? null : value.icon,
+    'order': value.order,
+  };
+}
+
 export interface ToolPkgResourceRuntime {
   readonly key: string;
   readonly path: string;
@@ -571,8 +885,20 @@ export function decodeToolPkgResourceRuntime(value: unknown): ToolPkgResourceRun
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgResourceRuntime(value: ToolPkgResourceRuntime): Record<string, unknown> {
+  return {
+    'key': value.key,
+    'path': value.path,
+    'mime': value.mime,
+  };
+}
+
 export type ToolPkgSourceType = 'ASSET' | 'MARKET' | 'EXTERNAL';
 export function decodeToolPkgSourceType(value: unknown): ToolPkgSourceType { return value as ToolPkgSourceType; }
+
+/** Encodes the declared Link enum scalar. */
+export function encodeToolPkgSourceType(value: ToolPkgSourceType): string { return value; }
 
 export interface ToolPkgSubpackageRuntime {
   readonly packageName: string;
@@ -599,6 +925,20 @@ export function decodeToolPkgSubpackageRuntime(value: unknown): ToolPkgSubpackag
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgSubpackageRuntime(value: ToolPkgSubpackageRuntime): Record<string, unknown> {
+  return {
+    'packageName': value.packageName,
+    'containerPackageName': value.containerPackageName,
+    'subpackageId': value.subpackageId,
+    'entryPath': value.entryPath,
+    'displayName': encodeLocalizedText(value.displayName),
+    'description': encodeLocalizedText(value.description),
+    'enabledByDefault': value.enabledByDefault,
+    'toolCount': value.toolCount,
+  };
+}
+
 export interface ToolPkgTagFunctionHookRuntime {
   readonly id: string;
   readonly tag: string;
@@ -613,6 +953,16 @@ export function decodeToolPkgTagFunctionHookRuntime(value: unknown): ToolPkgTagF
     tag: input['tag'] as string,
     function: input['function'] as string,
     functionSource: input['functionSource'] == null ? null : input['functionSource'] as string | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgTagFunctionHookRuntime(value: ToolPkgTagFunctionHookRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'tag': value.tag,
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
   };
 }
 
@@ -632,6 +982,17 @@ export function decodeToolPkgUiModuleRuntime(value: unknown): ToolPkgUiModuleRun
     screen: input['screen'] as string,
     title: decodeLocalizedText(input['title']) as LocalizedText,
     keepAlive: input['keepAlive'] as boolean,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgUiModuleRuntime(value: ToolPkgUiModuleRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'runtime': value.runtime,
+    'screen': value.screen,
+    'title': encodeLocalizedText(value.title),
+    'keepAlive': value.keepAlive,
   };
 }
 
@@ -656,6 +1017,18 @@ export function decodeToolPkgUiRouteRuntime(value: unknown): ToolPkgUiRouteRunti
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgUiRouteRuntime(value: ToolPkgUiRouteRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'routeId': value.routeId,
+    'runtime': value.runtime,
+    'screen': value.screen,
+    'title': encodeLocalizedText(value.title),
+    'keepAlive': value.keepAlive,
+  };
+}
+
 export interface ToolPkgWasmModuleRuntime {
   readonly id: string;
   readonly path: string;
@@ -675,6 +1048,17 @@ export function decodeToolPkgWasmModuleRuntime(value: unknown): ToolPkgWasmModul
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgWasmModuleRuntime(value: ToolPkgWasmModuleRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'path': value.path,
+    'exports': value.exports.map(item => item),
+    'sourceLanguage': value.sourceLanguage,
+    'abi': value.abi,
+  };
+}
+
 export interface ToolPkgWorkflowTemplateRuntime {
   readonly id: string;
   readonly display_name: LocalizedText;
@@ -689,6 +1073,16 @@ export function decodeToolPkgWorkflowTemplateRuntime(value: unknown): ToolPkgWor
     display_name: decodeLocalizedText(input['display_name']) as LocalizedText,
     description: decodeLocalizedText(input['description']) as LocalizedText,
     resource_key: input['resource_key'] as string,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgWorkflowTemplateRuntime(value: ToolPkgWorkflowTemplateRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'display_name': encodeLocalizedText(value.display_name),
+    'description': encodeLocalizedText(value.description),
+    'resource_key': value.resource_key,
   };
 }
 
@@ -711,6 +1105,17 @@ export function decodeToolPkgWorkspaceTemplateRuntime(value: unknown): ToolPkgWo
   };
 }
 
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgWorkspaceTemplateRuntime(value: ToolPkgWorkspaceTemplateRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'display_name': encodeLocalizedText(value.display_name),
+    'description': encodeLocalizedText(value.description),
+    'resource_key': value.resource_key,
+    'project_type': value.project_type,
+  };
+}
+
 export interface ToolResult {
   readonly toolName: string;
   readonly success: boolean;
@@ -725,6 +1130,16 @@ export function decodeToolResult(value: unknown): ToolResult {
     success: input['success'] as boolean,
     result: input['result'] as unknown,
     error: input['error'] == null ? null : input['error'] as string | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolResult(value: ToolResult): Record<string, unknown> {
+  return {
+    'toolName': value.toolName,
+    'success': value.success,
+    'result': value.result,
+    'error': value.error === null ? null : value.error,
   };
 }
 
@@ -746,6 +1161,18 @@ export function decodePluginLoadingItem(value: unknown): PluginLoadingItem {
     status: input['status'] as string,
     message: input['message'] as string,
     logText: input['logText'] as string,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodePluginLoadingItem(value: PluginLoadingItem): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'displayName': value.displayName,
+    'kind': value.kind,
+    'status': value.status,
+    'message': value.message,
+    'logText': value.logText,
   };
 }
 
@@ -771,6 +1198,20 @@ export function decodePluginLoadingProgress(value: unknown): PluginLoadingProgre
     pluginsStarted: input['pluginsStarted'] as number,
     pluginsTotal: input['pluginsTotal'] as number,
     plugins: (input['plugins'] as unknown[]).map((item) => decodePluginLoadingItem(item)) as Array<PluginLoadingItem>,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodePluginLoadingProgress(value: PluginLoadingProgress): Record<string, unknown> {
+  return {
+    'visible': value.visible,
+    'forceExpanded': value.forceExpanded,
+    'progress': value.progress,
+    'phase': value.phase,
+    'currentTask': value.currentTask,
+    'pluginsStarted': value.pluginsStarted,
+    'pluginsTotal': value.pluginsTotal,
+    'plugins': value.plugins.map(item => encodePluginLoadingItem(item)),
   };
 }
 

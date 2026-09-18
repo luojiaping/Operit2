@@ -14,6 +14,7 @@ import '../../../core/proxy/generated/CoreProxyClients.g.dart';
 import '../../../core/proxy/generated/CoreProxyModels.g.dart' as core_proxy;
 import '../../../core/runtime/RuntimeBootstrapManager.dart';
 import '../../../core/snapshot/SnapshotImportUploader.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../common/DeviceSpaceDiscoveryPanel.dart';
 import '../../common/OperitLogoMark.dart';
 import '../../common/RuntimeBootstrapScreen.dart';
@@ -2954,20 +2955,10 @@ class _AiSetupModelPage extends StatelessWidget {
                 ),
                 if (availableModels.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 16),
-                  OperitFormStyles.dropdownButtonFormField<String>(
-                    context,
-                    initialValue: selectedModelId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: '默认模型'),
-                    items: availableModels
-                        .map(
-                          (model) => DropdownMenuItem<String>(
-                            value: model.modelId,
-                            child: Text(model.modelId),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: onModelChanged,
+                  _OnboardingAvailableModelPicker(
+                    availableModels: availableModels,
+                    selectedModelId: selectedModelId,
+                    onModelChanged: onModelChanged,
                   ),
                 ],
                 if (errorText != null) ...<Widget>[
@@ -2979,6 +2970,106 @@ class _AiSetupModelPage extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _OnboardingAvailableModelPicker extends StatefulWidget {
+  const _OnboardingAvailableModelPicker({
+    required this.availableModels,
+    required this.selectedModelId,
+    required this.onModelChanged,
+  });
+
+  final List<core_proxy.AvailableProviderModel> availableModels;
+  final String? selectedModelId;
+  final ValueChanged<String?> onModelChanged;
+
+  /// Creates the state that owns the fetched-or-history toggle.
+  @override
+  State<_OnboardingAvailableModelPicker> createState() =>
+      _OnboardingAvailableModelPickerState();
+}
+
+class _OnboardingAvailableModelPickerState
+    extends State<_OnboardingAvailableModelPicker> {
+  bool _includeHistory = false;
+
+  /// Returns models in the current fetched-or-history scope.
+  List<core_proxy.AvailableProviderModel> _visibleModels() {
+    if (_includeHistory) {
+      return widget.availableModels;
+    }
+    return widget.availableModels
+        .where(
+          (model) =>
+              model.source != core_proxy.AvailableProviderModelSource.catalog,
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final visibleModels = _visibleModels();
+    final selectedIsVisible = visibleModels.any(
+      (model) => model.modelId == widget.selectedModelId,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        SegmentedButton<bool>(
+          showSelectedIcon: false,
+          segments: <ButtonSegment<bool>>[
+            ButtonSegment<bool>(
+              value: false,
+              label: Text(l10n.settingsModelAvailableFetchedOnly),
+            ),
+            ButtonSegment<bool>(
+              value: true,
+              label: Text(l10n.settingsModelAvailableIncludeHistory),
+            ),
+          ],
+          selected: <bool>{_includeHistory},
+          onSelectionChanged: (selection) {
+            setState(() {
+              _includeHistory = selection.single;
+            });
+          },
+        ),
+        if (visibleModels.isEmpty) ...<Widget>[
+          const SizedBox(height: 12),
+          Text(l10n.settingsModelAvailableEmptyFetched),
+        ] else ...<Widget>[
+          const SizedBox(height: 12),
+          KeyedSubtree(
+            key: ValueKey<String>('onboarding-model-scope-$_includeHistory'),
+            child: OperitFormStyles.dropdownButtonFormField<String>(
+              context,
+              initialValue: selectedIsVisible ? widget.selectedModelId : null,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: '默认模型'),
+              items: visibleModels
+                  .map(
+                    (model) => DropdownMenuItem<String>(
+                      value: model.modelId,
+                      child: Text(
+                        _includeHistory &&
+                                model.source ==
+                                    core_proxy
+                                        .AvailableProviderModelSource
+                                        .catalog
+                            ? '${model.modelId} (${l10n.settingsModelAvailableSourceHistory})'
+                            : model.modelId,
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: widget.onModelChanged,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

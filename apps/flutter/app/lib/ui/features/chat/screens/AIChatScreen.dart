@@ -302,6 +302,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
     super.dispose();
   }
 
+
   /// Loads the global long-paste conversion settings used by this chat surface.
   Future<void> _loadLongPastedTextInputSettings() async {
     try {
@@ -1201,43 +1202,39 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
     if (chatId == null || chatId.isEmpty) {
       return;
     }
-    _messagesSubscription = _viewModel
-        .watchMessages(chatId)
-        .listen(
-          (messages) {
-            if (generation == _chatFlowBindingGeneration &&
-                _requestedChatFlowChatId == chatId) {
-              _applyMessages(messages);
-            }
-          },
-          onError: (Object error, StackTrace stackTrace) {
-            _handleBoundChatFlowError(
-              error: error,
-              stackTrace: stackTrace,
-              chatId: chatId,
-              generation: generation,
-            );
-          },
+    _messagesSubscription = _viewModel.watchMessages(chatId).listen(
+      (messages) {
+        if (generation == _chatFlowBindingGeneration &&
+            _requestedChatFlowChatId == chatId) {
+          _applyMessages(messages);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _handleBoundChatFlowError(
+          error: error,
+          stackTrace: stackTrace,
+          chatId: chatId,
+          generation: generation,
         );
-    _chatStateSubscription = _viewModel
-        .watchChatState(chatId)
-        .listen(
-          (state) {
-            if (generation == _chatFlowBindingGeneration &&
-                _requestedChatFlowChatId == chatId &&
-                state.currentChatId == chatId) {
-              _applyChatState(state);
-            }
-          },
-          onError: (Object error, StackTrace stackTrace) {
-            _handleBoundChatFlowError(
-              error: error,
-              stackTrace: stackTrace,
-              chatId: chatId,
-              generation: generation,
-            );
-          },
+      },
+    );
+    _chatStateSubscription = _viewModel.watchChatState(chatId).listen(
+      (state) {
+        if (generation == _chatFlowBindingGeneration &&
+            _requestedChatFlowChatId == chatId &&
+            state.currentChatId == chatId) {
+          _applyChatState(state);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _handleBoundChatFlowError(
+          error: error,
+          stackTrace: stackTrace,
+          chatId: chatId,
+          generation: generation,
         );
+      },
+    );
   }
 
   /// Applies a message-window change without changing chat execution state.

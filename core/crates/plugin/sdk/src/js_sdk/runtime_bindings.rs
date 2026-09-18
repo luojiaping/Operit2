@@ -70,6 +70,7 @@ pub const JS_TOOL_BINDINGS: &[JsToolBinding] = &[
     JsToolBinding { namespace: "Files", method: "write", tool: BuiltinToolName::WriteFile },
     JsToolBinding { namespace: "Files", method: "writeBinary", tool: BuiltinToolName::WriteFileBinary },
     JsToolBinding { namespace: "Files", method: "zip", tool: BuiltinToolName::ZipFiles },
+    JsToolBinding { namespace: "Memory", method: "getOwnerKey", tool: BuiltinToolName::GetMemoryOwnerKey },
     JsToolBinding { namespace: "Memory", method: "create", tool: BuiltinToolName::CreateMemory },
     JsToolBinding { namespace: "Memory", method: "deleteLink", tool: BuiltinToolName::DeleteMemoryLink },
     JsToolBinding { namespace: "Memory", method: "deleteMemory", tool: BuiltinToolName::DeleteMemory },

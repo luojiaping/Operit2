@@ -6,7 +6,10 @@ import '../screens/OperitMainScreen.dart';
 
 typedef StartupRouteCompleteCallback = void Function();
 typedef StartupRoutePageBuilder =
-    Widget Function(BuildContext context, StartupRouteCompleteCallback complete);
+    Widget Function(
+      BuildContext context,
+      StartupRouteCompleteCallback complete,
+    );
 
 abstract class StartupRouteStrategy {
   const StartupRouteStrategy();
@@ -114,9 +117,6 @@ class StartupRouteShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: colorScheme.surface,
-      child: const SizedBox.expand(),
-    );
+    return Material(color: colorScheme.surface, child: const SizedBox.expand());
   }
 }

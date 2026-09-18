@@ -2686,9 +2686,12 @@ class _AvailableModelDialog extends StatefulWidget {
   State<_AvailableModelDialog> createState() => _AvailableModelDialogState();
 }
 
+enum _AvailableModelListScope { fetched, all }
+
 class _AvailableModelDialogState extends State<_AvailableModelDialog> {
   final _searchController = TextEditingController();
   final Set<String> _selectedModelIds = <String>{};
+  _AvailableModelListScope _scope = _AvailableModelListScope.fetched;
 
   @override
   void dispose() {
@@ -2696,22 +2699,49 @@ class _AvailableModelDialogState extends State<_AvailableModelDialog> {
     super.dispose();
   }
 
-  /// Filters catalog models according to the current search query.
+  /// Returns models in the current fetched-or-history scope.
+  List<core_proxy.AvailableProviderModel> _scopedModels() {
+    if (_scope == _AvailableModelListScope.all) {
+      return widget.models;
+    }
+    return widget.models
+        .where(_availableProviderModelIsFetched)
+        .toList(growable: false);
+  }
+
+  /// Filters scoped models according to the current search query.
   List<core_proxy.AvailableProviderModel> _filteredModels(
     AppLocalizations l10n,
   ) {
     final query = _searchController.text.trim().toLowerCase();
+    final scopedModels = _scopedModels();
     if (query.isEmpty) {
-      return widget.models;
+      return scopedModels;
     }
-    return widget.models
+    return scopedModels
         .where((model) {
           final text =
-              '${model.modelId} ${_availableModelSubtitle(l10n, model)}'
+              '${model.modelId} ${_availableModelSubtitle(l10n, model, includeSource: _scope == _AvailableModelListScope.all)}'
                   .toLowerCase();
           return text.contains(query);
         })
         .toList(growable: false);
+  }
+
+  /// Switches between fetched-only and catalog-history listings.
+  void _setScope(_AvailableModelListScope scope) {
+    setState(() {
+      _scope = scope;
+      if (scope == _AvailableModelListScope.fetched) {
+        _selectedModelIds.removeWhere((modelId) {
+          return widget.models.any(
+            (model) =>
+                model.modelId == modelId &&
+                !_availableProviderModelIsFetched(model),
+          );
+        });
+      }
+    });
   }
 
   /// Toggles the selected state of one catalog model.
@@ -2735,7 +2765,9 @@ class _AvailableModelDialogState extends State<_AvailableModelDialog> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final query = _searchController.text.trim();
     final filteredModels = _filteredModels(l10n);
+    final includeSource = _scope == _AvailableModelListScope.all;
     return AlertDialog(
       title: Text(l10n.settingsModelAddModel),
       content: SizedBox(
@@ -2752,9 +2784,35 @@ class _AvailableModelDialogState extends State<_AvailableModelDialog> {
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<_AvailableModelListScope>(
+                showSelectedIcon: false,
+                segments: <ButtonSegment<_AvailableModelListScope>>[
+                  ButtonSegment<_AvailableModelListScope>(
+                    value: _AvailableModelListScope.fetched,
+                    label: Text(l10n.settingsModelAvailableFetchedOnly),
+                  ),
+                  ButtonSegment<_AvailableModelListScope>(
+                    value: _AvailableModelListScope.all,
+                    label: Text(l10n.settingsModelAvailableIncludeHistory),
+                  ),
+                ],
+                selected: <_AvailableModelListScope>{_scope},
+                onSelectionChanged: (selection) => _setScope(selection.single),
+              ),
+            ),
+            const SizedBox(height: 8),
             Expanded(
               child: ListView(
                 children: <Widget>[
+                  if (filteredModels.isEmpty &&
+                      query.isEmpty &&
+                      _scope == _AvailableModelListScope.fetched)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(l10n.settingsModelAvailableEmptyFetched),
+                    ),
                   for (final model in filteredModels)
                     Material(
                       type: MaterialType.transparency,
@@ -2767,7 +2825,13 @@ class _AvailableModelDialogState extends State<_AvailableModelDialog> {
                           onChanged: (_) => _toggleModel(model),
                         ),
                         title: Text(model.modelId),
-                        subtitle: Text(_availableModelSubtitle(l10n, model)),
+                        subtitle: Text(
+                          _availableModelSubtitle(
+                            l10n,
+                            model,
+                            includeSource: includeSource,
+                          ),
+                        ),
                         onTap: () => _toggleModel(model),
                       ),
                     ),
@@ -5371,11 +5435,25 @@ bool _functionModelSupported(
   };
 }
 
+/// Returns whether this option came from a live provider listing.
+bool _availableProviderModelIsFetched(core_proxy.AvailableProviderModel model) {
+  return model.source != core_proxy.AvailableProviderModelSource.catalog;
+}
+
+/// Builds the add-model row subtitle from source, capabilities, and context.
 String _availableModelSubtitle(
   AppLocalizations l10n,
-  core_proxy.AvailableProviderModel model,
-) {
+  core_proxy.AvailableProviderModel model, {
+  bool includeSource = false,
+}) {
   final labels = <String>[];
+  if (includeSource) {
+    labels.add(
+      _availableProviderModelIsFetched(model)
+          ? l10n.settingsModelAvailableSourceFetched
+          : l10n.settingsModelAvailableSourceHistory,
+    );
+  }
   final capabilities = model.capabilities;
   if (capabilities != null) {
     if (capabilities.directImage) {

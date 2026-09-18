@@ -126,6 +126,7 @@ pub struct ToolResultMap {
     pub get_chat_messages: ChatMessagesResultData,
     pub get_chat_messages_range: ChatMessagesResultData,
     pub query_memory: MemoryQueryResultData,
+    pub get_memory_owner_key: String,
     pub get_memory_by_title: MemoryQueryResultData,
     pub create_memory: String,
     pub update_memory: String,

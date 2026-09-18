@@ -26,7 +26,9 @@ pub use operit_host_native_common::NativeHostRuntimeEventSchedulerHost as LinuxH
 #[cfg(target_os = "linux")]
 pub use operit_host_native_common::NativeHostRuntimeTaskSchedulerHost as LinuxHostRuntimeTaskSchedulerHost;
 #[cfg(target_os = "linux")]
-pub use operit_host_native_plugin_sdk_ipc::UnixPluginSdkIpcHost as LinuxPluginSdkIpcHost;
+pub use plugin_sdk_ipc::LinuxPluginSdkIpcHost;
+#[cfg(target_os = "linux")]
+mod plugin_sdk_ipc;
 pub use tools::audio::LinuxAudioPlaybackHost;
 pub use tools::bluetooth::LinuxBluetoothHost;
 pub use tools::browser::{LinuxBrowserAutomationHost, LinuxWebVisitHost};

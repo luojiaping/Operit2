@@ -477,6 +477,13 @@ pub enum AvailableProviderModelSource {
     Local,
 }
 
+impl AvailableProviderModelSource {
+    /// Returns whether this source is a live listing rather than catalog history.
+    pub fn isFetched(&self) -> bool {
+        !matches!(self, Self::Catalog)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct AvailableProviderModel {
@@ -487,6 +494,13 @@ pub struct AvailableProviderModel {
     pub capabilities: Option<ModelCapabilities>,
     pub builtinTools: Vec<ModelBuiltinTool>,
     pub request: Option<ModelRequestSpec>,
+}
+
+impl AvailableProviderModel {
+    /// Returns whether this option came from a live provider listing or local runtime.
+    pub fn isFetched(&self) -> bool {
+        self.source.isFetched()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

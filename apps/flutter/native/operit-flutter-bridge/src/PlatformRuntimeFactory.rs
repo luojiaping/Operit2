@@ -1,5 +1,15 @@
 use super::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "FfiTransport.rs"]
+pub(crate) mod FfiTransport;
+
+/// Releases platform registrations after the last host or FFI runtime owner exits.
+pub(crate) fn release_runtime_host() {
+    #[cfg(target_os = "android")]
+    operit_host_android_native::clearAndroidHostSecretStoreBridge();
+}
+
 use operit_runtime::core::application::OperitApplication::OperitApplication;
 
 #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]

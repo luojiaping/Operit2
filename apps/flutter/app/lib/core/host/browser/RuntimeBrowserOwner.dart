@@ -1251,6 +1251,7 @@ class RuntimeBrowserOwner extends ChangeNotifier {
     );
   }
 
+
   bool _isDownloadUrl(String url) {
     final lower = url.toLowerCase();
     return lower.endsWith('.zip') ||

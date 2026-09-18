@@ -724,6 +724,11 @@ bool WebviewBridge::SetZoomControlEnabled(bool enabled) {
   return webview_->SetZoomControlEnabled(enabled);
 }
 
+/// Applies native color preference to the browser owned by this bridge.
+bool WebviewBridge::SetPreferredColorScheme(bool dark) {
+  return webview_->SetPreferredColorScheme(dark);
+}
+
 bool WebviewBridge::SetBackgroundColor(int64_t color) {
   return webview_->SetBackgroundColor(static_cast<int32_t>(color));
 }

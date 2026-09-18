@@ -1243,6 +1243,12 @@ fn registerMemoryPublicTools(handler: &mut AIToolHandler) {
 fn registerMemoryInternalTools(handler: &mut AIToolHandler) {
     registerMemoryTool(
         handler,
+        BuiltinToolName::GetMemoryOwnerKey,
+        MemoryToolOperation::GetMemoryOwnerKey,
+        true,
+    );
+    registerMemoryTool(
+        handler,
         BuiltinToolName::CreateMemory,
         MemoryToolOperation::CreateMemory,
         true,

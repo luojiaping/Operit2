@@ -3,17 +3,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use operit_host_api::{
-    HostError, HostResult, PluginSdkIpcSessionCallbacks, PluginSdkIpcSessionId,
-};
+use operit_host_api::{HostError, HostResult, PluginSdkIpcSessionCallbacks, PluginSdkIpcSessionId};
 
 use crate::framing::{readPluginSdkIpcFrame, writePluginSdkIpcFrame};
 
 /// Owns one connected Plugin SDK byte stream.
 pub struct PluginSdkIpcStreamSession {
     pub sessionId: PluginSdkIpcSessionId,
-    pub writer: Mutex<Box<dyn Write + Send>>,
-    pub closed: AtomicBool,
+    pub writer: Mutex<Option<Box<dyn Write + Send>>>,
+    pub closed: Arc<AtomicBool>,
     pub listenerOwned: bool,
 }
 
@@ -26,8 +24,8 @@ impl PluginSdkIpcStreamSession {
     ) -> Self {
         Self {
             sessionId,
-            writer: Mutex::new(writer),
-            closed: AtomicBool::new(false),
+            writer: Mutex::new(Some(writer)),
+            closed: Arc::new(AtomicBool::new(false)),
             listenerOwned,
         }
     }
@@ -72,14 +70,23 @@ pub fn sendPluginSdkIpcStream(
         .writer
         .lock()
         .map_err(|error| HostError::new(format!("Plugin SDK IPC writer lock poisoned: {error}")))?;
-    writePluginSdkIpcFrame(&mut *writer, &bytes)
+    let writer = writer
+        .as_mut()
+        .ok_or_else(|| HostError::new("Plugin SDK IPC writer is closed"))?;
+    writePluginSdkIpcFrame(writer, &bytes)
 }
 
 /// Marks a stream session closed.
 #[allow(non_snake_case)]
 pub fn closePluginSdkIpcStream(session: &PluginSdkIpcStreamSession) {
     session.closed.store(true, Ordering::SeqCst);
+    session
+        .writer
+        .lock()
+        .expect("Plugin SDK IPC writer lock poisoned")
+        .take();
 }
 
 /// Shared session table used by stream-backed Plugin SDK IPC hosts.
-pub type PluginSdkIpcSessionTable = Arc<Mutex<std::collections::HashMap<String, Arc<PluginSdkIpcStreamSession>>>>;
+pub type PluginSdkIpcSessionTable =
+    Arc<Mutex<std::collections::HashMap<String, Arc<PluginSdkIpcStreamSession>>>>;

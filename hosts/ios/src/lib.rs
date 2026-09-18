@@ -30,7 +30,7 @@ pub use operit_host_apple_native::{
 };
 pub use terminal::IosTerminalHost;
 
-pub use operit_host_native_plugin_sdk_ipc::UnixPluginSdkIpcHost as IosPluginSdkIpcHost;
+pub use operit_host_apple_native::ApplePluginSdkIpcHost as IosPluginSdkIpcHost;
 
 /// Creates the iOS-owned runtime host manager for explicit storage roots.
 #[cfg(target_os = "ios")]

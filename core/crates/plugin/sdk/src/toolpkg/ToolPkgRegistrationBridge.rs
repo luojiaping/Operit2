@@ -544,10 +544,18 @@ pub fn buildToolPkgRegistrationBridgeScript(restrictHostCapabilities: bool) -> S
             _m: captureMarketOrigin,
             registerToolboxUiModule: registerScreen('toolboxUiModules', 'registerToolPkgToolboxUiModule'),
             registerUiRoute: registerScreen('uiRoutes', 'registerToolPkgUiRoute'),
+            /// Encodes navigation callbacks using the nested runtime action contract.
             registerNavigationEntry: function(definition) {
-                var normalized = definition && typeof definition.action === 'function'
-                    ? normalizeFunctionField(definition, 'action', 'registerToolPkgNavigationEntry')
-                    : copyObject(definition, '');
+                var normalized = copyObject(definition, '');
+                if (definition && typeof definition.action === 'function') {
+                    var ref = resolveDurableFunctionRef(
+                        definition.action, definition, 'registerToolPkgNavigationEntry'
+                    );
+                    normalized.action = { function: ref.name };
+                    if (ref.source) {
+                        normalized.action.functionSource = ref.source;
+                    }
+                }
                 capture.navigationEntries.push(normalizeSpec(normalized));
             },
             registerDesktopWidget: append('desktopWidgets'),

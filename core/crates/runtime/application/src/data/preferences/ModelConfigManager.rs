@@ -12,8 +12,8 @@ use operit_model::ModelCatalog::ModelCatalog;
 use operit_model::ModelConfigData::{
     default_deepseek_provider, local_model_provider, ApiProviderType, AvailableProviderModel,
     AvailableProviderModelSource, ModelCapabilities, ModelConfigDefaults, ModelContextSpec,
-    ModelProfile, ModelRequestSpec, ModelSummarySettings, ProviderModelSummary, ProviderProfile,
-    ResolvedModelConfig,
+    ModelProfile, ModelRequestSpec, ModelSummarySettings, ProviderCatalogEntry,
+    ProviderModelSummary, ProviderProfile, ResolvedModelConfig,
 };
 use operit_model::ModelParameter::ModelParameter;
 use operit_providers::chat::llmprovider::ModelConfigConnectionTester::{
@@ -284,7 +284,7 @@ impl ModelConfigManager {
         Ok(modelId)
     }
 
-    /// Fetches provider models available for import into a provider profile.
+    /// Lists live provider models first, then catalog history entries that were not fetched.
     pub fn getAvailableProviderModels(
         &self,
         providerId: &str,
@@ -307,28 +307,27 @@ impl ModelConfigManager {
         }
         let providerCatalog = ModelCatalog::provider(&provider.providerTypeId)
             .map_err(ModelConfigError::ModelListFetch)?;
-        let mut models: Vec<AvailableProviderModel> = providerCatalog
-            .models
-            .iter()
-            .map(|model| AvailableProviderModel {
-                modelId: model.modelId.clone(),
-                source: AvailableProviderModelSource::Catalog,
-                pricing: model.pricing.clone(),
-                context: model.context.clone(),
-                capabilities: model.capabilities.clone(),
-                builtinTools: model.builtinTools.clone(),
-                request: model.request.clone(),
-            })
-            .collect();
         let remoteModels = ModelListFetcher::fetch(&provider, &providerCatalog)
             .map_err(ModelConfigError::ModelListFetch)?;
+        let mut models: Vec<AvailableProviderModel> = Vec::new();
+        let mut seenModelIds = HashSet::new();
         for remoteModel in remoteModels {
-            let remoteModel = Self::completeAvailableProviderModel(remoteModel);
-            if !models
-                .iter()
-                .any(|model| model.modelId.eq_ignore_ascii_case(&remoteModel.modelId))
-            {
-                models.push(remoteModel);
+            let model = Self::fetchedModelWithCatalogMetadata(remoteModel, &providerCatalog);
+            if seenModelIds.insert(model.modelId.to_ascii_lowercase()) {
+                models.push(model);
+            }
+        }
+        for catalogModel in &providerCatalog.models {
+            if seenModelIds.insert(catalogModel.modelId.to_ascii_lowercase()) {
+                models.push(AvailableProviderModel {
+                    modelId: catalogModel.modelId.clone(),
+                    source: AvailableProviderModelSource::Catalog,
+                    pricing: catalogModel.pricing.clone(),
+                    context: catalogModel.context.clone(),
+                    capabilities: catalogModel.capabilities.clone(),
+                    builtinTools: catalogModel.builtinTools.clone(),
+                    request: catalogModel.request.clone(),
+                });
             }
         }
         Ok(models)
@@ -1012,6 +1011,29 @@ impl ModelConfigManager {
                 providerId: provider.id.clone(),
                 modelId: modelId.to_string(),
             })
+    }
+
+    /// Marks a live listing as fetched and applies catalog metadata when the IDs match.
+    fn fetchedModelWithCatalogMetadata(
+        remoteModel: AvailableProviderModel,
+        providerCatalog: &ProviderCatalogEntry,
+    ) -> AvailableProviderModel {
+        if let Some(catalogModel) = providerCatalog
+            .models
+            .iter()
+            .find(|model| model.modelId.eq_ignore_ascii_case(&remoteModel.modelId))
+        {
+            return Self::completeAvailableProviderModel(AvailableProviderModel {
+                modelId: catalogModel.modelId.clone(),
+                source: AvailableProviderModelSource::Remote,
+                pricing: catalogModel.pricing.clone(),
+                context: catalogModel.context.clone(),
+                capabilities: catalogModel.capabilities.clone(),
+                builtinTools: catalogModel.builtinTools.clone(),
+                request: catalogModel.request.clone(),
+            });
+        }
+        Self::completeAvailableProviderModel(remoteModel)
     }
 
     fn completeAvailableProviderModel(mut model: AvailableProviderModel) -> AvailableProviderModel {

@@ -51,6 +51,12 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".PluginSdkActivationActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <service android:name=".PluginSdkService" android:exported="true" />
+        <activity
             android:name=".NativeCrashActivity"
             android:exported="false"
             android:process=":crash"

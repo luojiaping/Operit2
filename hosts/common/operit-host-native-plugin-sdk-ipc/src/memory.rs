@@ -61,6 +61,11 @@ impl Default for MemoryPluginSdkIpcHost {
 }
 
 impl PluginSdkIpcHost for MemoryPluginSdkIpcHost {
+    /// Reports that the in-process Operit runtime is already this process.
+    fn activate(&self, _endpoint: PluginSdkIpcEndpoint) -> HostResult<()> {
+        Ok(())
+    }
+
     /// Starts the in-process listener for third-party Plugin SDK sessions.
     fn startListener(
         &self,

@@ -1254,6 +1254,13 @@ impl JsExecutionHost for AIToolHandler {
             .readEnvironmentVariable(key)
     }
 
+    /// Writes one runtime environment variable.
+    fn write_environment_variable(&self, key: &str, value: &str) -> Result<(), String> {
+        self.runtimeDependencies()
+            .runtime_support()
+            .writeEnvironmentVariable(key, value)
+    }
+
     /// Returns the plugin configuration directory.
     fn plugin_config_dir(&self, plugin_id: &str) -> Result<String, String> {
         let configDir = OperitPaths::pluginConfigDir(plugin_id)?;

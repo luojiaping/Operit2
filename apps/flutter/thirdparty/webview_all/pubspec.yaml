@@ -1,5 +1,6 @@
 name: webview_all
 version: 1.2.1
+publish_to: none
 description: A Flutter WebView plugin with full-platform support that implements the webview_flutter platform interface.
 repository: https://github.com/abandoft/webview_all
 homepage: https://github.com/abandoft/webview_all

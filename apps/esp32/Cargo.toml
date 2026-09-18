@@ -1,0 +1,54 @@
+[package]
+name = "operit-esp32"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Operit Edge firmware for ESP32-2432S028."
+
+[[bin]]
+name = "operit-esp32"
+path = "src/main.rs"
+
+[dependencies]
+async-trait = "0.1"
+log = "0.4"
+operit-board-esp32 = { path = "../../hosts/boards/esp32" }
+operit-edge-transport = { path = "../../core/crates/node/edge-transport" }
+operit-host-api = { path = "../../core/crates/foundation/host-api" }
+operit-link = { path = "../../core/crates/foundation/link" }
+operit-node-edge = { path = "../../core/crates/node/edge" }
+operit-ui = { path = "../../core/crates/ui" }
+operit-proxy-edge = { path = "../../core/crates/proxy/edge" }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+
+[target.'cfg(target_os = "espidf")'.dependencies]
+esp-idf-hal = "0.46.2"
+esp-idf-svc = "0.52.1"
+esp-idf-sys = "0.37.2"
+
+[build-dependencies]
+embuild = { version = "0.33", features = ["espidf"] }
+
+[package.metadata.esp-idf-sys]
+esp_idf_components = [
+  "main",
+  "app_update",
+  "bootloader",
+  "driver",
+  "fatfs",
+  "spiffs",
+  "wear_levelling",
+  "nvs_flash",
+  "esp_event",
+  "esp_netif",
+  "esp_wifi",
+  "esp_http_server",
+  "lvgl_port",
+  "lvgl__lvgl",
+]
+extra_components = [
+  { remote_component = { name = "lvgl/lvgl", version = "9.3.0" }, bindings_header = "lvgl_bindings.h", bindings_module = "lvgl" },
+  { component_dirs = ["lvgl_port"] },
+]

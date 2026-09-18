@@ -496,7 +496,7 @@ where
             "Core watch stream completed before its snapshot",
         )
     })?;
-    AppLogger::i(
+    AppLogger::d(
         "CoreRouteStream",
         &format!(
             "state_flow.first requestId={} targetObjectId={} property={} kind={:?} value={} summary={}",
@@ -621,7 +621,7 @@ pub async fn core_route_state_flow_with_local_source<T>(
 where
     T: Serialize + DeserializeOwned + Clone + PartialEq + Send + 'static,
 {
-    AppLogger::i(
+    AppLogger::d(
         "CoreRouteStream",
         &format!("wrapper.watch.local_source method={}", method_name),
     );
@@ -640,7 +640,7 @@ where
         args,
         sources,
     );
-    AppLogger::i(
+    AppLogger::d(
         "CoreRouteStream",
         &format!(
             "wrapper.watch.local_source.open requestId={} method={}",

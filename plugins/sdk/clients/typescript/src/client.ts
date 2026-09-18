@@ -1,4 +1,4 @@
-import { connect, Socket } from 'node:net';
+import { PluginSdkHost } from './host.js';
 import { decode, encode } from '@msgpack/msgpack';
 
 /** One Core watch event returned through Plugin SDK IPC. */
@@ -18,23 +18,24 @@ export interface OperitPluginSdkPushSink {
 
 /** Concrete Node.js Plugin SDK client with its IPC carrier built in. */
 export class OperitPluginSdkClient {
-  private constructor(private readonly socket: Socket) {
-    socket.on('data', (chunk) => this.onBytes(chunk));
-    socket.on('close', () => this.fail(new Error('Plugin SDK IPC connection closed')));
+  private constructor(private readonly host: PluginSdkHost) {
+    host.on('message', (chunk) => this.onBytes(chunk));
+    host.on('failure', (error) => this.fail(error));
+    host.on('closed', () => this.fail(new Error('Plugin SDK IPC connection closed')));
   }
 
   private readonly pending = new Map<string, (value: unknown, error?: Error) => void>();
   private readonly watchQueues = new Map<string, AsyncQueue<OperitPluginSdkEvent>>();
-  private buffer = Buffer.alloc(0);
+  private closed = false;
   private nextId = 1;
 
-  /** Connects to the standard TCP loopback endpoint. */
-  public static connectTcp(host = '127.0.0.1', port = 18732): Promise<OperitPluginSdkClient> {
-    return new Promise((resolve, reject) => {
-      const socket = connect(port, host, () => resolve(new OperitPluginSdkClient(socket)));
-      socket.once('error', reject);
-    });
+  /** Activates Operit using the platform host packaged with this SDK. */
+  public static async connect(nativeLibraryPath?: string): Promise<OperitPluginSdkClient> {
+    return new OperitPluginSdkClient(await PluginSdkHost.connect(nativeLibraryPath));
   }
+
+  /** Closes the native session and fails outstanding operations. */
+  public close(): void { this.host.close(); this.fail(new Error('Plugin SDK connection closed')); }
 
   /** Calls one generated Core method. */
   public call(targetObjectId: number, methodName: string, args?: unknown): Promise<unknown> {
@@ -95,13 +96,11 @@ export class OperitPluginSdkClient {
   /** Allocates one session-local request id. */
   private requestId(): string { return `plugin-sdk-${this.nextId++}`; }
 
-  /** Sends one length-prefixed MessagePack envelope. */
+  /** Sends one envelope through the host-owned framing implementation. */
   private send(message: unknown): void {
     const payload = Buffer.from(encode(message));
-    const frame = Buffer.allocUnsafe(4 + payload.length);
-    frame.writeUInt32BE(payload.length, 0);
-    payload.copy(frame, 4);
-    this.socket.write(frame);
+    if (this.closed) throw new Error('Plugin SDK connection closed');
+    this.host.send(payload);
   }
 
   /** Registers and sends one request awaiting its protocol acknowledgement. */
@@ -109,20 +108,14 @@ export class OperitPluginSdkClient {
     const promise = new Promise<unknown>((resolve, reject) => {
       this.pending.set(key, (value, error) => error ? reject(error) : resolve(value));
     });
-    this.send(message);
+    try { this.send(message); } catch (error) { this.fail(error as Error); }
     return promise;
   }
 
-  /** Parses complete framed IPC payloads. */
+  /** Decodes one complete envelope received from the platform host. */
   private onBytes(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (this.buffer.length >= 4) {
-      const length = this.buffer.readUInt32BE(0);
-      if (this.buffer.length < length + 4) return;
-      const message = decode(this.buffer.subarray(4, length + 4)) as Record<string, unknown>;
-      this.buffer = this.buffer.subarray(length + 4);
-      this.onMessage(message);
-    }
+    try { this.onMessage(decode(chunk) as Record<string, unknown>); }
+    catch (error) { this.fail(error as Error); this.host.close(); }
   }
 
   /** Routes one protocol envelope to its pending request or watch queue. */
@@ -163,21 +156,30 @@ export class OperitPluginSdkClient {
     return { requestId: event.requestId as string | null, targetObjectId: event.targetObjectId as number, propertyName: event.propertyName as string, kind: String(event.kind), value: event.value };
   }
 
-  /** Fails every pending request after a socket failure. */
-  private fail(error: Error): void { for (const callback of this.pending.values()) callback(undefined, error); this.pending.clear(); }
+  /** Fails pending calls and watch streams after the platform carrier closes. */
+  private fail(error: Error): void {
+    this.closed = true;
+    for (const callback of this.pending.values()) callback(undefined, error);
+    this.pending.clear();
+    for (const queue of this.watchQueues.values()) queue.fail(error);
+    this.watchQueues.clear();
+  }
 }
 
 /** Minimal async queue used by generated watch wrappers. */
 class AsyncQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private readonly values: T[] = [];
-  private readonly waiters: Array<(result: IteratorResult<T>) => void> = [];
+  private readonly waiters: Array<{ resolve: (result: IteratorResult<T>) => void; reject: (error: Error) => void }> = [];
   private done = false;
+  private failure?: Error;
   /** Adds one queue value. */
-  public push(value: T): void { if (this.done) return; const waiter = this.waiters.shift(); waiter ? waiter({ value, done: false }) : this.values.push(value); }
+  public push(value: T): void { if (this.done) return; const waiter = this.waiters.shift(); waiter ? waiter.resolve({ value, done: false }) : this.values.push(value); }
   /** Closes the queue. */
-  public close(): void { this.done = true; while (this.waiters.length) this.waiters.shift()!({ value: undefined as never, done: true }); }
+  public close(): void { this.done = true; while (this.waiters.length) this.waiters.shift()!.resolve({ value: undefined as never, done: true }); }
+  /** Fails an active watch when its native transport is lost. */
+  public fail(error: Error): void { this.done = true; this.failure = error; this.values.length = 0; while (this.waiters.length) this.waiters.shift()!.reject(error); }
   /** Reads one queue value. */
-  public next(): Promise<IteratorResult<T>> { if (this.values.length) return Promise.resolve({ value: this.values.shift()!, done: false }); if (this.done) return Promise.resolve({ value: undefined as never, done: true }); return new Promise((resolve) => this.waiters.push(resolve)); }
+  public next(): Promise<IteratorResult<T>> { if (this.failure) return Promise.reject(this.failure); if (this.values.length) return Promise.resolve({ value: this.values.shift()!, done: false }); if (this.done) return Promise.resolve({ value: undefined as never, done: true }); return new Promise((resolve, reject) => this.waiters.push({ resolve, reject })); }
   /** Returns this queue as its async iterator. */
   public [Symbol.asyncIterator](): AsyncIterator<T> { return this; }
 }

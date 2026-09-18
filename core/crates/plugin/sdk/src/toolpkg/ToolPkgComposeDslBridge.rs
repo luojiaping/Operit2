@@ -193,7 +193,8 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                 return node;
             }
 
-            function resolvePackageName(value) {
+            /// Resolves an optional package argument inside its owning runtime.
+            function resolvePackageName(value, runtime) {
                 var name = String(value || runtime.packageName || '').trim();
                 return name;
             }
@@ -280,6 +281,7 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                             ? options.__operit_call_runtime
                             : null,
                     actionStore: {},
+                    navigationCommands: [],
                     actionCounter: 0,
                     stateChangeListeners: [],
                     stateChangeScheduled: false,
@@ -598,11 +600,21 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                             height: Math.min((request && request.maxHeight) || 100000, fontSize * 1.4)
                         };
                     },
+                    /// Reads environment values through the active execution context.
                     getEnv: function(key) {
-                        if (typeof getEnv === 'function') {
-                            return unwrapNativeResult(getEnv(String(key || '')));
-                        }
-                        return undefined;
+                        return unwrapNativeResult(runtime.callRuntime.getEnv(String(key || '')));
+                    },
+                    setEnv: function(key, value) {
+                        unwrapNativeResult(invokeNative('setEnv', [
+                            String(key || ''),
+                            value === undefined || value === null ? '' : String(value)
+                        ]));
+                        return Promise.resolve();
+                    },
+                    setEnvs: function(values) {
+                        var payload = values && typeof values === 'object' ? values : {};
+                        unwrapNativeResult(invokeNative('setEnvs', [JSON.stringify(payload)]));
+                        return Promise.resolve();
                     },
                     callTool: function(toolName, params) {
                         if (typeof toolCall === 'function') {
@@ -610,11 +622,21 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                         }
                         throw createUserFacingError('Tool call bridge is unavailable');
                     },
+                    /// Queues navigation independently of the action handler's return value.
                     navigate: function(route, args) {
-                        return { route: String(route || ''), args: args || {} };
+                        var routeId = String(route || '').trim();
+                        if (!routeId) {
+                            throw createUserFacingError('route is required');
+                        }
+                        var payload = args && typeof args === 'object' ? args : {};
+                        runtime.navigationCommands.push({
+                            route: routeId,
+                            args: normalizeSerializableValue(payload, runtime, [])
+                        });
+                        return Promise.resolve();
                     },
                     showToast: function(message) {
-                        console.log(String(message || ''));
+                        return toolCall('toast', { message: String(message || '') });
                     },
                     reportError: function(error) {
                         console.error(error);
@@ -666,7 +688,7 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                         return runtime.uiModuleId;
                     },
                     isPackageImported: function(packageName) {
-                        var target = resolvePackageName(packageName);
+                        var target = resolvePackageName(packageName, runtime);
                         if (!target) {
                             return Promise.resolve(false);
                         }
@@ -677,7 +699,7 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                         return toolCall('is_package_imported', { package_name: target });
                     },
                     importPackage: function(packageName) {
-                        var target = resolvePackageName(packageName);
+                        var target = resolvePackageName(packageName, runtime);
                         if (!target) {
                             return Promise.resolve('');
                         }
@@ -688,7 +710,7 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                         return toolCall('import_package', { package_name: target });
                     },
                     removePackage: function(packageName) {
-                        var target = resolvePackageName(packageName);
+                        var target = resolvePackageName(packageName, runtime);
                         if (!target) {
                             return Promise.resolve('');
                         }
@@ -699,7 +721,7 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                         return toolCall('remove_package', { package_name: target });
                     },
                     usePackage: function(packageName) {
-                        var target = resolvePackageName(packageName);
+                        var target = resolvePackageName(packageName, runtime);
                         if (!target) {
                             return Promise.resolve('');
                         }
@@ -758,6 +780,10 @@ pub fn buildComposeDslContextBridgeDefinition() -> String {
                 };
 
                 runtime.ctx = ctx;
+                /// Transfers each navigation request to exactly one render response.
+                runtime.takeNavigationCommands = function() {
+                    return runtime.navigationCommands.splice(0);
+                };
                 Object.defineProperty(runtime, 'state', {
                     get: function() { return cloneObject(runtime.stateStore); }
                 });

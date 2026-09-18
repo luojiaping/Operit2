@@ -124,6 +124,9 @@ pub trait JsExecutionHost: crate::js_sdk::JsToolsHost + Send + Sync {
     /// Reads one environment variable exposed to package JavaScript.
     fn read_environment_variable(&self, key: &str) -> Result<Option<String>, String>;
 
+    /// Writes one environment variable exposed to package JavaScript.
+    fn write_environment_variable(&self, key: &str, value: &str) -> Result<(), String>;
+
     /// Returns the writable configuration directory for one plugin.
     fn plugin_config_dir(&self, plugin_id: &str) -> Result<String, String>;
 

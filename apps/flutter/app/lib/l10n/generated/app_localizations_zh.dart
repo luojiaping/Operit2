@@ -1515,6 +1515,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsModelAddModelShort => '添加';
 
   @override
+  String get settingsModelAvailableFetchedOnly => '仅拉取到的';
+
+  @override
+  String get settingsModelAvailableIncludeHistory => '包含历史';
+
+  @override
+  String get settingsModelAvailableSourceFetched => '已拉取';
+
+  @override
+  String get settingsModelAvailableSourceHistory => '历史';
+
+  @override
+  String get settingsModelAvailableEmptyFetched =>
+      '没有拉取到的模型。可选择「包含历史」查看目录中的模型 ID。';
+
+  @override
   String get settingsModelCustomModel => '自定义模型';
 
   @override

@@ -2888,6 +2888,36 @@ abstract class AppLocalizations {
   /// **'Add'**
   String get settingsModelAddModelShort;
 
+  /// No description provided for @settingsModelAvailableFetchedOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Fetched only'**
+  String get settingsModelAvailableFetchedOnly;
+
+  /// No description provided for @settingsModelAvailableIncludeHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Include history'**
+  String get settingsModelAvailableIncludeHistory;
+
+  /// No description provided for @settingsModelAvailableSourceFetched.
+  ///
+  /// In en, this message translates to:
+  /// **'Fetched'**
+  String get settingsModelAvailableSourceFetched;
+
+  /// No description provided for @settingsModelAvailableSourceHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get settingsModelAvailableSourceHistory;
+
+  /// No description provided for @settingsModelAvailableEmptyFetched.
+  ///
+  /// In en, this message translates to:
+  /// **'No fetched models. Choose Include history to see catalog IDs.'**
+  String get settingsModelAvailableEmptyFetched;
+
   /// No description provided for @settingsModelCustomModel.
   ///
   /// In en, this message translates to:

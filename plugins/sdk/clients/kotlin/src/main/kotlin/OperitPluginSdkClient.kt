@@ -1,18 +1,16 @@
 package operit.plugin.sdk
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.dataformat.msgpack.MessagePackFactory
+import org.msgpack.jackson.dataformat.MessagePackFactory
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.suspendCancellableCoroutine
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.net.Socket
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /** One Core watch event returned through Plugin SDK IPC. */
 data class OperitPluginSdkEvent(
@@ -32,12 +30,11 @@ interface OperitPluginSdkPushSink {
 }
 
 /** Concrete JVM Plugin SDK client using the standard framed Link IPC carrier. */
-class OperitPluginSdkClient private constructor(private val socket: Socket) {
+class OperitPluginSdkClient private constructor(private val handle: Long) : AutoCloseable {
     private val mapper = ObjectMapper(MessagePackFactory())
-    private val input = DataInputStream(socket.getInputStream())
-    private val output = DataOutputStream(socket.getOutputStream())
+    private val closed = AtomicBoolean(false)
     private val nextId = AtomicLong(1)
-    private val pending = ConcurrentHashMap<String, (Any?) -> Unit>()
+    private val pending = ConcurrentHashMap<String, (Result<Any?>) -> Unit>()
     private val watches = ConcurrentHashMap<String, Channel<OperitPluginSdkEvent>>()
 
     init {
@@ -58,12 +55,12 @@ class OperitPluginSdkClient private constructor(private val socket: Socket) {
         val id = requestId()
         val channel = Channel<OperitPluginSdkEvent>(Channel.BUFFERED)
         watches[id] = channel
-        send(mapOf("type" to "WatchOpen", "body" to mapOf("subscriptionId" to id, "request" to mapOf("requestId" to id, "targetObjectId" to targetObjectId, "propertyName" to propertyName, "args" to (args ?: emptyMap<String, Any?>())))))
         try {
+            request(id, mapOf("type" to "WatchOpen", "body" to mapOf("subscriptionId" to id, "request" to mapOf("requestId" to id, "targetObjectId" to targetObjectId, "propertyName" to propertyName, "args" to (args ?: emptyMap<String, Any?>())))))
             for (event in channel) emit(event)
         } finally {
             watches.remove(id)
-            send(mapOf("type" to "WatchClose", "body" to mapOf("subscriptionId" to id, "error" to null)))
+            if (!closed.get()) send(mapOf("type" to "WatchClose", "body" to mapOf("subscriptionId" to id, "error" to null)))
         }
     }
 
@@ -78,14 +75,32 @@ class OperitPluginSdkClient private constructor(private val socket: Socket) {
         request(id, mapOf("type" to "PushOpen", "body" to mapOf("requestId" to id, "targetObjectId" to targetObjectId, "methodName" to methodName, "args" to (args ?: emptyMap<String, Any?>()))))
         return object : OperitPluginSdkPushSink {
             private var sequence = 0L
+            /** Sends the next ordered item and waits for its acknowledgement. */
             override suspend fun add(value: Any?) { request("$id:$sequence", mapOf("type" to "PushItem", "body" to mapOf("pushId" to id, "sequence" to sequence++, "args" to value))) }
+            /** Closes the input stream and waits for Core to acknowledge it. */
             override suspend fun close() { request(id, mapOf("type" to "PushClose", "body" to mapOf("pushId" to id))) }
         }
     }
 
-    /** Connects to the standard TCP loopback endpoint. */
     companion object {
-        fun connect(host: String = "127.0.0.1", port: Int = 18732): OperitPluginSdkClient = OperitPluginSdkClient(Socket(host, port))
+        /** Activates Operit through the SDK's platform host and waits for its session. */
+        suspend fun connect(): OperitPluginSdkClient = withContext(Dispatchers.IO) {
+            OperitPluginSdkClient(OperitPluginSdkHost.connect())
+        }
+    }
+
+    /** Closes the native carrier and fails every operation still awaiting a response. */
+    override fun close() {
+        if (closed.compareAndSet(false, true)) {
+            try { OperitPluginSdkHost.close(handle) }
+            finally { fail(IllegalStateException("Plugin SDK connection closed")) }
+        }
+    }
+
+    /** Completes outstanding calls and watch streams with a transport error. */
+    private fun fail(error: Throwable) {
+        pending.keys.toList().forEach { pending.remove(it)?.invoke(Result.failure(error)) }
+        watches.keys.toList().forEach { watches.remove(it)?.close(error) }
     }
 
     /** Allocates one session-local request id. */
@@ -93,23 +108,30 @@ class OperitPluginSdkClient private constructor(private val socket: Socket) {
 
     /** Registers one request and sends its MessagePack envelope. */
     private suspend fun request(id: String, message: Any?): Any? = suspendCancellableCoroutine { continuation ->
-        pending[id] = { value -> continuation.resume(value) }
-        send(message)
+        pending[id] = { result -> continuation.resumeWith(result) }
+        continuation.invokeOnCancellation { pending.remove(id) }
+        try { send(message) } catch (error: Exception) { pending.remove(id)?.invoke(Result.failure(error)) }
     }
 
-    /** Writes one big-endian length-prefixed MessagePack frame. */
+    /** Sends an envelope through the host-owned framing and IPC implementation. */
     private fun send(message: Any?) {
         val bytes = mapper.writeValueAsBytes(message)
-        synchronized(output) { output.writeInt(bytes.size); output.write(bytes); output.flush() }
+        check(!closed.get()) { "Plugin SDK connection closed" }
+        OperitPluginSdkHost.send(handle, bytes)
     }
 
     /** Reads and dispatches framed MessagePack messages. */
     private fun readLoop() {
-        while (!socket.isClosed) {
-            val length = input.readInt()
-            val bytes = ByteArray(length)
-            input.readFully(bytes)
-            dispatch(mapper.readValue(bytes, Map::class.java))
+        try {
+            while (!closed.get()) {
+                val bytes = OperitPluginSdkHost.next(handle) ?: continue
+                dispatch(mapper.readValue(bytes, Map::class.java))
+            }
+        } catch (error: Exception) {
+            fail(error)
+            if (closed.compareAndSet(false, true)) {
+                try { OperitPluginSdkHost.close(handle) } catch (closeError: Exception) { error.addSuppressed(closeError) }
+            }
         }
     }
 
@@ -120,6 +142,7 @@ class OperitPluginSdkClient private constructor(private val socket: Socket) {
         val body = message["body"] as Map<*, *>
         when (type) {
             "CallResponse" -> complete(body["requestId"].toString(), body["result"])
+            "WatchOpened" -> complete(body["subscriptionId"].toString(), body["result"])
             "PushOpened", "PushClosed" -> complete(body["pushId"].toString(), body["result"])
             "PushItemResult" -> complete("${body["pushId"]}:${body["sequence"]}", body["result"])
             "WatchEvent" -> {
@@ -131,5 +154,13 @@ class OperitPluginSdkClient private constructor(private val socket: Socket) {
     }
 
     /** Completes one pending request with its Result payload. */
-    private fun complete(id: String, result: Any?) { pending.remove(id)?.invoke(result) }
+    private fun complete(id: String, result: Any?) {
+        val response = result as Map<*, *>
+        val decoded = when (response.keys.single()) {
+            "Ok" -> Result.success(response["Ok"])
+            "Err" -> Result.failure<Any?>(IllegalStateException(response["Err"].toString()))
+            else -> throw IllegalStateException("Invalid Core Link result")
+        }
+        pending.remove(id)?.invoke(decoded)
+    }
 }

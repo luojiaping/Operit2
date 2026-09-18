@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   desktop_drop
   desktop_multi_window
+  desktop_widgets_windows
   dynamic_color
   file_selector_windows
   printing

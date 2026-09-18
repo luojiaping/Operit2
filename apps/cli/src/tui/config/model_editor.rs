@@ -105,7 +105,7 @@ impl EditorState {
             direct_video: config.capabilities.directVideo,
             max_context_length: format!("{:.0}", config.context.maxContextLength),
             enable_summary: config.summary.enableSummary,
-            summary_token_threshold: format!("{:.0}", config.summary.summaryTokenThreshold),
+            summary_token_threshold: config.summary.summaryTokenThreshold.to_string(),
             enable_summary_by_message_count: config.summary.enableSummaryByMessageCount,
             summary_message_count_threshold: format!(
                 "{}",

@@ -248,12 +248,28 @@ def _rustup_default_toolchain(rustup_home: Path) -> str | None:
     return None
 
 
-# Resolves an executable through PATH before handing it to subprocess.
+# Resolves host tools through the configured toolchain before handing them to subprocess.
 def _platform_command(executable: str) -> str:
-    resolved = shutil.which(executable)
-    if resolved is None:
-        raise FileNotFoundError(f"Required executable is not available on PATH: {executable}")
-    return resolved
+    candidates = [executable]
+    if os.name == "nt":
+        # The repository-managed Windows toolchain ships a cargo.cmd wrapper
+        # which pins the rustup toolchain. Prefer it over cargo.exe, because
+        # cargo.exe is a rustup proxy and otherwise depends on the caller's
+        # default-toolchain state (which is often stale inside VS Code).
+        cargo_home = os.environ.get("CARGO_HOME", "").strip()
+        if cargo_home:
+            configured_wrapper = Path(cargo_home) / "bin" / f"{executable}.cmd"
+            if configured_wrapper.is_file():
+                return str(configured_wrapper)
+        candidates.insert(0, f"{executable}.cmd")
+
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved is not None:
+            return resolved
+    raise FileNotFoundError(
+        f"Required executable is not available on PATH: {', '.join(candidates)}"
+    )
 
 
 def _typescript_command(repo_root: Path, *, dry_run: bool) -> str:
