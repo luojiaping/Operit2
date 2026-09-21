@@ -351,8 +351,6 @@ class OperitThemeController {
   ThemePreferenceSnapshot get themePreferenceSnapshot =>
       _themePreferenceSnapshot;
   bool get suppressThemeAnimation => _suppressThemeAnimation;
-  ThemePreferenceSnapshot get themePreferenceSnapshot =>
-      _themePreferenceSnapshot;
   String get activeThemeTargetName {
     final name = _activeThemeTargetName;
     if (name == null || name.trim().isEmpty) {
