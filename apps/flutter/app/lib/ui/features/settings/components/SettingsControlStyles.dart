@@ -67,27 +67,50 @@ class SettingsActivePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return SizedBox(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
       width: SettingsControlStyles.activePillSize.width,
       height: SettingsControlStyles.activePillSize.height,
-      child: Chip(
-        label: Center(
-          child: Text(
-            label,
-            style: SettingsControlStyles.activeTextStyle(
-              context,
-            ).copyWith(color: colorScheme.onPrimaryContainer),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+      decoration: ShapeDecoration(
+        color: isDark
+            ? colorScheme.primary.withValues(alpha: 0.18)
+            : colorScheme.primaryContainer.withValues(alpha: 0.65),
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: colorScheme.primary.withValues(alpha: isDark ? 0.35 : 0.4),
+            width: 0.8,
           ),
         ),
-        padding: EdgeInsets.zero,
-        labelPadding: EdgeInsets.zero,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        visualDensity: VisualDensity.compact,
-        backgroundColor: colorScheme.primaryContainer.withValues(alpha: 0.7),
-        side: BorderSide.none,
-        shape: const StadiumBorder(),
+      ),
+      alignment: Alignment.center,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              style: SettingsControlStyles.activeTextStyle(context).copyWith(
+                color: isDark
+                    ? colorScheme.onSurface
+                    : colorScheme.onPrimaryContainer,
+                fontWeight: FontWeight.w600,
+                fontSize: 11,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -105,17 +128,34 @@ class SettingsSetActiveButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
       width: SettingsControlStyles.activePillSize.width,
       height: SettingsControlStyles.activePillSize.height,
-      child: TextButton(
+      child: OutlinedButton(
         onPressed: onPressed,
-        style: SettingsControlStyles.activeTextButton(),
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: EdgeInsets.zero,
+          side: BorderSide(
+            color: colorScheme.outlineVariant.withValues(
+              alpha: isDark ? 0.28 : 0.45,
+            ),
+            width: 0.8,
+          ),
+          shape: const StadiumBorder(),
+          foregroundColor: colorScheme.onSurfaceVariant,
+        ),
         child: Text(
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: SettingsControlStyles.activeTextStyle(context),
+          style: SettingsControlStyles.activeTextStyle(context).copyWith(
+            fontWeight: FontWeight.w500,
+            fontSize: 11,
+          ),
         ),
       ),
     );

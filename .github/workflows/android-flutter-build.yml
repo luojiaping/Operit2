@@ -147,26 +147,49 @@ jobs:
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
         run: |
-          $required = @(
-            "ANDROID_RELEASE_KEYSTORE_BASE64",
-            "ANDROID_RELEASE_STORE_PASSWORD",
-            "ANDROID_RELEASE_KEY_ALIAS",
-            "ANDROID_RELEASE_KEY_PASSWORD"
-          )
-          $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
-          if ($missing.Count -gt 0) {
-            throw "Missing required GitHub Actions secrets: $($missing -join ', ')"
-          }
           $secretsDir = "tools/release/secrets"
           New-Item -ItemType Directory -Force -Path $secretsDir | Out-Null
           $keystore = Join-Path $secretsDir "operit2-release.keystore"
-          [System.IO.File]::WriteAllBytes($keystore, [System.Convert]::FromBase64String($env:ANDROID_RELEASE_KEYSTORE_BASE64))
-          @"
-          RELEASE_STORE_FILE=operit2-release.keystore
-          RELEASE_STORE_PASSWORD=$env:ANDROID_RELEASE_STORE_PASSWORD
-          RELEASE_KEY_ALIAS=$env:ANDROID_RELEASE_KEY_ALIAS
-          RELEASE_KEY_PASSWORD=$env:ANDROID_RELEASE_KEY_PASSWORD
-          "@ | Set-Content -Path (Join-Path $secretsDir "android-signing.properties") -Encoding utf8
+          $signingProps = Join-Path $secretsDir "android-signing.properties"
+
+          $hasKeystore = -not [string]::IsNullOrWhiteSpace($env:ANDROID_RELEASE_KEYSTORE_BASE64)
+          $hasStorePassword = -not [string]::IsNullOrWhiteSpace($env:ANDROID_RELEASE_STORE_PASSWORD)
+          $hasKeyAlias = -not [string]::IsNullOrWhiteSpace($env:ANDROID_RELEASE_KEY_ALIAS)
+          $hasKeyPassword = -not [string]::IsNullOrWhiteSpace($env:ANDROID_RELEASE_KEY_PASSWORD)
+
+          if ($hasKeystore -and $hasStorePassword -and $hasKeyAlias -and $hasKeyPassword) {
+            Write-Host "Restoring release signing credentials from GitHub Actions secrets..."
+            [System.IO.File]::WriteAllBytes($keystore, [System.Convert]::FromBase64String($env:ANDROID_RELEASE_KEYSTORE_BASE64))
+            $content = @(
+              "RELEASE_STORE_FILE=operit2-release.keystore",
+              "RELEASE_STORE_PASSWORD=$env:ANDROID_RELEASE_STORE_PASSWORD",
+              "RELEASE_KEY_ALIAS=$env:ANDROID_RELEASE_KEY_ALIAS",
+              "RELEASE_KEY_PASSWORD=$env:ANDROID_RELEASE_KEY_PASSWORD"
+            )
+            $content | Set-Content -Path $signingProps -Encoding utf8
+          } else {
+            Write-Host "GitHub Actions release secrets not configured. Generating temporary release keystore for packaging..."
+            $keytool = "keytool"
+            if (-not (Get-Command "keytool" -ErrorAction SilentlyContinue)) {
+              $keytool = Join-Path $env:JAVA_HOME "bin/keytool.exe"
+            }
+            & $keytool -genkeypair -v `
+              -keystore $keystore `
+              -alias "operit2-release" `
+              -keyalg RSA `
+              -keysize 2048 `
+              -validity 10000 `
+              -storepass "operit2temp123" `
+              -keypass "operit2temp123" `
+              -dname "CN=Operit2, OU=Dev, O=Operit, L=Unknown, ST=Unknown, C=US"
+            $content = @(
+              "RELEASE_STORE_FILE=operit2-release.keystore",
+              "RELEASE_STORE_PASSWORD=operit2temp123",
+              "RELEASE_KEY_ALIAS=operit2-release",
+              "RELEASE_KEY_PASSWORD=operit2temp123"
+            )
+            $content | Set-Content -Path $signingProps -Encoding utf8
+          }
 
       - name: Check build environment
         shell: pwsh
@@ -190,5 +213,13 @@ jobs:
         with:
           name: operit2-android-${{ github.sha }}
           path: tools/release/dist/operit2-app-android-*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android arm64-v8a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: operit2-app-android-arm64-v8a
+          path: tools/release/dist/operit2-app-android-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14
