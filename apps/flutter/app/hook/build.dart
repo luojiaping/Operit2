@@ -827,6 +827,13 @@ Future<void> _run(
 
 String _command(String executable) {
   if (Platform.isWindows) {
+    final whichPath = _which(executable);
+    if (whichPath != null) {
+      return whichPath;
+    }
+    if (executable == 'cargo' || executable == 'rustup') {
+      return '$executable.exe';
+    }
     return '$executable.cmd';
   }
   return executable;
