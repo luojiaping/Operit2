@@ -590,13 +590,11 @@ def _prebuild_plans(repo_root: Path, source_dir: Path, plans: list[SyncPlanItem]
     for child_dir in child_dirs:
         if _is_script_packed_toolpkg(child_dir):
             archive = child_dir / "dist" / f"{child_dir.name}.toolpkg"
-            if archive.is_file():
+            if archive.is_file() or _pack_script_toolpkg_if_needed(child_dir, archive):
                 continue
             pnpm = shutil.which("pnpm") or shutil.which("pnpm.cmd")
             if pnpm:
                 _run_checked_command([pnpm, "run", "pack:toolpkg"], child_dir, dry_run=dry_run)
-            elif _pack_script_toolpkg_if_needed(child_dir, archive):
-                continue
             else:
                 npm = shutil.which("npm") or shutil.which("npm.cmd") or "npm"
                 _run_checked_command([npm, "run", "pack:toolpkg"], child_dir, dry_run=dry_run)

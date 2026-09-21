@@ -100,9 +100,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install pnpm
-        shell: pwsh
-        run: npm install -g pnpm
 
       - name: Install Java
         uses: actions/setup-java@v4
