@@ -2,6 +2,7 @@ import http from 'node:http';
 import type {IncomingMessage, ServerResponse} from 'node:http';
 import {aiRoute} from './api/ai-api.mts';
 import {deployRoute} from './api/deploy-api.mts';
+import {simulatorRoute, stopSimulator} from './api/simulator-api.mts';
 import {layoutRoute} from './api/layout-api.mts';
 import {readFile, readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -24,6 +25,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 const files = new Map<string, string>([
   ['/', 'web/index.html'],
   ['/app.js', 'web/app.ts'],
+  ['/simulator.js', 'web/simulator.ts'],
   ['/src/layout/project-model.mjs', 'src/layout/project-model.mts'],
   ['/src/layout/geometry.mjs', 'src/layout/geometry.mts'],
   ['/src/layout/routes.mjs', 'src/layout/routes.mts'],
@@ -110,7 +112,7 @@ async function status(): Promise<{
     running,
     error,
     manifest,
-    stale: manifest?.runtimeHash !== await hash(),
+    stale: !manifest || manifest.runtimeHash !== await hash(),
     output: output.slice(-3000),
   };
 }
@@ -164,6 +166,7 @@ const server = http.createServer(async (req: IncomingMessage, res: ServerRespons
         return;
       }
     }
+    if (await simulatorRoute(req, res, url)) return;
     if (await aiRoute(req, res, url)) return;
     if (await deployRoute(req, res, url)) return;
     if (await layoutRoute(req, res, url)) return;
@@ -245,4 +248,8 @@ server.on('error', (e: Error) => {
   console.error(e);
   process.exit(1);
 });
+process.on('exit', stopSimulator);
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => { stopSimulator(); server.close(); process.exit(0); });
+}
 server.listen(port, '127.0.0.1', () => console.log(`ESP32 editor running at http://127.0.0.1:${port}`));

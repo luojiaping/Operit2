@@ -318,6 +318,54 @@ impl CoreSpaceStore {
         Ok(self.space()?.members.iter().any(|member| member == &nodeId))
     }
 
+    /// Admits an authenticated lightweight peer to the current Space without
+    /// requiring that peer to host business storage. The caller must apply the
+    /// matching NetworkControl admission separately; this method owns only the
+    /// converged membership and presentation records.
+    #[allow(non_snake_case)]
+    pub fn admitRemoteMember(
+        &self,
+        nodeId: String,
+        displayName: String,
+        platform: String,
+        model: String,
+        coreVersion: String,
+    ) -> Result<CoreSpace, String> {
+        validateNodeId(&nodeId)?;
+        validateDeviceProfileField("display name", &displayName)?;
+        validateDeviceProfileField("platform", &platform)?;
+        validateDeviceProfileField("model", &model)?;
+        validateDeviceProfileField("core version", &coreVersion)?;
+        let space = self.initialize()?;
+        let profile = CoreSpaceDeviceProfile {
+            nodeId: nodeId.clone(),
+            displayName,
+            userName: String::new(),
+            platform,
+            model,
+            coreVersion: Some(coreVersion),
+            updatedAt: currentTimeMillis(),
+        };
+        self.writeDeviceProfile(&profile)?;
+        if space.members.iter().any(|member| member == &nodeId) {
+            return self.space();
+        }
+        let revision = space
+            .spaceRevision
+            .checked_add(1)
+            .ok_or_else(|| "Device space revision overflow".to_string())?;
+        self.writeSpaceProjection(
+            space.spaceId,
+            space.spaceName,
+            revision,
+            space
+                .members
+                .into_iter()
+                .chain(std::iter::once(nodeId))
+                .collect(),
+        )
+    }
+
     /// Publishes the current device presentation as synchronized device-space metadata.
     #[allow(non_snake_case)]
     pub fn writeLocalDeviceProfile(

@@ -3,9 +3,12 @@
 use async_trait::async_trait;
 use operit_link::{
     CoreCallRequest, CoreCallResponse, CoreEvent, CoreEventStream, CoreLinkError,
-    CoreLinkSharedClient, CoreWatchRequest, LinkFrame, LinkFramePayload,
+    CoreLinkClient, CoreLinkPushSession, CoreLinkSharedClient, CoreRouteRuntime, CorePushItem, CorePushRequest, CoreValue,
+    CoreWatchRequest, LinkFrame, LinkFramePayload, PeerFrame, PeerFramePayload, PeerHeartbeat,
+    PeerPushCloseRequest, PeerPushOpenRequest, PeerRequest, PeerResponse, PeerWatchCloseRequest,
+    PeerWatchClosed, PeerWatchEvent, PeerWatchOpenRequest, RoutedCoreRequest,
+    RoutedCoreRequestKind,
 };
-use operit_node_edge::EdgeNode;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -14,7 +17,6 @@ use uuid::Uuid;
 
 pub mod auth;
 pub mod pairing;
-#[cfg(not(target_os = "espidf"))]
 pub mod serial;
 pub mod serial_codec;
 pub mod tcp;
@@ -33,334 +35,510 @@ pub trait LinkChannel: Send + Sync {
     async fn close(&self);
 }
 
-struct EdgeLinkState {
-    channel: Arc<dyn LinkChannel>,
-    pending: Mutex<BTreeMap<String, oneshot::Sender<Result<LinkFramePayload, CoreLinkError>>>>,
+struct EdgePeerState {
+    carrier: EdgePeerFrameCarrier,
+    pending: Mutex<BTreeMap<String, oneshot::Sender<Result<PeerResponse, CoreLinkError>>>>,
     watches: Mutex<BTreeMap<String, mpsc::UnboundedSender<CoreEvent>>>,
+    requestHandler: Mutex<Option<Arc<dyn EdgePeerRequestHandler>>>,
     connected: AtomicBool,
 }
 
-/// A normal Core-side Link client for one lightweight Edge node.
-#[derive(Clone)]
-pub struct EdgeLinkClient {
-    state: Arc<EdgeLinkState>,
+/// Handles an inbound standard PeerLink request on an Edge. An Edge has no
+/// built-in business capability; embeddings may use this only to relay an
+/// explicitly supported request through another Space route.
+#[async_trait]
+pub trait EdgePeerRequestHandler: Send + Sync {
+    async fn dispatchPeerRequest(&self, request: PeerRequest) -> PeerResponse;
+
+    async fn dispatchPeerWatchEvent(&self, _event: PeerWatchEvent) {}
+
+    async fn dispatchPeerWatchClosed(&self, _closed: PeerWatchClosed) {}
 }
 
-impl EdgeLinkClient {
-    /// Starts a Link client over an already established carrier.
+/// Frames a standard PeerLink message on an authenticated Edge Link carrier.
+#[derive(Clone)]
+pub struct EdgePeerFrameCarrier {
+    channel: Arc<dyn LinkChannel>,
+}
+
+impl EdgePeerFrameCarrier {
     pub fn new(channel: Arc<dyn LinkChannel>) -> Self {
-        let state = Arc::new(EdgeLinkState {
-            channel,
+        Self { channel }
+    }
+
+    pub async fn sendPeerFrame(&self, frame: PeerFrame) -> Result<(), String> {
+        let messageId = frame.messageId.clone();
+        self.channel
+            .send(LinkFrame {
+                messageId,
+                payload: LinkFramePayload::PeerFrame(frame),
+            })
+            .await
+    }
+
+    pub async fn receivePeerFrame(&self) -> Result<Option<PeerFrame>, String> {
+        let Some(frame) = self.channel.receive().await? else {
+            return Ok(None);
+        };
+        match frame.payload {
+            LinkFramePayload::PeerFrame(frame) => Ok(Some(frame)),
+            _ => Err("authenticated Edge carrier received a non-PeerLink frame".to_string()),
+        }
+    }
+
+    pub async fn close(&self) {
+        self.channel.close().await;
+    }
+}
+
+/// Standard PeerLink endpoint carried by an authenticated Edge TCP or UART
+/// channel. It shares the exact wire model used by CoreNode PeerLink, while
+/// deliberately containing no HostManager or business-service dispatcher.
+#[derive(Clone)]
+pub struct EdgePeerLink {
+    state: Arc<EdgePeerState>,
+}
+
+impl EdgePeerLink {
+    /// Starts the standard PeerLink receive loop over an authenticated carrier.
+    pub fn new(channel: Arc<dyn LinkChannel>) -> Self {
+        let state = Arc::new(EdgePeerState {
+            carrier: EdgePeerFrameCarrier::new(channel),
             pending: Mutex::new(BTreeMap::new()),
             watches: Mutex::new(BTreeMap::new()),
+            requestHandler: Mutex::new(None),
             connected: AtomicBool::new(true),
         });
-        let client = Self { state };
-        client.startReceiver();
-        client
+        let peer = Self { state };
+        peer.startReceiver();
+        peer
     }
 
-    /// Runs the carrier receive loop and dispatches responses to Link callers.
-    fn startReceiver(&self) {
-        let state = Arc::clone(&self.state);
-        tokio::spawn(async move {
-            loop {
-                let frame = match state.channel.receive().await {
-                    Ok(Some(frame)) => frame,
-                    Ok(None) => break,
-                    Err(error) => {
-                        failPending(&state, error).await;
-                        break;
-                    }
-                };
-                dispatchIncomingFrame(&state, frame).await;
-            }
-            state.connected.store(false, Ordering::Release);
-            failPending(&state, "Edge Link carrier closed".to_string()).await;
-        });
+    /// Installs the optional inbound relay capability. Normal Edge chat usage
+    /// only sends requests to its adjacent full CoreNode and needs no handler.
+    pub async fn installRequestHandler(&self, handler: Arc<dyn EdgePeerRequestHandler>) {
+        *self.state.requestHandler.lock().await = Some(handler);
     }
 
-    /// Returns whether the carrier receive loop is still alive.
+    /// Forwards one incoming request to the adjacent full CoreNode. The
+    /// caller owns the route decision; this method only preserves the exact
+    /// standard PeerRequest/PeerResponse contract.
+    pub async fn forwardPeerRequest(
+        &self,
+        request: PeerRequest,
+    ) -> Result<PeerResponse, CoreLinkError> {
+        self.request(request).await
+    }
+
+    /// Reports whether the authenticated PeerLink carrier remains active.
     pub fn isConnected(&self) -> bool {
         self.state.connected.load(Ordering::Acquire)
     }
 
-    async fn request(&self, payload: LinkFramePayload) -> Result<LinkFramePayload, CoreLinkError> {
+    fn startReceiver(&self) {
+        let peer = self.clone();
+        tokio::spawn(async move {
+            loop {
+                let frame = match tokio::time::timeout(
+                    std::time::Duration::from_secs(15), peer.state.carrier.receivePeerFrame(),
+                ).await {
+                    Ok(Ok(Some(frame))) => frame,
+                    Ok(Ok(None)) => break,
+                    Ok(Err(error)) => {
+                        peer.failPending(error).await;
+                        break;
+                    }
+                    Err(_) => {
+                        peer.failPending("Space peer heartbeat expired".to_string()).await;
+                        break;
+                    }
+                };
+                peer.receivePeerFrame(frame).await;
+            }
+            peer.state.connected.store(false, Ordering::Release);
+            peer.failPending("Edge PeerLink carrier closed".to_string()).await;
+        });
+    }
+
+    async fn sendFrame(&self, frame: PeerFrame) -> Result<(), CoreLinkError> {
         if !self.isConnected() {
-            return Err(CoreLinkError::new(
-                "LINK_CLOSED",
-                "Edge Link carrier is closed",
-            ));
+            return Err(CoreLinkError::new("PEER_LINK_CLOSED", "Edge PeerLink is closed"));
         }
-        let messageId = format!("edge-link-{}", Uuid::new_v4().simple());
-        let (sender, receiver) = oneshot::channel();
         self.state
-            .pending
-            .lock()
+            .carrier
+            .sendPeerFrame(frame)
             .await
-            .insert(messageId.clone(), sender);
+            .map_err(|error| CoreLinkError::new("PEER_SEND_FAILED", error))
+    }
+
+    async fn request(&self, request: PeerRequest) -> Result<PeerResponse, CoreLinkError> {
+        let messageId = format!("edge-peer-{}", Uuid::new_v4().simple());
+        let (sender, receiver) = oneshot::channel();
+        self.state.pending.lock().await.insert(messageId.clone(), sender);
         if let Err(error) = self
-            .state
-            .channel
-            .send(LinkFrame {
+            .sendFrame(PeerFrame {
                 messageId: messageId.clone(),
-                payload,
+                payload: PeerFramePayload::Request(request),
             })
             .await
         {
             self.state.pending.lock().await.remove(&messageId);
-            self.state.connected.store(false, Ordering::Release);
-            return Err(CoreLinkError::new("LINK_SEND_FAILED", error));
+            return Err(error);
         }
         receiver
             .await
-            .map_err(|error| CoreLinkError::new("LINK_RESPONSE_CLOSED", error.to_string()))?
+            .map_err(|error| CoreLinkError::new("PEER_RESPONSE_CLOSED", error.to_string()))?
     }
 
-    async fn closeWatch(&self, subscriptionId: String) {
-        self.state.watches.lock().await.remove(&subscriptionId);
-        let _ = self
-            .state
-            .channel
-            .send(LinkFrame {
-                messageId: format!("edge-link-close-{}", Uuid::new_v4().simple()),
-                payload: LinkFramePayload::WatchClose { subscriptionId },
-            })
-            .await;
-    }
-}
-
-#[async_trait(?Send)]
-impl CoreLinkSharedClient for EdgeLinkClient {
-    async fn call(&self, request: CoreCallRequest) -> CoreCallResponse {
-        let requestId = request.requestId.clone();
-        match self.request(LinkFramePayload::Call(request)).await {
-            Ok(LinkFramePayload::CallResponse(response)) => response,
+    /// Executes a complete routed Core call through the adjacent Space peer.
+    pub async fn routedCall(
+        &self,
+        request: RoutedCoreRequest<CoreCallRequest>,
+    ) -> CoreCallResponse {
+        let requestId = request.payload.requestId.clone();
+        match self.request(PeerRequest::Call(request)).await {
+            Ok(PeerResponse::Call(response)) => response,
             Ok(_) => CoreCallResponse::err(
                 requestId,
-                CoreLinkError::new("LINK_PROTOCOL_ERROR", "unexpected Edge call response"),
+                CoreLinkError::new("PEER_PROTOCOL_ERROR", "PeerLink returned the wrong response"),
             ),
             Err(error) => CoreCallResponse::err(requestId, error),
         }
     }
 
-    async fn watchSnapshot(&self, request: CoreWatchRequest) -> Result<CoreEvent, CoreLinkError> {
-        match self
-            .request(LinkFramePayload::WatchSnapshot(request))
-            .await?
-        {
-            LinkFramePayload::WatchSnapshotResponse(result) => result,
+    /// Reads a complete routed watch snapshot through the adjacent Space peer.
+    pub async fn routedWatchSnapshot(
+        &self,
+        request: RoutedCoreRequest<CoreWatchRequest>,
+    ) -> Result<CoreEvent, CoreLinkError> {
+        match self.request(PeerRequest::WatchSnapshot(request)).await? {
+            PeerResponse::WatchSnapshot(result) => result,
             _ => Err(CoreLinkError::new(
-                "LINK_PROTOCOL_ERROR",
-                "unexpected Edge watch snapshot response",
+                "PEER_PROTOCOL_ERROR",
+                "PeerLink returned the wrong response",
             )),
         }
     }
 
-    async fn watch(&self, request: CoreWatchRequest) -> Result<CoreEventStream, CoreLinkError> {
-        let subscriptionId = request.requestId.0.clone();
+    /// Opens a complete routed watch through the adjacent Space peer.
+    pub async fn routedWatch(
+        &self,
+        request: RoutedCoreRequest<CoreWatchRequest>,
+    ) -> Result<CoreEventStream, CoreLinkError> {
+        let subscriptionId = format!("edge-peer-watch-{}", Uuid::new_v4().simple());
         let (sender, receiver) = mpsc::unbounded_channel();
         self.state
             .watches
             .lock()
             .await
             .insert(subscriptionId.clone(), sender);
-        if let Err(error) = self
-            .request(LinkFramePayload::WatchOpen {
+        match self
+            .request(PeerRequest::WatchOpen(PeerWatchOpenRequest {
                 subscriptionId: subscriptionId.clone(),
                 request,
-            })
+            }))
             .await
         {
-            self.state.watches.lock().await.remove(&subscriptionId);
-            return Err(error);
+            Ok(PeerResponse::Operation(Ok(()))) => {}
+            Ok(PeerResponse::Operation(Err(error))) => {
+                self.state.watches.lock().await.remove(&subscriptionId);
+                return Err(error);
+            }
+            Ok(_) => {
+                self.state.watches.lock().await.remove(&subscriptionId);
+                return Err(CoreLinkError::new(
+                    "PEER_PROTOCOL_ERROR",
+                    "PeerLink returned the wrong response",
+                ));
+            }
+            Err(error) => {
+                self.state.watches.lock().await.remove(&subscriptionId);
+                return Err(error);
+            }
         }
-        let client = self.clone();
+        let peer = self.clone();
         Ok(CoreEventStream::new(receiver).withOnClose(move || {
-            tokio::spawn(async move { client.closeWatch(subscriptionId).await });
+            tokio::spawn(async move {
+                peer.state.watches.lock().await.remove(&subscriptionId);
+                let _ = peer
+                    .request(PeerRequest::WatchClose(PeerWatchCloseRequest { subscriptionId }))
+                    .await;
+            });
         }))
     }
-}
 
-/// Serves one lightweight Edge node over a standard Link carrier.
-pub struct EdgeLinkServer {
-    node: Arc<EdgeNode>,
-    channel: Arc<dyn LinkChannel>,
-    watches: Arc<Mutex<BTreeMap<String, oneshot::Sender<()>>>>,
-}
-
-impl EdgeLinkServer {
-    pub fn new(node: Arc<EdgeNode>, channel: Arc<dyn LinkChannel>) -> Self {
-        Self {
-            node,
-            channel,
-            watches: Arc::new(Mutex::new(BTreeMap::new())),
-        }
-    }
-
-    /// Processes Link frames until the carrier closes.
-    pub async fn run(self) -> Result<(), String> {
-        while let Some(frame) = self.channel.receive().await? {
-            self.dispatch(frame).await?;
-        }
-        Ok(())
-    }
-
-    /// Runs the server after the carrier's first frame was consumed while
-    /// selecting pairing or authenticated-session resume.
-    pub async fn runWithFirstFrame(self, frame: LinkFrame) -> Result<(), String> {
-        self.dispatch(frame).await?;
-        self.run().await
-    }
-
-    async fn dispatch(&self, frame: LinkFrame) -> Result<(), String> {
-        match frame.payload {
-            LinkFramePayload::Call(request) => {
-                self.send(LinkFrame {
-                    messageId: frame.messageId,
-                    payload: LinkFramePayload::CallResponse(self.node.dispatchCall(request)),
-                })
-                .await
-            }
-            LinkFramePayload::WatchSnapshot(request) => {
-                self.send(LinkFrame {
-                    messageId: frame.messageId,
-                    payload: LinkFramePayload::WatchSnapshotResponse(
-                        self.node.dispatchWatchSnapshot(request),
-                    ),
-                })
-                .await
-            }
-            LinkFramePayload::WatchOpen {
-                subscriptionId,
-                request,
-            } => {
-                self.openWatch(frame.messageId, subscriptionId, request)
-                    .await
-            }
-            LinkFramePayload::WatchClose { subscriptionId } => {
-                if let Some(sender) = self.watches.lock().await.remove(&subscriptionId) {
-                    let _ = sender.send(());
-                }
-                self.send(LinkFrame {
-                    messageId: frame.messageId,
-                    payload: LinkFramePayload::Operation(Ok(())),
-                })
-                .await
-            }
-            LinkFramePayload::Heartbeat { sequence } => {
-                self.send(LinkFrame {
-                    messageId: frame.messageId,
-                    payload: LinkFramePayload::Heartbeat { sequence },
-                })
-                .await
-            }
-            LinkFramePayload::PairStart(_)
-            | LinkFramePayload::PairStartResponse(_)
-            | LinkFramePayload::PairFinish(_)
-            | LinkFramePayload::PairFinishResponse(_)
-            | LinkFramePayload::Authenticated { .. }
-            | LinkFramePayload::Close { .. }
-            | LinkFramePayload::CallResponse(_)
-            | LinkFramePayload::WatchSnapshotResponse(_)
-            | LinkFramePayload::WatchEvent { .. }
-            | LinkFramePayload::Operation(_) => Ok(()),
-        }
-    }
-
-    async fn openWatch(
+    /// Opens a complete routed input stream through the adjacent Space peer.
+    pub async fn routedOpenPush(
         &self,
-        messageId: String,
-        subscriptionId: String,
-        request: CoreWatchRequest,
-    ) -> Result<(), String> {
-        let stream = match self.node.dispatchWatch(request) {
-            Ok(stream) => stream,
-            Err(error) => {
-                return self
-                    .send(LinkFrame {
-                        messageId,
-                        payload: LinkFramePayload::Operation(Err(error)),
+        request: RoutedCoreRequest<CorePushRequest>,
+    ) -> Result<Box<dyn CoreLinkPushSession>, CoreLinkError> {
+        let pushId = format!("edge-peer-push-{}", Uuid::new_v4().simple());
+        match self
+            .request(PeerRequest::PushOpen(PeerPushOpenRequest {
+                pushId: pushId.clone(),
+                request,
+            }))
+            .await?
+        {
+            PeerResponse::Operation(Ok(())) => Ok(Box::new(EdgePeerPushSession {
+                peer: self.clone(),
+                pushId,
+                nextSequence: 0,
+            })),
+            PeerResponse::Operation(Err(error)) => Err(error),
+            _ => Err(CoreLinkError::new(
+                "PEER_PROTOCOL_ERROR",
+                "PeerLink returned the wrong response",
+            )),
+        }
+    }
+
+    async fn receivePeerFrame(&self, frame: PeerFrame) {
+        match frame.payload {
+            PeerFramePayload::Response(response) => {
+                if let Some(sender) = self.state.pending.lock().await.remove(&frame.messageId) {
+                    let _ = sender.send(Ok(response));
+                }
+            }
+            PeerFramePayload::WatchEvent(event) => {
+                let completed = event.event.kind == operit_link::CoreEventKind::Completed;
+                let sender = {
+                    let mut watches = self.state.watches.lock().await;
+                    if completed { watches.remove(&event.subscriptionId) }
+                    else { watches.get(&event.subscriptionId).cloned() }
+                };
+                if let Some(sender) = sender {
+                    if sender.send(event.event).is_err() {
+                        self.state.watches.lock().await.remove(&event.subscriptionId);
+                    }
+                } else if let Some(handler) = self.state.requestHandler.lock().await.clone() {
+                    handler.dispatchPeerWatchEvent(event).await;
+                }
+            }
+            PeerFramePayload::WatchClosed(closed) => {
+                self.state.watches.lock().await.remove(&closed.subscriptionId);
+                if let Some(handler) = self.state.requestHandler.lock().await.clone() {
+                    handler.dispatchPeerWatchClosed(closed).await;
+                }
+            }
+            PeerFramePayload::Heartbeat(PeerHeartbeat::Probe { sequence, sentAt }) => {
+                let _ = self
+                    .sendFrame(PeerFrame {
+                        messageId: format!("edge-peer-heartbeat-ack-{}", Uuid::new_v4().simple()),
+                        payload: PeerFramePayload::Heartbeat(PeerHeartbeat::Ack { sequence, sentAt }),
                     })
                     .await;
             }
-        };
-        self.send(LinkFrame {
-            messageId,
-            payload: LinkFramePayload::Operation(Ok(())),
-        })
-        .await?;
-        let (cancelSender, mut cancelReceiver) = oneshot::channel();
-        self.watches
-            .lock()
-            .await
-            .insert(subscriptionId.clone(), cancelSender);
-        let channel = Arc::clone(&self.channel);
-        tokio::spawn(async move {
-            let mut stream = stream;
-            loop {
-                tokio::select! {
-                    event = stream.recv() => {
-                        let Some(event) = event else { break; };
-                        if channel.send(LinkFrame {
-                            messageId: format!("edge-link-event-{}", Uuid::new_v4().simple()),
-                            payload: LinkFramePayload::WatchEvent { subscriptionId: subscriptionId.clone(), event },
-                        }).await.is_err() { break; }
-                    }
-                    _ = &mut cancelReceiver => break,
-                }
+            PeerFramePayload::Heartbeat(PeerHeartbeat::Ack { .. }) => {}
+            PeerFramePayload::Request(request) => {
+                // Relay handling must run outside the carrier receive loop. The relay
+                // sends another PeerRequest on this same channel and needs that loop
+                // available to consume the corresponding response.
+                let peer = self.clone();
+                tokio::spawn(async move {
+                    let handler = peer.state.requestHandler.lock().await.clone();
+                    let response = match handler {
+                        Some(handler) => handler.dispatchPeerRequest(request).await,
+                        None => {
+                            let error = CoreLinkError::new(
+                                "EDGE_CAPABILITY_NOT_HOSTED",
+                                "Edge nodes do not execute routed business capabilities",
+                            );
+                            match request {
+                                PeerRequest::Call(request) => PeerResponse::Call(
+                                    CoreCallResponse::err(request.payload.requestId, error),
+                                ),
+                                PeerRequest::WatchSnapshot(_) => PeerResponse::WatchSnapshot(Err(error)),
+                                _ => PeerResponse::Operation(Err(error)),
+                            }
+                        }
+                    };
+                    let _ = peer
+                        .sendFrame(PeerFrame {
+                            messageId: frame.messageId,
+                            payload: PeerFramePayload::Response(response),
+                        })
+                        .await;
+                });
             }
-        });
-        Ok(())
-    }
-
-    async fn send(&self, frame: LinkFrame) -> Result<(), String> {
-        self.channel.send(frame).await
-    }
-}
-
-async fn dispatchIncomingFrame(state: &Arc<EdgeLinkState>, frame: LinkFrame) {
-    if let LinkFramePayload::WatchEvent {
-        subscriptionId,
-        event,
-    } = frame.payload.clone()
-    {
-        if let Some(sender) = state.watches.lock().await.get(&subscriptionId) {
-            let _ = sender.send(event);
         }
-        return;
     }
-    if let Some(sender) = state.pending.lock().await.remove(&frame.messageId) {
-        let result = match frame.payload {
-            LinkFramePayload::CallResponse(_)
-            | LinkFramePayload::WatchSnapshotResponse(_)
-            | LinkFramePayload::Operation(_)
-            | LinkFramePayload::Heartbeat { .. } => Ok(frame.payload),
-            LinkFramePayload::Close { code, message } => Err(CoreLinkError::new(code, message)),
-            _ => Err(CoreLinkError::new(
-                "LINK_PROTOCOL_ERROR",
-                "unexpected frame payload",
-            )),
-        };
-        let _ = sender.send(result);
+
+    /// Delivers an already authenticated first frame during a reconnect.
+    pub async fn receiveFrame(&self, frame: PeerFrame) {
+        self.receivePeerFrame(frame).await;
+    }
+
+    async fn failPending(&self, message: String) {
+        let error = CoreLinkError::new("PEER_LINK_CLOSED", message);
+        for (_, sender) in std::mem::take(&mut *self.state.pending.lock().await) {
+            let _ = sender.send(Err(error.clone()));
+        }
+        self.state.watches.lock().await.clear();
     }
 }
 
-async fn failPending(state: &Arc<EdgeLinkState>, message: String) {
-    let error = CoreLinkError::new("LINK_CLOSED", message);
-    for (_, sender) in std::mem::take(&mut *state.pending.lock().await) {
-        let _ = sender.send(Err(error.clone()));
+struct EdgePeerPushSession {
+    peer: EdgePeerLink,
+    pushId: String,
+    nextSequence: u64,
+}
+
+#[async_trait]
+impl CoreLinkPushSession for EdgePeerPushSession {
+    async fn send(&mut self, value: CoreValue) -> Result<(), CoreLinkError> {
+        let sequence = self.nextSequence;
+        match self
+            .peer
+            .request(PeerRequest::PushItem(CorePushItem {
+                pushId: self.pushId.clone(),
+                sequence,
+                args: value,
+            }))
+            .await?
+        {
+            PeerResponse::Operation(Ok(())) => {
+                self.nextSequence = self.nextSequence.saturating_add(1);
+                Ok(())
+            }
+            PeerResponse::Operation(Err(error)) => Err(error),
+            _ => Err(CoreLinkError::new(
+                "PEER_PROTOCOL_ERROR",
+                "PeerLink returned the wrong response",
+            )),
+        }
     }
-    state.watches.lock().await.clear();
+
+    async fn close(self: Box<Self>) -> Result<(), CoreLinkError> {
+        match self
+            .peer
+            .request(PeerRequest::PushClose(PeerPushCloseRequest {
+                pushId: self.pushId,
+            }))
+            .await?
+        {
+            PeerResponse::Operation(result) => result,
+            _ => Err(CoreLinkError::new(
+                "PEER_PROTOCOL_ERROR",
+                "PeerLink returned the wrong response",
+            )),
+        }
+    }
+}
+
+/// Binds an Edge-originated client to one adjacent full CoreNode. Every
+/// generated call and watch is wrapped in a standard Space route; no request
+/// can fall through to an Edge-local HostManager service.
+#[derive(Clone)]
+pub struct EdgeSpaceRouteClient {
+    peer: EdgePeerLink,
+    spaceId: String,
+    targetNodeId: String,
+    ttl: u32,
+    routeKind: RoutedCoreRequestKind,
+}
+
+impl EdgeSpaceRouteClient {
+    pub fn new(
+        peer: EdgePeerLink,
+        spaceId: String,
+        targetNodeId: String,
+        ttl: u32,
+    ) -> Self {
+        Self {
+            peer,
+            spaceId,
+            targetNodeId,
+            ttl,
+            routeKind: RoutedCoreRequestKind::SpaceRoute,
+        }
+    }
+
+    /// Delegates Binding resolution to the paired Space router without keeping
+    /// a business database on Edge.
+    pub fn throughAdjacent(peer: EdgePeerLink, spaceId: String, adjacentNodeId: String, ttl: u32) -> Self {
+        Self { peer, spaceId, targetNodeId: adjacentNodeId, ttl,
+            routeKind: RoutedCoreRequestKind::SpaceBinding }
+    }
+
+    fn route<T>(&self, payload: T) -> RoutedCoreRequest<T> {
+        RoutedCoreRequest {
+            spaceId: self.spaceId.clone(),
+            targetNodeId: self.targetNodeId.clone(),
+            ttl: self.ttl,
+            routeKind: self.routeKind,
+            payload,
+        }
+    }
+
+    /// Send-safe entry point for embedded UI tasks using the standard route.
+    pub async fn callRouted(&self, request: CoreCallRequest) -> CoreCallResponse {
+        self.peer.routedCall(self.route(request)).await
+    }
+
+    pub async fn watchRouted(&self, request: CoreWatchRequest) -> Result<CoreEventStream, CoreLinkError> {
+        self.peer.routedWatch(self.route(request)).await
+    }
+
+    pub fn isConnected(&self) -> bool { self.peer.isConnected() }
+}
+
+#[async_trait(?Send)]
+impl CoreLinkSharedClient for EdgeSpaceRouteClient {
+    async fn call(&self, request: CoreCallRequest) -> CoreCallResponse {
+        self.peer.routedCall(self.route(request)).await
+    }
+
+    async fn watchSnapshot(&self, request: CoreWatchRequest) -> Result<CoreEvent, CoreLinkError> {
+        self.peer.routedWatchSnapshot(self.route(request)).await
+    }
+
+    async fn watch(&self, request: CoreWatchRequest) -> Result<CoreEventStream, CoreLinkError> {
+        self.peer.routedWatch(self.route(request)).await
+    }
+}
+
+#[async_trait(?Send)]
+impl CoreLinkClient for EdgeSpaceRouteClient {
+    async fn call(&mut self, request: CoreCallRequest) -> CoreCallResponse {
+        CoreLinkSharedClient::call(self, request).await
+    }
+
+    async fn watchSnapshot(&mut self, request: CoreWatchRequest) -> Result<CoreEvent, CoreLinkError> {
+        CoreLinkSharedClient::watchSnapshot(self, request).await
+    }
+
+    async fn watch(&mut self, request: CoreWatchRequest) -> Result<CoreEventStream, CoreLinkError> {
+        CoreLinkSharedClient::watch(self, request).await
+    }
+
+    async fn openPush(&mut self, request: CorePushRequest) -> Result<Box<dyn CoreLinkPushSession>, CoreLinkError> {
+        self.peer.routedOpenPush(self.route(request)).await
+    }
+}
+
+impl CoreRouteRuntime for EdgeSpaceRouteClient {
+    fn shouldRoute(&self, _methodName: &str, _args: &CoreValue) -> Result<bool, CoreLinkError> {
+        // Edge never owns a local business implementation, including when the
+        // adjacent peer is unavailable. Failure must propagate through Link.
+        Ok(true)
+    }
+
+    fn call(&self, request: CoreCallRequest) -> std::pin::Pin<Box<dyn std::future::Future<Output = CoreCallResponse>>> {
+        let client = self.clone();
+        Box::pin(async move { CoreLinkSharedClient::call(&client, request).await })
+    }
+
+    fn watch(&self, request: CoreWatchRequest) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CoreEventStream, CoreLinkError>>>> {
+        let client = self.clone();
+        Box::pin(async move { CoreLinkSharedClient::watch(&client, request).await })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use operit_host_api::{DeviceDigitalOutputRequest, DeviceDigitalOutputState};
     use operit_link::{CoreValue, LinkFrame};
-    use operit_node_edge::service::{DeviceIoService, DeviceIoStateStream, EdgeServiceError};
-    use std::sync::mpsc;
     use tokio::sync::mpsc as async_mpsc;
 
     struct MemoryChannel {
@@ -381,59 +559,57 @@ mod tests {
         async fn close(&self) {}
     }
 
-    struct TestDevice;
-
-    impl DeviceIoService for TestDevice {
-        fn setDigitalOutput(
-            &self,
-            request: DeviceDigitalOutputRequest,
-        ) -> Result<DeviceDigitalOutputState, EdgeServiceError> {
-            Ok(DeviceDigitalOutputState {
-                pin: request.pin,
-                level: request.level,
-            })
-        }
-        fn getDigitalOutput(&self, pin: u8) -> Result<DeviceDigitalOutputState, EdgeServiceError> {
-            Ok(DeviceDigitalOutputState { pin, level: false })
-        }
-        fn watchDigitalOutput(&self, pin: u8) -> Result<DeviceIoStateStream, EdgeServiceError> {
-            let (sender, receiver) = mpsc::channel();
-            sender
-                .send(DeviceDigitalOutputState { pin, level: false })
-                .unwrap();
-            Ok(DeviceIoStateStream::new(receiver))
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn serverDispatchesStandardLinkCall() {
-        let (clientTx, serverRx) = async_mpsc::unbounded_channel();
-        let (serverTx, clientRx) = async_mpsc::unbounded_channel();
-        let clientChannel = Arc::new(MemoryChannel {
-            tx: clientTx,
-            rx: Mutex::new(clientRx),
+    #[tokio::test]
+    async fn routeRuntimeUsesSpacePeerFramesAndRejectsLocalExecution() {
+        let (edgeTx, mut coreRx) = async_mpsc::unbounded_channel();
+        let (coreTx, edgeRx) = async_mpsc::unbounded_channel();
+        let peer = EdgePeerLink::new(Arc::new(MemoryChannel {
+            tx: edgeTx,
+            rx: Mutex::new(edgeRx),
+        }));
+        let client = EdgeSpaceRouteClient::new(peer, "space".into(), "executor".into(), 8);
+        assert!(client.shouldRoute("sendUserMessage", &CoreValue::emptyMap()).unwrap());
+        let server = tokio::spawn(async move {
+            let frame = coreRx.recv().await.unwrap();
+            let LinkFramePayload::PeerFrame(frame) = frame.payload else { panic!("expected PeerFrame") };
+            let PeerFramePayload::Request(PeerRequest::Call(request)) = frame.payload else { panic!("expected routed call") };
+            assert_eq!(request.spaceId, "space");
+            assert_eq!(request.targetNodeId, "executor");
+            assert_eq!(request.routeKind, RoutedCoreRequestKind::SpaceRoute);
+            assert_eq!(request.payload.methodName, "sendUserMessage");
+            coreTx.send(LinkFrame {
+                messageId: frame.messageId.clone(),
+                payload: LinkFramePayload::PeerFrame(PeerFrame {
+                    messageId: frame.messageId,
+                    payload: PeerFramePayload::Response(PeerResponse::Call(CoreCallResponse::ok(
+                        request.payload.requestId, CoreValue::Null,
+                    ))),
+                }),
+            }).unwrap();
+            let incoming = CoreCallRequest::new("inbound", 1, "getDigitalOutput", CoreValue::emptyMap());
+            coreTx.send(LinkFrame {
+                messageId: "inbound".into(),
+                payload: LinkFramePayload::PeerFrame(PeerFrame {
+                    messageId: "inbound".into(),
+                    payload: PeerFramePayload::Request(PeerRequest::Call(RoutedCoreRequest {
+                        spaceId: "space".into(), targetNodeId: "edge".into(), ttl: 8,
+                        routeKind: RoutedCoreRequestKind::SpaceRoute, payload: incoming,
+                    })),
+                }),
+            }).unwrap();
+            let frame = coreRx.recv().await.unwrap();
+            let LinkFramePayload::PeerFrame(frame) = frame.payload else { panic!("expected PeerFrame") };
+            let PeerFramePayload::Response(PeerResponse::Call(response)) = frame.payload else { panic!("must reject, not reflect request") };
+            assert_eq!(response.requestId.0, "inbound");
+            assert_eq!(response.result.unwrap_err().code, "EDGE_CAPABILITY_NOT_HOSTED");
         });
-        let serverChannel = Arc::new(MemoryChannel {
-            tx: serverTx,
-            rx: Mutex::new(serverRx),
-        });
-        let node = Arc::new(EdgeNode::new(Arc::new(TestDevice)));
-        let server = EdgeLinkServer::new(node, serverChannel);
-        tokio::spawn(async move {
-            server.run().await.unwrap();
-        });
-        let client = EdgeLinkClient::new(clientChannel);
-        let response = client
-            .call(CoreCallRequest::new(
-                "call-1",
-                1,
-                "getDigitalOutput",
-                CoreValue::Map(std::collections::BTreeMap::from([(
-                    "pin".to_string(),
-                    CoreValue::Unsigned(2),
-                )])),
-            ))
-            .await;
+        let response = CoreRouteRuntime::call(&client, CoreCallRequest::new(
+            "outbound", operit_link::CORE_INTERNAL_ROUTE_OBJECT_ID,
+            "sendUserMessage", CoreValue::emptyMap(),
+        )).await;
         assert!(response.result.is_ok());
+        tokio::time::timeout(std::time::Duration::from_secs(2), server).await.unwrap().unwrap();
     }
+
+
 }

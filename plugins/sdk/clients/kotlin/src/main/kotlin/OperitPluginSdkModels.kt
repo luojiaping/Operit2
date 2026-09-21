@@ -549,6 +549,7 @@ data class ToolPkgContainerRuntime(
     val promptFinalizeHooks: List<ToolPkgFunctionHookRuntime>,
     val promptEstimateFinalizeHooks: List<ToolPkgFunctionHookRuntime>,
     val summaryGenerateHooks: List<ToolPkgFunctionHookRuntime>,
+    val coreCommands: List<ToolPkgCoreCommandRuntime>,
     val aiProviders: List<ToolPkgAiProviderRuntime>,
     val logoResource: ToolPkgResourceRuntime?,
     val marketOrigin: ToolPkgMarketOrigin?
@@ -595,6 +596,7 @@ fun decodeToolPkgContainerRuntime(value: Any?): ToolPkgContainerRuntime {
         promptFinalizeHooks = (input["promptFinalizeHooks"] as List<*>).map { item -> decodeToolPkgFunctionHookRuntime(item) } as List<ToolPkgFunctionHookRuntime>,
         promptEstimateFinalizeHooks = (input["promptEstimateFinalizeHooks"] as List<*>).map { item -> decodeToolPkgFunctionHookRuntime(item) } as List<ToolPkgFunctionHookRuntime>,
         summaryGenerateHooks = (input["summaryGenerateHooks"] as List<*>).map { item -> decodeToolPkgFunctionHookRuntime(item) } as List<ToolPkgFunctionHookRuntime>,
+        coreCommands = (input["coreCommands"] as List<*>).map { item -> decodeToolPkgCoreCommandRuntime(item) } as List<ToolPkgCoreCommandRuntime>,
         aiProviders = (input["aiProviders"] as List<*>).map { item -> decodeToolPkgAiProviderRuntime(item) } as List<ToolPkgAiProviderRuntime>,
         logoResource = input["logoResource"]?.let { decodeToolPkgResourceRuntime(it) } as ToolPkgResourceRuntime?,
         marketOrigin = input["marketOrigin"]?.let { decodeToolPkgMarketOrigin(it) } as ToolPkgMarketOrigin?,
@@ -641,9 +643,44 @@ fun ToolPkgContainerRuntime.toMessagePackValue(): Map<String, Any?> = mapOf(
     "promptFinalizeHooks" to this.promptFinalizeHooks.map { item -> item.toMessagePackValue() },
     "promptEstimateFinalizeHooks" to this.promptEstimateFinalizeHooks.map { item -> item.toMessagePackValue() },
     "summaryGenerateHooks" to this.summaryGenerateHooks.map { item -> item.toMessagePackValue() },
+    "coreCommands" to this.coreCommands.map { item -> item.toMessagePackValue() },
     "aiProviders" to this.aiProviders.map { item -> item.toMessagePackValue() },
     "logoResource" to this.logoResource?.let { it.toMessagePackValue() },
     "marketOrigin" to this.marketOrigin?.let { it.toMessagePackValue() },
+)
+
+data class ToolPkgCoreCommandRuntime(
+    val id: String,
+    val name: String,
+    val title: LocalizedText,
+    val description: LocalizedText,
+    val usage: String,
+    val function: String,
+    val functionSource: String?
+)
+
+fun decodeToolPkgCoreCommandRuntime(value: Any?): ToolPkgCoreCommandRuntime {
+    val input = value as Map<*, *>
+    return ToolPkgCoreCommandRuntime(
+        id = input["id"] as String as String,
+        name = input["name"] as String as String,
+        title = decodeLocalizedText(input["title"]) as LocalizedText,
+        description = decodeLocalizedText(input["description"]) as LocalizedText,
+        usage = input["usage"] as String as String,
+        function = input["function"] as String as String,
+        functionSource = input["functionSource"]?.let { it as String } as String?,
+    )
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+fun ToolPkgCoreCommandRuntime.toMessagePackValue(): Map<String, Any?> = mapOf(
+    "id" to this.id,
+    "name" to this.name,
+    "title" to this.title.toMessagePackValue(),
+    "description" to this.description.toMessagePackValue(),
+    "usage" to this.usage,
+    "function" to this.function,
+    "functionSource" to this.functionSource?.let { it },
 )
 
 data class ToolPkgDesktopWidgetRuntime(

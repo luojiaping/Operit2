@@ -183,11 +183,14 @@ pub fn buildComposeDslRuntimeWrappedScript(script: &str) -> String {
                         __payload.__noRender === true ||
                         __payload.__local === true);
 
+                /// Serializes after the render callback stack unwinds.
                 function __operit_send_intermediate_result(__value) {{
                     if (typeof sendIntermediateResult !== 'function') {{
                         return;
                     }}
-                    sendIntermediateResult(__value);
+                    return Promise.resolve().then(function() {{
+                        sendIntermediateResult(__value);
+                    }});
                 }}
 
                 var __actionSettled = false;
@@ -215,11 +218,11 @@ pub fn buildComposeDslRuntimeWrappedScript(script: &str) -> String {
                         if (__operit_is_promise(__intermediateResponse)) {{
                             return __intermediateResponse.then(function(__resolvedIntermediate) {{
                                 if (!__actionSettled) {{
-                                    __operit_send_intermediate_result(__resolvedIntermediate);
+                                    return __operit_send_intermediate_result(__resolvedIntermediate);
                                 }}
                             }});
                         }}
-                        __operit_send_intermediate_result(__intermediateResponse);
+                        return __operit_send_intermediate_result(__intermediateResponse);
                     }} catch (__intermediateError) {{
                         try {{
                             console.warn('compose intermediate render failed:', __intermediateError);

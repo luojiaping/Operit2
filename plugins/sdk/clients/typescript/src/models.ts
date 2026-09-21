@@ -564,6 +564,7 @@ export interface ToolPkgContainerRuntime {
   readonly promptFinalizeHooks: Array<ToolPkgFunctionHookRuntime>;
   readonly promptEstimateFinalizeHooks: Array<ToolPkgFunctionHookRuntime>;
   readonly summaryGenerateHooks: Array<ToolPkgFunctionHookRuntime>;
+  readonly coreCommands: Array<ToolPkgCoreCommandRuntime>;
   readonly aiProviders: Array<ToolPkgAiProviderRuntime>;
   readonly logoResource: ToolPkgResourceRuntime | null;
   readonly marketOrigin: ToolPkgMarketOrigin | null;
@@ -610,6 +611,7 @@ export function decodeToolPkgContainerRuntime(value: unknown): ToolPkgContainerR
     promptFinalizeHooks: (input['promptFinalizeHooks'] as unknown[]).map((item) => decodeToolPkgFunctionHookRuntime(item)) as Array<ToolPkgFunctionHookRuntime>,
     promptEstimateFinalizeHooks: (input['promptEstimateFinalizeHooks'] as unknown[]).map((item) => decodeToolPkgFunctionHookRuntime(item)) as Array<ToolPkgFunctionHookRuntime>,
     summaryGenerateHooks: (input['summaryGenerateHooks'] as unknown[]).map((item) => decodeToolPkgFunctionHookRuntime(item)) as Array<ToolPkgFunctionHookRuntime>,
+    coreCommands: (input['coreCommands'] as unknown[]).map((item) => decodeToolPkgCoreCommandRuntime(item)) as Array<ToolPkgCoreCommandRuntime>,
     aiProviders: (input['aiProviders'] as unknown[]).map((item) => decodeToolPkgAiProviderRuntime(item)) as Array<ToolPkgAiProviderRuntime>,
     logoResource: input['logoResource'] == null ? null : decodeToolPkgResourceRuntime(input['logoResource']) as ToolPkgResourceRuntime | null,
     marketOrigin: input['marketOrigin'] == null ? null : decodeToolPkgMarketOrigin(input['marketOrigin']) as ToolPkgMarketOrigin | null,
@@ -657,9 +659,46 @@ export function encodeToolPkgContainerRuntime(value: ToolPkgContainerRuntime): R
     'promptFinalizeHooks': value.promptFinalizeHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
     'promptEstimateFinalizeHooks': value.promptEstimateFinalizeHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
     'summaryGenerateHooks': value.summaryGenerateHooks.map(item => encodeToolPkgFunctionHookRuntime(item)),
+    'coreCommands': value.coreCommands.map(item => encodeToolPkgCoreCommandRuntime(item)),
     'aiProviders': value.aiProviders.map(item => encodeToolPkgAiProviderRuntime(item)),
     'logoResource': value.logoResource === null ? null : encodeToolPkgResourceRuntime(value.logoResource),
     'marketOrigin': value.marketOrigin === null ? null : encodeToolPkgMarketOrigin(value.marketOrigin),
+  };
+}
+
+export interface ToolPkgCoreCommandRuntime {
+  readonly id: string;
+  readonly name: string;
+  readonly title: LocalizedText;
+  readonly description: LocalizedText;
+  readonly usage: string;
+  readonly function: string;
+  readonly functionSource: string | null;
+}
+
+export function decodeToolPkgCoreCommandRuntime(value: unknown): ToolPkgCoreCommandRuntime {
+  const input = value as Record<string, unknown>;
+  return {
+    id: input['id'] as string,
+    name: input['name'] as string,
+    title: decodeLocalizedText(input['title']) as LocalizedText,
+    description: decodeLocalizedText(input['description']) as LocalizedText,
+    usage: input['usage'] as string,
+    function: input['function'] as string,
+    functionSource: input['functionSource'] == null ? null : input['functionSource'] as string | null,
+  };
+}
+
+/** Encodes a typed SDK model into its Link argument representation. */
+export function encodeToolPkgCoreCommandRuntime(value: ToolPkgCoreCommandRuntime): Record<string, unknown> {
+  return {
+    'id': value.id,
+    'name': value.name,
+    'title': encodeLocalizedText(value.title),
+    'description': encodeLocalizedText(value.description),
+    'usage': value.usage,
+    'function': value.function,
+    'functionSource': value.functionSource === null ? null : value.functionSource,
   };
 }
 

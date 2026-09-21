@@ -15,6 +15,7 @@ import '../../../main/TopBarController.dart';
 import '../../../main/components/TopBarTitleText.dart';
 import '../PendingChatDraftHandler.dart';
 import '../components/ChatScreenContent.dart';
+import '../components/ChatRuntimeScope.dart';
 import '../components/MessageEditorDialog.dart';
 import '../components/WorkspaceChangeConfirmDialog.dart';
 import '../components/WorkspaceShell.dart';
@@ -1949,7 +1950,11 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
   @override
   Widget build(BuildContext context) {
     if (widget.embedded) {
-      return _buildChatContent();
+      return ChatRuntimeScope(
+        chatCore: _viewModel.chatCore,
+        chatId: _currentChatId,
+        child: _buildChatContent(),
+      );
     }
     _isCurrentMainScreen = MainScreenActivityScope.isCurrentScreenOf(context);
     final useMainLayoutWorkspace =
@@ -1959,24 +1964,33 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
     );
     final content = _buildChatContent();
     if (useMainLayoutWorkspace) {
-      return content;
+      return ChatRuntimeScope(
+        chatCore: _viewModel.chatCore,
+        chatId: _currentChatId,
+        child: content,
+      );
     }
-    return WorkspaceShell(
-      workspaceOpen: _workspaceOpen,
-      onWorkspaceOpenChanged: _setWorkspaceOpen,
-      currentChatId: _currentChatId,
-      hasBoundWorkspace: _currentWorkspacePath?.trim().isNotEmpty == true,
-      workspacePath: _currentWorkspacePath,
-      onListWorkspaceFiles: _viewModel.listWorkspaceFiles,
-      onListWorkspaceBindingDirectories:
-          _viewModel.listWorkspaceBindingDirectories,
-      onReadWorkspaceTextFile: _viewModel.readWorkspaceTextFile,
-      onReadWorkspaceFileBytes: _viewModel.readWorkspaceFileBytes,
-      onWriteWorkspaceFileBytes: _viewModel.writeWorkspaceFileBytes,
-      onOpenWorkspaceFile: _viewModel.openWorkspaceFile,
-      onCreateWorkspace: _createWorkspace,
-      onBindWorkspace: _bindWorkspace,
-      child: content,
+    return ChatRuntimeScope(
+      chatCore: _viewModel.chatCore,
+      chatId: _currentChatId,
+      child: WorkspaceShell(
+        workspaceOpen: _workspaceOpen,
+        onWorkspaceOpenChanged: _setWorkspaceOpen,
+        currentChatId: _currentChatId,
+        hasBoundWorkspace: _currentWorkspacePath?.trim().isNotEmpty == true,
+        workspacePath: _currentWorkspacePath,
+        chatCore: _viewModel.chatCore,
+        onListWorkspaceFiles: _viewModel.listWorkspaceFiles,
+        onListWorkspaceBindingDirectories:
+            _viewModel.listWorkspaceBindingDirectories,
+        onReadWorkspaceTextFile: _viewModel.readWorkspaceTextFile,
+        onReadWorkspaceFileBytes: _viewModel.readWorkspaceFileBytes,
+        onWriteWorkspaceFileBytes: _viewModel.writeWorkspaceFileBytes,
+        onOpenWorkspaceFile: _viewModel.openWorkspaceFile,
+        onCreateWorkspace: _createWorkspace,
+        onBindWorkspace: _bindWorkspace,
+        child: content,
+      ),
     );
   }
 
@@ -2189,6 +2203,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
       currentChatId: _currentChatId,
       hasBoundWorkspace: _currentWorkspacePath?.trim().isNotEmpty == true,
       workspacePath: _currentWorkspacePath,
+      chatCore: _viewModel.chatCore,
       onListWorkspaceFiles: _viewModel.listWorkspaceFiles,
       onListWorkspaceBindingDirectories:
           _viewModel.listWorkspaceBindingDirectories,

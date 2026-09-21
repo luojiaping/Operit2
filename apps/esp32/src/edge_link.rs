@@ -4,15 +4,13 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use esp_idf_hal::uart::UartDriver;
-use operit_edge_transport::{
-    AuthenticatedLinkChannel, EdgeLinkServer, EdgePairingAuthority, EdgePairingStore, LinkChannel,
-};
+use operit_edge_transport::{EdgePairingAuthority, EdgePairingStore};
 use operit_host_api::{HostError, HostResult};
 use operit_link::LinkDeviceInfo;
-use operit_node_edge::EdgeNode;
 use tokio::runtime::Builder;
 
 use crate::edge_serial::Esp32UartLinkChannel;
+use crate::edge_session::handleChannel;
 use crate::status::FirmwareStatus;
 
 /// Runs the authenticated standard-Link listener on a dedicated ESP-IDF task.
@@ -22,7 +20,6 @@ pub struct Esp32EdgeLinkServer {
 
 impl Esp32EdgeLinkServer {
     pub fn start(
-        node: Arc<EdgeNode>,
         port: u16,
         token: String,
         status: Arc<FirmwareStatus>,
@@ -78,15 +75,10 @@ impl Esp32EdgeLinkServer {
                     };
                     if let Some(channel) = serialChannel {
                         let serialAuthority = Arc::clone(&authority);
-                        let serialNode = Arc::clone(&node);
                         tokio::spawn(async move {
                             loop {
-                                match handleChannel(
-                                    Arc::clone(&serialNode),
-                                    Arc::clone(&serialAuthority),
-                                    channel.clone(),
-                                )
-                                .await
+                                match handleChannel(Arc::clone(&serialAuthority), channel.clone())
+                                    .await
                                 {
                                     Ok(()) => {}
                                     Err(error) => {
@@ -124,9 +116,8 @@ impl Esp32EdgeLinkServer {
                         let channel =
                             operit_edge_transport::tcp::TcpLinkChannel::fromStream(stream);
                         let authority = Arc::clone(&authority);
-                        let node = Arc::clone(&node);
                         tokio::spawn(async move {
-                            if let Err(error) = handleChannel(node, authority, channel).await {
+                            if let Err(error) = handleChannel(authority, channel).await {
                                 log::warn!("Edge Link session: {error}");
                             }
                         });
@@ -135,34 +126,5 @@ impl Esp32EdgeLinkServer {
             })
             .map_err(|error| HostError::new(format!("Edge Link thread: {error}")))?;
         Ok(Some(Self { _thread: thread }))
-    }
-}
-
-/// Handles the first frame and then serves one authenticated EdgeLink session.
-async fn handleChannel(
-    node: Arc<EdgeNode>,
-    authority: Arc<EdgePairingAuthority>,
-    channel: Arc<dyn LinkChannel>,
-) -> Result<(), String> {
-    let first = channel
-        .receive()
-        .await?
-        .ok_or_else(|| "Edge Link carrier closed".to_string())?;
-    match &first.payload {
-        operit_link::LinkFramePayload::PairStart(request) => {
-            let session = authority
-                .pairFromStart(channel.clone(), request.clone())
-                .await?;
-            let authenticated = AuthenticatedLinkChannel::new(channel, session);
-            EdgeLinkServer::new(node, authenticated).run().await
-        }
-        operit_link::LinkFramePayload::Authenticated { .. } => {
-            let (session, inner) = authority.authenticateFrame(&first)?;
-            let authenticated = AuthenticatedLinkChannel::new(channel, session);
-            EdgeLinkServer::new(node, authenticated)
-                .runWithFirstFrame(inner)
-                .await
-        }
-        _ => Err("Edge Link connection did not start with pairing or authentication".to_string()),
     }
 }

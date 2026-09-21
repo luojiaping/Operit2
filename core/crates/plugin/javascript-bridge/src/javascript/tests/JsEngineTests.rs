@@ -461,6 +461,55 @@ fn javascript_timer_can_win_race_against_async_tool_call() {
     engine.destroy();
 }
 
+/// Verifies an asynchronous callback failure cleans its call state before the next request.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn failed_async_callback_does_not_poison_quickjs_engine() {
+    let engine = newTestJsEngine(Arc::new(TestPluginConfigExecutionHost::default()));
+    let params = testParams();
+    let error = engine
+        .execute_script_function(
+            r#"
+                exports.fail_timer = function() {
+                    return new Promise(function(resolve) {
+                        setTimeout(function() {
+                            throw new Error('timer callback failed');
+                        }, 1);
+                        setTimeout(function() {
+                            resolve('must not complete');
+                        }, 50);
+                    });
+                };
+            "#,
+            "fail_timer",
+            &params,
+            &BTreeMap::new(),
+            None,
+            true,
+            2,
+            None,
+        )
+        .expect_err("timer callback failure must reject its request");
+
+    assert_eq!(error.kind, JsExecutionErrorKind::Runtime);
+
+    let output = engine
+        .execute_script_function(
+            "exports.ready_after_failure = function() { return 'ready'; };",
+            "ready_after_failure",
+            &params,
+            &BTreeMap::new(),
+            None,
+            true,
+            2,
+            None,
+        )
+        .expect("the next request must run after an asynchronous callback failure");
+
+    assert_eq!(output.as_deref(), Some("\"ready\""));
+    engine.destroy();
+}
+
 /// Verifies ToolPkg registration timeout interrupts synchronous code and releases the worker.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
@@ -1615,6 +1664,45 @@ fn toolpkg_ipc_main_request_uses_bound_resource_host() {
         0,
         "IPC package module reads must use the context-bound resource host",
     );
+    engine.destroy();
+}
+
+/// Exercises the packaged plan question screen through the asynchronous host used by TUI.
+#[test]
+fn render_planask_through_async_compose_host() {
+    ensure_test_runtime_root();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
+    let dist = root.join("plugins/packages/buildin/plan_mode/dist");
+    let script = std::fs::read_to_string(dist.join("ui/planask/index.ui.js")).unwrap();
+    let mut resources = BTreeMap::new();
+    collect_message_insert_text_resources(&dist, &dist, &mut resources);
+    let mut params = testParams();
+    params.insert("packageName".into(), serde_json::json!("com.operit.plan_mode_bundle"));
+    params.insert("toolPkgId".into(), serde_json::json!("com.operit.plan_mode_bundle"));
+    params.insert("__operit_toolpkg_runtime_kind".into(), serde_json::json!("ui"));
+    params.insert("__operit_script_screen".into(), serde_json::json!("dist/ui/planask/index.ui.js"));
+    params.insert("routeInstanceId".into(), serde_json::json!("test-planask"));
+    params.insert("state".into(), serde_json::json!({"xmlContent": "<planask><title>Plan</title><question id=\"q1\"><title>Choose</title><option id=\"a\">A</option><option id=\"b\">B</option></question></planask>"}));
+    params.insert("memo".into(), serde_json::json!({}));
+    let engine = newTestJsEngine(Arc::new(TestPluginConfigExecutionHost::default()));
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let raw = expect_js_output(runtime.block_on(engine.execute_compose_dsl_script_async(script, params.clone(), BTreeMap::new(), Arc::new(resources))), "planask async render");
+    let result: Value = serde_json::from_str(&raw).unwrap();
+    assert!(result["tree"].is_object(), "Unexpected render result: {raw}");
+    params.insert("state".into(), result["state"].clone());
+    params.insert("memo".into(), result["memo"].clone());
+    let action = result["tree"]["props"]["onLoad"]["__actionId"].as_str().unwrap().to_string();
+    let intermediate = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = intermediate.clone();
+    let raw = expect_js_output(runtime.block_on(engine.dispatch_compose_dsl_action_result_async(action, None, params, BTreeMap::new(), Some(Arc::new(move |value| captured.lock().unwrap().push(value))))), "planask onLoad");
+    let result: Value = serde_json::from_str(&raw).unwrap();
+    assert!(result["tree"].is_object(), "Unexpected action result: {raw}");
+    let intermediate = intermediate.lock().unwrap();
+    assert!(!intermediate.is_empty(), "onLoad must deliver intermediate renders");
+    for raw in intermediate.iter() {
+        let result: Value = serde_json::from_str(raw).unwrap();
+        assert!(result["tree"].is_object(), "Unexpected intermediate result: {raw}");
+    }
     engine.destroy();
 }
 

@@ -353,12 +353,33 @@ pub struct SdkToolPkgContainerRuntime {
     pub promptEstimateFinalizeHooks: Vec<SdkToolPkgFunctionHookRuntime>,
     #[serde(rename = "summaryGenerateHooks")]
     pub summaryGenerateHooks: Vec<SdkToolPkgFunctionHookRuntime>,
+    #[serde(rename = "coreCommands")]
+    pub coreCommands: Vec<SdkToolPkgCoreCommandRuntime>,
     #[serde(rename = "aiProviders")]
     pub aiProviders: Vec<SdkToolPkgAiProviderRuntime>,
     #[serde(rename = "logoResource")]
     pub logoResource: Option<SdkToolPkgResourceRuntime>,
     #[serde(rename = "marketOrigin")]
     pub marketOrigin: Option<SdkToolPkgMarketOrigin>,
+}
+
+/// Generated SDK model for `operit_plugin_sdk::toolpkg::ToolPkgParser::ToolPkgCoreCommandRuntime`.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SdkToolPkgCoreCommandRuntime {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "name")]
+    pub name: String,
+    #[serde(rename = "title")]
+    pub title: SdkLocalizedText,
+    #[serde(rename = "description")]
+    pub description: SdkLocalizedText,
+    #[serde(rename = "usage")]
+    pub usage: String,
+    #[serde(rename = "function")]
+    pub function: String,
+    #[serde(rename = "functionSource")]
+    pub functionSource: Option<String>,
 }
 
 /// Generated SDK model for `operit_plugin_sdk::toolpkg::ToolPkgParser::ToolPkgDesktopWidgetRuntime`.

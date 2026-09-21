@@ -4,10 +4,55 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use operit_board_esp32::Esp32ScreenMirror;
-use operit_node_edge::{
-    EdgeScreenInputRequest, EdgeScreenInputState, EdgeScreenSnapshot, EdgeServiceError,
-    ScreenService,
-};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct EdgeScreenInputRequest {
+    pub action: String,
+    pub x: u16,
+    pub y: u16,
+    #[serde(default)]
+    pub endX: Option<u16>,
+    #[serde(default)]
+    pub endY: Option<u16>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct EdgeScreenInputState {
+    pub accepted: bool,
+    pub action: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct EdgeScreenSnapshot {
+    pub width: u16,
+    pub height: u16,
+    pub format: String,
+    pub pixels: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EdgeServiceError(String);
+
+impl EdgeServiceError {
+    fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+impl std::fmt::Display for EdgeServiceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+pub trait ScreenService: Send + Sync {
+    fn getScreenSnapshot(&self) -> Result<EdgeScreenSnapshot, EdgeServiceError>;
+    fn sendScreenInput(
+        &self,
+        request: EdgeScreenInputRequest,
+    ) -> Result<EdgeScreenInputState, EdgeServiceError>;
+}
 
 /// Board-backed generic display service for the authenticated EdgeLink.
 pub struct Esp32ScreenService {
@@ -38,7 +83,9 @@ impl ScreenService for Esp32ScreenService {
         let length = usize::from(width) * usize::from(height) * 2;
         let mut pixels = Vec::new();
         pixels.try_reserve_exact(length).map_err(|_| {
-            EdgeServiceError::new("insufficient memory for full screen snapshot; use /screen.bmp streaming preview")
+            EdgeServiceError::new(
+                "insufficient memory for full screen snapshot; use /screen.bmp streaming preview",
+            )
         })?;
         pixels.resize(length, 0);
         self.mirror.withRgb332(|source| {

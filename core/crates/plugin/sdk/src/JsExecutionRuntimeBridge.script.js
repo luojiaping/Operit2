@@ -146,11 +146,15 @@
                 };
                 if (intermediateCallbackId) {
                     windowRef[intermediateCallbackId] = function(result, isError) {
-                        if (isError) {
-                            reject(parseToolResult(result, true));
-                            return;
+                        try {
+                            if (isError) {
+                                reject(parseToolResult(result, true));
+                                return;
+                            }
+                            parsed.options.onIntermediateResult(parseToolResult(result, false));
+                        } catch (error) {
+                            reject(error);
                         }
-                        parsed.options.onIntermediateResult(parseToolResult(result, false));
                     };
                     callNative(
                         'callToolAsyncStreaming',

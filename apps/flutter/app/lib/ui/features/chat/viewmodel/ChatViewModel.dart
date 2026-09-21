@@ -83,13 +83,18 @@ class ChatInputSubmitDecision {
 }
 
 class ChatViewModel {
-  ChatViewModel({this.bridge = const ProxyCoreRuntimeBridge()})
-    : clients = GeneratedCoreProxyClients(bridge),
-      _chat = GeneratedCoreProxyClients(bridge).chatRuntimeHolderMain;
+  ChatViewModel({
+    this.bridge = const ProxyCoreRuntimeBridge(),
+    GeneratedChatRuntimeHolderMainCoreProxy? chat,
+  }) : clients = GeneratedCoreProxyClients(bridge),
+       _chat = chat ?? GeneratedCoreProxyClients(bridge).chatRuntimeHolderMain;
 
   final OperitRuntimeBridge bridge;
   final GeneratedCoreProxyClients clients;
   final GeneratedChatRuntimeHolderMainCoreProxy _chat;
+
+  /// The chat runtime scoped to this view model's window.
+  GeneratedChatRuntimeHolderMainCoreProxy get chatCore => _chat;
 
   /// Watches the selected chat id used to bind per-chat Core flows.
   Stream<String?> watchCurrentChatId() {

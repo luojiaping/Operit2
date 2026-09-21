@@ -22,6 +22,9 @@ pub use protocol::{
     CORE_INTERNAL_ROUTE_OBJECT_ID, CORE_ROUTE_STREAM_SOURCE_ARGS_ARGUMENT,
     CORE_ROUTE_STREAM_SOURCE_METHOD_ARGUMENT, CORE_ROUTE_STREAM_SOURCE_MODE_ARGUMENT,
     CORE_STREAM_POOL_OBJECT_ID,
+    PeerFrame, PeerFrameBatch, PeerFramePayload, PeerHeartbeat, PeerPushCloseRequest,
+    PeerPushOpenRequest, PeerRequest, PeerResponse, PeerWatchCloseRequest, PeerWatchClosed,
+    PeerWatchEvent, PeerWatchOpenRequest, RoutedCoreRequest, RoutedCoreRequestKind,
 };
 pub use route_runtime::{
     clearCoreRouteRuntime, coreForceLocal, coreRouteRuntime, installCoreRouteRuntime,

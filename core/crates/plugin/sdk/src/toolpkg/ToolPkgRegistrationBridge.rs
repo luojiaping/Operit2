@@ -38,6 +38,7 @@ pub fn buildToolPkgRegistrationBridgeScript(restrictHostCapabilities: bool) -> S
             promptFinalizeHooks: [],
             promptEstimateFinalizeHooks: [],
             summaryGenerateHooks: [],
+            coreCommands: [],
             aiProviders: []
         };
         root.__operitToolPkgRegistrationCapture = capture;
@@ -590,6 +591,7 @@ pub fn buildToolPkgRegistrationBridgeScript(restrictHostCapabilities: bool) -> S
             registerPromptFinalizeHook: registerFunction('promptFinalizeHooks', 'registerPromptFinalizeHook'),
             registerPromptEstimateFinalizeHook: registerFunction('promptEstimateFinalizeHooks', 'registerPromptEstimateFinalizeHook'),
             registerSummaryGenerateHook: registerFunction('summaryGenerateHooks', 'registerSummaryGenerateHook'),
+            registerCoreCommand: registerFunction('coreCommands', 'registerCoreCommand'),
             readResource: readToolPkgResource,
             getConfigDir: getToolPkgConfigDir,
             wasm: {
@@ -623,6 +625,7 @@ pub fn buildToolPkgRegistrationBridgeScript(restrictHostCapabilities: bool) -> S
         root.registerToolPkgPromptFinalizeHook = api.registerPromptFinalizeHook;
         root.registerToolPkgPromptEstimateFinalizeHook = api.registerPromptEstimateFinalizeHook;
         root.registerToolPkgSummaryGenerateHook = api.registerSummaryGenerateHook;
+        root.registerToolPkgCoreCommand = api.registerCoreCommand;
         root.registerToolPkgAiProvider = api.registerAiProvider;
 
         root.registerAppLifecycleHook = api.registerAppLifecycleHook;
@@ -644,6 +647,7 @@ pub fn buildToolPkgRegistrationBridgeScript(restrictHostCapabilities: bool) -> S
         root.registerPromptFinalizeHook = api.registerPromptFinalizeHook;
         root.registerPromptEstimateFinalizeHook = api.registerPromptEstimateFinalizeHook;
         root.registerSummaryGenerateHook = api.registerSummaryGenerateHook;
+        root.registerCoreCommand = api.registerCoreCommand;
 
         installGlobal('ToolPkg', api);
     })();
@@ -689,6 +693,64 @@ mod tests {
                 .expect("runtime capture should be readable");
 
             assert_eq!(capturedOrigin, "null");
+        });
+    }
+
+    /// Verifies Core command registrations retain their metadata and durable callback reference.
+    #[test]
+    fn captures_core_command_registration() {
+        let runtime = Runtime::new().expect("QuickJS runtime should start");
+        let context = Context::full(&runtime).expect("QuickJS context should start");
+
+        context.with(|context| {
+            context
+                .eval::<(), _>(
+                    r#"
+                    globalThis.__operitExpose = function(name, value) {
+                        globalThis[name] = value;
+                    };
+                    "#,
+                )
+                .expect("runtime expose should evaluate");
+            context
+                .eval::<(), _>(buildToolPkgApiRuntimeScript())
+                .expect("toolpkg api runtime should evaluate");
+            context
+                .eval::<(), _>(buildToolPkgRegistrationBridgeScript(false))
+                .expect("runtime bridge should evaluate");
+            context
+                .eval::<(), _>(
+                    r#"
+                    function runHello(event) {
+                        return { stdout: event.eventPayload.commandName };
+                    }
+                    globalThis.__operitGetActiveModuleExports = function() {
+                        return { runHello: runHello };
+                    };
+                    ToolPkg.registerCoreCommand({
+                        id: 'hello_command',
+                        name: 'hello',
+                        title: { en: 'Hello' },
+                        description: { en: 'Greets the user' },
+                        usage: '/hello <name>',
+                        function: runHello
+                    });
+                    "#,
+                )
+                .expect("Core command registration should evaluate");
+            let command_name = context
+                .eval::<String, _>(
+                    "JSON.parse(globalThis.__operitToolPkgRegistrationCapture.coreCommands[0]).name",
+                )
+                .expect("captured command should be readable");
+            let function_name = context
+                .eval::<String, _>(
+                    "JSON.parse(globalThis.__operitToolPkgRegistrationCapture.coreCommands[0]).function",
+                )
+                .expect("captured function should be readable");
+
+            assert_eq!(command_name, "hello");
+            assert_eq!(function_name, "runHello");
         });
     }
 }

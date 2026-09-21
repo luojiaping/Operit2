@@ -33,9 +33,13 @@ static const char *current_page = "Home";
 static bool round_icons;
 static lv_display_t *display;
 static lv_obj_t *root, *tiles, *clock_label, *connection_label, *face_label;
+static lv_obj_t *pairing_label, *space_label, *chat_label;
 static uint16_t touch_x, touch_y;
 static bool touch_pressed, wifi_ready, edge_ready;
 static char expression[24] = "neutral";
+static char pairing_code[20] = "";
+static char space_state[40] = "Waiting for Space";
+static char chat_preview[96] = "No chat session";
 static operit_lvgl_flush_cb_t flush_cb;
 static operit_lvgl_action_cb_t action_cb;
 static void *context;
@@ -80,6 +84,7 @@ static void clicked(lv_event_t *e) {
     else if (!strcmp(name,"Shape")) queue_route("shape_toggle");
     else if (!strcmp(name,"Online")) queue_route("face_online");
     else if (!strcmp(name,"Run")) queue_route("run_node");
+    else if (!strcmp(name,"edge_search") || !strcmp(name,"edge_pair") || !strcmp(name,"edge_chat") || !strcmp(name,"edge_send")) queue_route(name);
     else { char route[32];snprintf(route,sizeof(route),"builtin:%s",name);queue_route(route); }
 }
 static lv_obj_t *button(lv_obj_t *p, const char *text, const char *action, int x, int y, int w, int h) {
@@ -95,6 +100,7 @@ static void clear(void) {
     active_page[0]=0;
     swipe_left[0]=swipe_right[0]=0;
     clock_label = connection_label = face_label = tiles = NULL;
+    pairing_label = space_label = chat_label = NULL;
     lv_obj_clean(root);
     lv_obj_set_style_bg_color(root, lv_color_hex(theme()->bg), 0);
 }
@@ -163,9 +169,17 @@ static void page(const char *name) {
         button(root, "Online", "Online", 90, 180, 140, 40);
     } else if (!strcmp(name, "Settings") || !strcmp(name, "Network")) {
         label(root, wifi_ready ? "Wi-Fi connected" : "Wi-Fi setup needed", 20, 66, 280, 0xf4f8ff);
-        label(root, edge_ready ? "Edge connected" : "Edge token not configured", 20, 102, 280, theme()->muted);
-        label(root, "Display  320 x 240", 20, 140, 280, theme()->muted);
-        button(root, "Appearance", "Theme", 20, 180, 280, 40);
+        space_label = label(root, edge_ready ? space_state : "Edge Link waiting", 20, 98, 280, theme()->muted);
+        pairing_label = label(root, pairing_code[0] ? pairing_code : "Pairing: open Space on a nearby Core", 20, 126, 280, theme()->accent);
+        chat_label = label(root, chat_preview, 20, 151, 280, theme()->muted);
+        button(root, "Search Space", "edge_search", 20, 180, 88, 40);
+        button(root, "Pair", "edge_pair", 116, 180, 88, 40);
+        button(root, "Chat", "edge_chat", 212, 180, 88, 40);
+    } else if (!strcmp(name, "Chat")) {
+        label(root, "SPACE CHAT", 20, 60, 280, theme()->accent);
+        chat_label = label(root, chat_preview, 20, 98, 280, theme()->muted);
+        button(root, "Network", "Network", 20, 188, 88, 36);
+        button(root, "Refresh", "edge_chat", 116, 188, 88, 36);
     } else if (!strcmp(name, "Terminal")) {
         label(root, "> Operit Edge ready", 20, 70, 280, theme()->accent);
         label(root, "Local display + Wi-Fi", 20, 106, 280, theme()->muted);
@@ -208,6 +222,24 @@ void operit_lvgl_set_connection(bool wifi,bool edge) {
     if(wifi==wifi_ready && edge==edge_ready) return;
     wifi_ready=wifi; edge_ready=edge;
     if(connection_label) lv_label_set_text(connection_label,wifi ? "WIFI CONNECTED" : "WIFI STARTING");
+}
+void operit_lvgl_set_pairing_code(const char *code) {
+    const char *value = code ? code : "";
+    if (!strcmp(pairing_code, value)) return;
+    strncpy(pairing_code, value, sizeof(pairing_code)-1); pairing_code[sizeof(pairing_code)-1]=0;
+    if (pairing_label) lv_label_set_text(pairing_label, pairing_code[0] ? pairing_code : "Pairing: open Space on a nearby Core");
+}
+void operit_lvgl_set_space_state(const char *state) {
+    const char *value = state ? state : "Waiting for Space";
+    if (!strcmp(space_state, value)) return;
+    strncpy(space_state, value, sizeof(space_state)-1); space_state[sizeof(space_state)-1]=0;
+    if (space_label) lv_label_set_text(space_label, space_state);
+}
+void operit_lvgl_set_chat_preview(const char *preview) {
+    const char *value = preview ? preview : "No chat session";
+    if (!strcmp(chat_preview, value)) return;
+    strncpy(chat_preview, value, sizeof(chat_preview)-1); chat_preview[sizeof(chat_preview)-1]=0;
+    if (chat_label) lv_label_set_text(chat_label, chat_preview);
 }
 void operit_lvgl_set_expression(const char *value) {
     if(!value || !strcmp(expression,value)) return;
@@ -280,7 +312,8 @@ int operit_lvgl_layout_add(int type, int parent_index, int x, int y, int w, int 
     case 3: {obj=lv_label_create(parent);const char *symbol=LV_SYMBOL_EYE_OPEN;
         if(!strcmp(content,"wifi"))symbol=LV_SYMBOL_WIFI;else if(!strcmp(content,"settings"))symbol=LV_SYMBOL_SETTINGS;
         else if(!strcmp(content,"home"))symbol=LV_SYMBOL_HOME;else if(!strcmp(content,"play"))symbol=LV_SYMBOL_PLAY;
-        else if(!strcmp(content,"folder"))symbol=LV_SYMBOL_DIRECTORY;
+        else if(!strcmp(content,"folder")||!strcmp(content,"plugins"))symbol=LV_SYMBOL_DIRECTORY;
+        else if(!strcmp(content,"theme"))symbol=LV_SYMBOL_TINT;else if(!strcmp(content,"terminal"))symbol=LV_SYMBOL_LIST;
         lv_label_set_text(obj,symbol);lv_obj_set_style_text_align(obj,LV_TEXT_ALIGN_CENTER,0);break;}
     case 4: obj=lv_arc_create(parent);lv_arc_set_value(obj,value);break;
     case 5: obj=lv_bar_create(parent);lv_bar_set_value(obj,value,LV_ANIM_OFF);break;
@@ -345,6 +378,9 @@ void operit_lvgl_layout_style(int index,const char *binding,int font_size) {
     if(!strcmp(binding,"clock")){clock_label=obj;tick_clock(NULL);}
     else if(!strcmp(binding,"connection")){connection_label=obj;lv_label_set_text(obj,wifi_ready?"WIFI CONNECTED":"WIFI STARTING");}
     else if(!strcmp(binding,"expression")){face_label=obj;lv_label_set_text(obj,expression);}
+    else if(!strcmp(binding,"pairing")){pairing_label=obj;lv_label_set_text(obj,pairing_code[0]?pairing_code:"Pairing code: waiting");}
+    else if(!strcmp(binding,"space")){space_label=obj;lv_label_set_text(obj,space_state);}
+    else if(!strcmp(binding,"chat")){chat_label=obj;lv_label_set_text(obj,chat_preview);}
 }
 static bool document_page(const char *id) {
     operit_packed_page_t packed;
@@ -386,6 +422,8 @@ static void execute_route(const char *action) {
         if(*active_page){char id[24];strcpy(id,active_page);navigate_document(id);}else home();
     }
     else if(!strncmp(action,"builtin:",8))page(action+8);
+    else if(!strcmp(action,"edge_chat")){page("Chat");if(action_cb)action_cb(action,context);}
+    else if(!strcmp(action,"edge_search")||!strcmp(action,"edge_pair")||!strcmp(action,"edge_send")){if(action_cb)action_cb(action,context);}
     else if((!strcmp(action,"face_online")||!strcmp(action,"run_node"))&&action_cb)action_cb(action,context);
 }
 static void document_home(void) { const char *entry=operit_store_entry();if(!document_page(entry?entry:OPERIT_LAYOUT_ENTRY))builtin_home(); }

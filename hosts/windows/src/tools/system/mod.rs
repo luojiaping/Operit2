@@ -33,23 +33,16 @@ impl SystemOperationHost for WindowsSystemOperationHost {
         get_windows_system_language_code()
     }
 
+    /// Displays a toast through the native notification API without an external executable.
     fn toast(&self, message: &str) -> HostResult<()> {
         if message.trim().is_empty() {
             return Err(HostError::new("Must provide message parameter"));
         }
-        let status = Command::new("msg")
-            .arg("*")
-            .arg("/TIME:5")
-            .arg(message)
-            .status()
-            .map_err(|error| HostError::new(format!("Toast failed: {error}")))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(HostError::new(format!(
-                "Toast command exited with {status}"
-            )))
-        }
+        show_windows_notification(&SystemNotificationRequest {
+            title: "Operit".to_string(),
+            message: message.to_string(),
+            activation: SystemNotificationActivation::OpenApplication,
+        })
     }
 
     fn sendNotification(&self, request: &SystemNotificationRequest) -> HostResult<()> {

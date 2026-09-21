@@ -683,6 +683,12 @@ pub enum LinkFramePayload {
     },
     Call(CoreCallRequest),
     CallResponse(CoreCallResponse),
+    /// One complete standard Space PeerLink frame. TCP/UART Edge carriers
+    /// transport this exact payload instead of defining a parallel route
+    /// protocol.
+    PeerFrame(PeerFrame),
+    /// Authenticated Space admission metadata for a storage-free route source.
+    SpaceContext { spaceId: String, adjacentNodeId: String, ttl: u32, chatId: String },
     WatchSnapshot(CoreWatchRequest),
     WatchSnapshotResponse(Result<CoreEvent, CoreLinkError>),
     WatchOpen {
@@ -773,6 +779,124 @@ pub struct CorePushItem {
     pub pushId: String,
     pub sequence: u64,
     pub args: CoreValue,
+}
+
+/// Selects the object namespace used by a routed Core request.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RoutedCoreRequestKind {
+    /// Addresses the destination through its local Core object namespace.
+    #[default]
+    ObjectId,
+    /// Addresses the destination through the annotation-generated Space route namespace.
+    SpaceRoute,
+    /// Resolves the generated Binding at the addressed adjacent Space router.
+    /// The resolved request continues using the ordinary SpaceRoute namespace.
+    SpaceBinding,
+}
+
+/// Carries one Core operation across the authenticated device-space topology.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RoutedCoreRequest<T> {
+    pub spaceId: String,
+    pub targetNodeId: String,
+    pub ttl: u32,
+    #[serde(default)]
+    pub routeKind: RoutedCoreRequestKind,
+    pub payload: T,
+}
+
+/// Carries one asynchronous standard PeerLink message across any authenticated carrier.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerFrame {
+    pub messageId: String,
+    pub payload: PeerFramePayload,
+}
+
+/// Carries an ordered batch of PeerLink frames on batch-oriented carriers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerFrameBatch {
+    pub frames: Vec<PeerFrame>,
+}
+
+/// Defines every message exchanged by a bidirectional Space PeerLink.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "body")]
+pub enum PeerFramePayload {
+    Request(PeerRequest),
+    Response(PeerResponse),
+    WatchEvent(PeerWatchEvent),
+    WatchClosed(PeerWatchClosed),
+    Heartbeat(PeerHeartbeat),
+}
+
+/// Carries a sequence-numbered heartbeat probe or its exact acknowledgement.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "body")]
+pub enum PeerHeartbeat {
+    Probe { sequence: u64, sentAt: i64 },
+    Ack { sequence: u64, sentAt: i64 },
+}
+
+/// Defines one routed Core operation requested by an adjacent Space member.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "body")]
+pub enum PeerRequest {
+    Call(RoutedCoreRequest<CoreCallRequest>),
+    WatchSnapshot(RoutedCoreRequest<CoreWatchRequest>),
+    WatchOpen(PeerWatchOpenRequest),
+    WatchClose(PeerWatchCloseRequest),
+    PushOpen(PeerPushOpenRequest),
+    PushItem(CorePushItem),
+    PushClose(PeerPushCloseRequest),
+}
+
+/// Defines the typed response to one PeerLink request.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "body")]
+pub enum PeerResponse {
+    Call(CoreCallResponse),
+    WatchSnapshot(Result<CoreEvent, CoreLinkError>),
+    Operation(Result<(), CoreLinkError>),
+}
+
+/// Opens one routed watch under a stable subscription identifier.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerWatchOpenRequest {
+    pub subscriptionId: String,
+    pub request: RoutedCoreRequest<CoreWatchRequest>,
+}
+
+/// Closes one routed watch opened on the same PeerLink.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerWatchCloseRequest {
+    pub subscriptionId: String,
+}
+
+/// Delivers one routed watch event.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerWatchEvent {
+    pub subscriptionId: String,
+    pub event: CoreEvent,
+}
+
+/// Reports that a routed watch ended before a completion event.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerWatchClosed {
+    pub subscriptionId: String,
+    pub error: CoreLinkError,
+}
+
+/// Opens one routed push under a stable push identifier.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerPushOpenRequest {
+    pub pushId: String,
+    pub request: RoutedCoreRequest<CorePushRequest>,
+}
+
+/// Closes one routed push opened on the same PeerLink.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerPushCloseRequest {
+    pub pushId: String,
 }
 
 impl CoreWatchRequest {
@@ -907,7 +1031,8 @@ impl CoreLinkError {
                 line: caller.line(),
                 column: caller.column(),
             }),
-            backtrace: Some(backtrace.to_string()),
+            // Full formatting retains instruction addresses even without debug symbols.
+            backtrace: Some(format!("{backtrace:#}")),
         }
     }
 }

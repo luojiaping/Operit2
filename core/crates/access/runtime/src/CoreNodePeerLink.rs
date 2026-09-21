@@ -12,6 +12,11 @@ use operit_link::{
     CoreCallRequest, CoreCallResponse, CoreEvent, CoreEventKind, CoreEventStream, CoreLinkError,
     CoreLinkPushSession, CorePushItem, CorePushRequest, CoreWatchRequest,
 };
+pub use operit_link::{
+    PeerFrame, PeerFrameBatch, PeerFramePayload, PeerHeartbeat, PeerPushCloseRequest,
+    PeerPushOpenRequest, PeerRequest, PeerResponse, PeerWatchCloseRequest, PeerWatchClosed,
+    PeerWatchEvent, PeerWatchOpenRequest, RoutedCoreRequest, RoutedCoreRequestKind,
+};
 use operit_store::CoreSpaceStore::{CoreSpaceLinkAdvertisement, CoreSpaceStore};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
@@ -27,27 +32,6 @@ const PEER_HEARTBEAT_TIMEOUT_MS: i64 = 4_000;
 const PEER_LINK_ADVERTISEMENT_TTL_MS: i64 = 15_000;
 const PEER_LINK_ADVERTISEMENT_REFRESH_MS: i64 = 10_000;
 const PEER_LINK_SAMPLE_WINDOW: usize = 32;
-
-/// Wraps one existing Core request with the Space route required to reach a CoreNode.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub enum RoutedCoreRequestKind {
-    /// Addresses the destination through the local Core object namespace.
-    #[default]
-    ObjectId,
-    /// Addresses the destination through the annotation-generated Space route namespace.
-    SpaceRoute,
-}
-
-/// Wraps one existing Core request with the Space route required to reach a CoreNode.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RoutedCoreRequest<T> {
-    pub spaceId: String,
-    pub targetNodeId: String,
-    pub ttl: u32,
-    #[serde(default)]
-    pub routeKind: RoutedCoreRequestKind,
-    pub payload: T,
-}
 
 /// Exposes local and routed Core operations to Link Access without fixing a transport direction.
 #[async_trait(?Send)]
@@ -148,100 +132,6 @@ pub struct PeerChannelOpenEnvelope {
     pub channelId: String,
 }
 
-/// Carries one asynchronous request, response, or watch event across a Peer Link.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerFrame {
-    pub messageId: String,
-    pub payload: PeerFramePayload,
-}
-
-/// Carries an ordered batch of Peer Link frames through one HTTP request.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerFrameBatch {
-    pub frames: Vec<PeerFrame>,
-}
-
-/// Defines every message exchanged by the bidirectional CoreNode carrier.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", content = "body")]
-pub enum PeerFramePayload {
-    Request(PeerRequest),
-    Response(PeerResponse),
-    WatchEvent(PeerWatchEvent),
-    WatchClosed(PeerWatchClosed),
-    Heartbeat(PeerHeartbeat),
-}
-
-/// Carries one sequence-numbered heartbeat probe or its exact echo.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", content = "body")]
-pub enum PeerHeartbeat {
-    Probe { sequence: u64, sentAt: i64 },
-    Ack { sequence: u64, sentAt: i64 },
-}
-
-/// Defines one routed Core operation requested by an adjacent CoreNode.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", content = "body")]
-pub enum PeerRequest {
-    Call(RoutedCoreRequest<CoreCallRequest>),
-    WatchSnapshot(RoutedCoreRequest<CoreWatchRequest>),
-    WatchOpen(PeerWatchOpenRequest),
-    WatchClose(PeerWatchCloseRequest),
-    PushOpen(PeerPushOpenRequest),
-    PushItem(CorePushItem),
-    PushClose(PeerPushCloseRequest),
-}
-
-/// Defines the typed response to one Peer Link request.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", content = "body")]
-pub enum PeerResponse {
-    Call(CoreCallResponse),
-    WatchSnapshot(Result<CoreEvent, CoreLinkError>),
-    Operation(Result<(), CoreLinkError>),
-}
-
-/// Opens one routed watch under a stable subscription identifier.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerWatchOpenRequest {
-    pub subscriptionId: String,
-    pub request: RoutedCoreRequest<CoreWatchRequest>,
-}
-
-/// Closes one routed watch opened on the same Peer Link.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerWatchCloseRequest {
-    pub subscriptionId: String,
-}
-
-/// Delivers one event produced by a routed watch.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerWatchEvent {
-    pub subscriptionId: String,
-    pub event: CoreEvent,
-}
-
-/// Reports that a routed watch source ended without a completion event.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerWatchClosed {
-    pub subscriptionId: String,
-    pub error: CoreLinkError,
-}
-
-/// Opens one routed push under a stable push identifier.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerPushOpenRequest {
-    pub pushId: String,
-    pub request: RoutedCoreRequest<CorePushRequest>,
-}
-
-/// Closes one routed push opened on the same Peer Link.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerPushCloseRequest {
-    pub pushId: String,
-}
-
 /// Sends one encoded Peer Link frame through its concrete carrier direction.
 #[async_trait]
 pub(crate) trait PeerFrameSender: Send + Sync {
@@ -250,6 +140,56 @@ pub(crate) trait PeerFrameSender: Send + Sync {
 
     /// Closes the concrete carrier owned by this frame direction.
     fn close(&self);
+}
+
+/// A bidirectional authenticated carrier for standard Space PeerLink frames.
+/// HTTP and WebSocket use internal implementations; embedded transports use
+/// this boundary so their frames enter the same PeerConnection state machine.
+#[async_trait]
+pub trait PeerLinkCarrier: Send + Sync {
+    /// Sends one complete standard PeerLink frame to the adjacent Space member.
+    async fn sendPeerFrame(&self, frame: PeerFrame) -> Result<(), String>;
+
+    /// Closes the carrier after the PeerLink transitions to a terminal state.
+    fn closePeerLinkCarrier(&self);
+}
+
+/// Owns a registered PeerLink attached to an external carrier.
+#[derive(Clone)]
+pub struct AttachedPeerLink {
+    connection: Arc<PeerConnection>,
+}
+
+impl AttachedPeerLink {
+    /// Delivers one carrier frame into the canonical PeerLink state machine.
+    pub async fn receiveFrame(&self, frame: PeerFrame) -> Result<(), String> {
+        self.connection.receiveFrame(frame).await
+    }
+
+    /// Reports whether this carrier has reached its terminal state.
+    pub fn isClosed(&self) -> bool {
+        self.connection.closed.load(Ordering::Acquire)
+    }
+
+    /// Closes this PeerLink and removes its topology edge.
+    pub fn close(&self, reason: String) {
+        self.connection.close(reason);
+    }
+}
+
+struct CarrierPeerFrameSender {
+    carrier: Arc<dyn PeerLinkCarrier>,
+}
+
+#[async_trait]
+impl PeerFrameSender for CarrierPeerFrameSender {
+    async fn send(&self, frame: PeerFrame) -> Result<(), String> {
+        self.carrier.sendPeerFrame(frame).await
+    }
+
+    fn close(&self) {
+        self.carrier.closePeerLinkCarrier();
+    }
 }
 
 /// Owns the shared state for one authenticated direct CoreNode connection.
@@ -1313,6 +1253,34 @@ pub(crate) fn registerPeerLink(connection: Arc<PeerConnection>) -> Result<PeerLi
     publishPeerLinkChange();
     startPeerHeartbeat(connection.clone())?;
     Ok(PeerLinkClient { connection })
+}
+
+/// Registers an authenticated non-HTTP carrier as a normal Space PeerLink.
+///
+/// The local and peer identities are verified by the pairing transport before
+/// this function is called. From this point onward every request, watch, push,
+/// heartbeat, topology update, and route validation uses the same
+/// `PeerConnection` implementation as full CoreNode links.
+#[allow(non_snake_case)]
+pub fn attachPeerLinkCarrier(
+    localNodeId: String,
+    peerNodeId: String,
+    channelId: String,
+    carrier: Arc<dyn PeerLinkCarrier>,
+    core: Arc<dyn CoreNodeTransportClient>,
+    topologyStore: CoreSpaceStore,
+) -> Result<AttachedPeerLink, String> {
+    let sender: Arc<dyn PeerFrameSender> = Arc::new(CarrierPeerFrameSender { carrier });
+    let connection = PeerConnection::new(
+        localNodeId,
+        peerNodeId,
+        channelId,
+        sender,
+        core,
+        Some(topologyStore),
+    );
+    registerPeerLink(connection.clone())?;
+    Ok(AttachedPeerLink { connection })
 }
 
 /// Starts independent heartbeat transmission and expiry tasks for one registered Peer Link.

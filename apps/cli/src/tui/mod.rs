@@ -18,6 +18,8 @@ mod helpers;
 mod i18n;
 #[path = "input/input.rs"]
 mod input;
+#[path = "compose/mod.rs"]
+mod compose;
 #[path = "core/link_proxy_rs.rs"]
 mod link_proxy_rs;
 #[path = "transcript/markdown.rs"]

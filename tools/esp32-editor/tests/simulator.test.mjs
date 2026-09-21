@@ -1,0 +1,55 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import net from 'node:net';
+import {mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+
+test('editor starts real TCP device, serves firmware UI, persists token and stops listener', {timeout: 120000}, async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'operit-sim-api-'));
+  process.env.OPERIT_SIM_STATE_DIR = dir;
+  process.env.OPERIT_SIM_BIND = '127.0.0.1:0';
+  const {simulatorRoute, stopSimulator} = await import('../src/api/simulator-api.mts');
+  const server = http.createServer((req, res) => void simulatorRoute(req, res, new URL(req.url, 'http://localhost')));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    stopSimulator();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await rm(dir, {recursive: true, force: true});
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal((await fetch(base + '/api/simulator/state', {headers: {Origin: 'https://example.com'}})).status, 403);
+  const state = async () => (await fetch(base + '/api/simulator/state')).json();
+  async function ready() {
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      const current = await state();
+      if (current.ready) return current;
+      if (!current.running) throw Error(current.output);
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    throw Error('Simulator did not become ready');
+  }
+  assert.equal((await fetch(base + '/api/simulator/start', {method: 'POST'})).status, 202);
+  // Startup creates persistent files asynchronously before the child is spawned.
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const first = await ready();
+  assert.equal(first.device.chat.connected, false);
+  assert.match(first.token, /^[0-9a-f]{48}$/);
+  const action = await fetch(base + '/api/simulator/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{"action":"edge_search"}'});
+  assert.equal(action.status, 200);
+  await fetch(base + '/api/simulator/stop', {method: 'POST'});
+  assert.equal((await state()).running, false);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const [host, port] = first.device.address.split(':');
+  await new Promise((resolve, reject) => {
+    const socket = net.connect({host, port: Number(port)});
+    socket.once('error', resolve);
+    socket.once('connect', () => {socket.destroy(); reject(Error('stopped device still listens'));});
+  });
+  await fetch(base + '/api/simulator/start', {method: 'POST'});
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal((await ready()).token, first.token);
+});

@@ -1,5 +1,38 @@
 # 共用 LVGL 开发调试台
 
+## ESP32 模拟设备：真实配对与聊天
+
+运行 `npm start --prefix tools/esp32-editor`，打开 http://127.0.0.1:8766，点击“启动模拟设备”。
+首次启动需要可用的桌面 Rust/Cargo 工具链，工具会编译并启动本机 Rust 模拟器。
+界面展示实际 TCP 地址、Edge Token、配对码、连接状态和编译日志；停止按钮会终止模拟设备，编辑器退出也会回收进程。
+
+1. 在运行本次 Edge 功能版本的 Core 应用中打开 Space 设备面板，选择 Edge 配对。
+2. 填写模拟器显示的局域网 TCP 地址（默认监听 `0.0.0.0:18765`，面板会显示可连接的局域网 IP）和“复制 Token”得到的令牌。
+3. Core 发起配对后，模拟 ESP32 屏幕的 Network 页面显示六位配对码；将其填回 Core 完成配对。
+4. 在模拟 ESP32 屏幕上进入 Network / Chat 页面。搜索、配对和聊天入口都由共享 LVGL 设备 UI 处理；编辑器面板只负责模拟器生命周期、Token 和开发日志。
+5. 检查流式回复、Core 端历史记录和错误提示。停止模拟器后 Core 应显示离线；重启保留设备身份与配对凭据，Core 重新连接后恢复固定聊天。
+
+如需指定绑定地址，在启动编辑器的终端设置 `$env:OPERIT_SIM_BIND = "0.0.0.0:18765"`；
+也可设置 `$env:OPERIT_SIM_ADVERTISE = "192.168.1.20"` 指定面板展示给 Core 的局域网 IP。防火墙需允许该 TCP 端口。
+模拟器的身份与真实板卡分开；令牌及配对凭据保存在忽略提交的 `generated/simulator/`，聊天数据仍存于 Core。
+
+运行时直接编译固件的 `apps/esp32/src/edge_session.rs` 和 `edge_chat.rs`，使用已有
+`operit-edge-transport`、加密认证、PeerLink 与 SpaceBinding 路由。
+编辑器到本机进程的 IPC 只承接 UI 和生命周期，不替代节点之间的 Link 协议。
+LVGL 画布继续运行共享 C/Wasm，连接指示跟随真实会话。聊天界面复用固件的 Web Chat 页面；当前固件本身还没有 LVGL 聊天输入页。
+此环境模拟设备运行能力，不执行 ESP32 指令集，不模拟 Wi-Fi 无线电、SPI 时序或板上 RAM 限制。
+
+验证命令（仓库根目录执行）：
+
+```powershell
+cargo test --manifest-path tools/esp32-editor/simulator/Cargo.toml
+npm run check --prefix tools/esp32-editor
+npm test --prefix tools/esp32-editor
+```
+
+Rust 测试通过真实 TCP 连接检查密码学配对、固件聊天的 routed call/watch、回复显示、权限错误回传和持久身份重连。
+其中相邻 Core 使用协议测试端；真实 Core 的 Binding 与权限执行仍由 `operit-node-runtime` 集成测试及上述联调流程验证。
+
 浏览器与 ESP32 使用同一个 `apps/esp32/lvgl_port/operit_lvgl.c`，不再用 JavaScript 重写界面。
 LVGL 的布局、字体、按钮事件和滑动动画在 WebAssembly 中运行；HTML 仅提供开发面板，Canvas 显示 LVGL 输出的 RGB565 像素。
 
@@ -11,6 +44,14 @@ LVGL 的布局、字体、按钮事件和滑动动画在 WebAssembly 中运行�
 npm install --prefix ./tools/esp32-editor
 npm start --prefix ./tools/esp32-editor
 ```
+
+如果首次启动提示构建清单 404，说明忽略的 `generated/` 产物尚未生成。安装并激活 Emscripten 4.0.14 后执行：
+
+```powershell
+npm run build --prefix ./tools/esp32-editor
+```
+
+然后重新打开编辑器。底层 C/Rust 运行时变更则执行 `npm run build:firmware --prefix ./tools/esp32-editor`。
 
 访问 http://127.0.0.1:8766 。页面直接编辑首页和各子页；保存项目写入 JSON；部署到设备使用现成运行时。USB 操作需要电脑已安装 espflash、Python/pyserial；Wi-Fi 下发不需要串口工具。手机可通过端口转发访问此服务，默认不开放局域网监听。
 

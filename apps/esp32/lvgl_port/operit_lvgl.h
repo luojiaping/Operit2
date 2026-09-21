@@ -29,6 +29,9 @@ void operit_lvgl_set_touch(uint16_t x, uint16_t y, bool pressed);
 void operit_lvgl_navigate_home(void);
 void operit_lvgl_set_connection(bool wifi_ready, bool edge_ready);
 void operit_lvgl_set_expression(const char *expression);
+void operit_lvgl_set_pairing_code(const char *code);
+void operit_lvgl_set_space_state(const char *state);
+void operit_lvgl_set_chat_preview(const char *preview);
 
 void operit_lvgl_set_theme(unsigned index, bool circular);
 void operit_lvgl_navigate_apps(void);

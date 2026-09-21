@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
-mod app;
+mod edge_chat;
+mod edge_session;
 mod config;
 #[cfg(target_os = "espidf")]
 mod edge_link;
@@ -42,9 +43,7 @@ fn main() {
 
 #[cfg(target_os = "espidf")]
 fn runFirmware() -> operit_host_api::HostResult<()> {
-    use std::future::Future;
     use std::sync::Arc;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
     use esp_idf_hal::delay::FreeRtos;
     use esp_idf_hal::gpio::Gpio0;
@@ -54,42 +53,6 @@ fn runFirmware() -> operit_host_api::HostResult<()> {
     use esp_idf_svc::nvs::EspDefaultNvsPartition;
     use operit_board_esp32::{Esp32Board, INITIAL_EXPRESSION, LED_GREEN_PIN, LED_RED_PIN};
     use operit_host_api::{HostError, RobotFaceHost};
-    use operit_node_edge::{createDeviceIoService, createRobotFaceService, EdgeNode};
-    use operit_proxy_edge::{EdgeProxy, EdgeProxyError};
-
-    fn edgeError(error: EdgeProxyError) -> HostError {
-        HostError::new(error.to_string())
-    }
-
-    fn noopWaker() -> Waker {
-        unsafe fn clone(_: *const ()) -> RawWaker {
-            noopRawWaker()
-        }
-        unsafe fn wake(_: *const ()) {}
-        unsafe fn wakeByRef(_: *const ()) {}
-        unsafe fn drop(_: *const ()) {}
-
-        fn noopRawWaker() -> RawWaker {
-            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wakeByRef, drop);
-            RawWaker::new(std::ptr::null(), &VTABLE)
-        }
-
-        unsafe { Waker::from_raw(noopRawWaker()) }
-    }
-
-    fn blockOn<F: Future>(future: F) -> F::Output {
-        let waker = noopWaker();
-        let mut context = Context::from_waker(&waker);
-        let mut future = std::pin::pin!(future);
-        loop {
-            match future.as_mut().poll(&mut context) {
-                Poll::Ready(output) => return output,
-                Poll::Pending => FreeRtos::delay_ms(1),
-            }
-        }
-    }
-
-    use crate::app::Esp32App;
     use crate::config::Esp32FirmwareConfig;
     use crate::edge_screen::Esp32ScreenService;
     use crate::edge_store::Esp32EdgePairingStore;
@@ -138,14 +101,17 @@ fn runFirmware() -> operit_host_api::HostResult<()> {
     let hostManager = board.installIntoHostManager();
     let screenMirror = board.screenMirror();
     let screenService = Arc::new(Esp32ScreenService::new(Arc::clone(&screenMirror)));
-    let edgeNode = EdgeNode::new(createDeviceIoService(hostManager.clone()))
-        .withRobotFaceService(createRobotFaceService(hostManager))
-        .withScreenService(screenService.clone());
-    let edgeServerNode = std::sync::Arc::new(edgeNode.clone());
-    let edgeProxy = EdgeProxy::new(edgeNode);
     let status = Arc::new(FirmwareStatus::new(INITIAL_EXPRESSION));
-    let mut app = Esp32App::new(edgeProxy, Arc::clone(&status));
-    blockOn(app.setExpression("booting")).map_err(edgeError)?;
+    let setExpression = |expression: &str| -> operit_host_api::HostResult<()> {
+        let state = faceHost.setExpression(operit_host_api::RobotFaceExpressionRequest {
+            expression: expression.to_string(),
+        })?;
+        status.setExpression(state.expression);
+        Ok(())
+    };
+    let deviceIo = hostManager.deviceIoHost.as_ref()
+        .ok_or_else(|| HostError::new("Board digital I/O is unavailable"))?;
+    setExpression("booting")?;
     // Show the launcher even if the configured network is unavailable.
     lvgl.pump(1);
     let (_wifi, wifiMode) = Esp32Wifi::connectOrSetup(modem, &config, nvsPartition.clone())?;
@@ -154,16 +120,16 @@ fn runFirmware() -> operit_host_api::HostResult<()> {
             let ip = _wifi.ipv4()?;
             status.setWifiSsid(config.wifiSsid.clone());
             status.setIpv4(ip.to_string());
-            blockOn(app.setExpression("online")).map_err(edgeError)?;
-            blockOn(app.setDigitalOutput(LED_GREEN_PIN, true)).map_err(edgeError)?;
+            setExpression("online")?;
+            deviceIo.setDigitalOutput(operit_host_api::DeviceDigitalOutputRequest { pin: LED_GREEN_PIN, level: true })?;
             log::info!("operit-esp32 online at http://{ip}/");
             None
         }
         crate::wifi::Esp32WifiMode::SetupAccessPoint => {
             status.setWifiSsid("Operit-ESP32-Setup");
             status.setIpv4("192.168.4.1");
-            blockOn(app.setExpression("error")).map_err(edgeError)?;
-            blockOn(app.setDigitalOutput(LED_RED_PIN, true)).map_err(edgeError)?;
+            setExpression("error")?;
+            deviceIo.setDigitalOutput(operit_host_api::DeviceDigitalOutputRequest { pin: LED_RED_PIN, level: true })?;
             log::info!("operit-esp32 setup AP ready: Operit-ESP32-Setup / http://192.168.4.1/");
             Some(Esp32SetupServer::start(
                 Arc::clone(&status),
@@ -173,7 +139,6 @@ fn runFirmware() -> operit_host_api::HostResult<()> {
         }
     };
     let edgeLink = edge_link::Esp32EdgeLinkServer::start(
-        edgeServerNode,
         config.edgePort,
         config.edgeToken.clone(),
         Arc::clone(&status),
@@ -258,17 +223,20 @@ fn runFirmware() -> operit_host_api::HostResult<()> {
         for action in lvgl.drainActions() {
             match action.as_str() {
                 "face_online" => {
-                    blockOn(app.setExpression("online")).map_err(edgeError)?;
+                    setExpression("online")?;
                 }
                 "face_neutral" => {
-                    blockOn(app.setExpression("neutral")).map_err(edgeError)?;
+                    setExpression("neutral")?;
                 }
                 "run_node" => {
                     // The Edge listener is intentionally started at boot. This action
                     // gives the local terminal a visible confirmation without creating
                     // a duplicate listener.
-                    blockOn(app.setExpression("listening")).map_err(edgeError)?;
+                    setExpression("listening")?;
                 }
+                "edge_search" => setExpression("listening")?,
+                "edge_pair" => setExpression("listening")?,
+                "edge_chat" => {}
                 _ => log::debug!("operit-esp32 LVGL action: {action}"),
             }
         }
@@ -279,6 +247,7 @@ fn runFirmware() -> operit_host_api::HostResult<()> {
             }
         }
         updateStatus(&mut lvgl, &status, edgeReady);
+        lvgl.setChatPreview(&crate::edge_chat::preview());
         if std::time::Instant::now() >= nextHealth {
             logRuntimeHealth("running");
             nextHealth = std::time::Instant::now() + std::time::Duration::from_secs(30);

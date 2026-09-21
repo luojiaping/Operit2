@@ -106,12 +106,13 @@ void main(List<String> args) async {
       syncScript.path,
       '--source',
       'buildin',
+      '--no-hot-reload',
     ], workingDirectory: repoRoot.path);
 
     if (shouldBuildWebAssets) {
       await _invalidateWebRuntimeArtifacts([webBuildDir]);
       await _run(
-        _command('cargo'),
+        'cargo',
         const ['build', '--release', '--target', 'wasm32-unknown-unknown'],
         workingDirectory: bridgeCrate.path,
         environment: await _wasmCargoEnvironment(repoRoot),

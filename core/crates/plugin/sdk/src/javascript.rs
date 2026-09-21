@@ -308,6 +308,8 @@ pub struct ToolPkgMainRegistrationCapture {
     pub promptEstimateFinalizeHooks: Vec<String>,
     #[serde(rename = "summaryGenerateHooks", default)]
     pub summaryGenerateHooks: Vec<String>,
+    #[serde(rename = "coreCommands", default)]
+    pub coreCommands: Vec<String>,
     #[serde(rename = "aiProviders", default)]
     pub aiProviders: Vec<String>,
 }

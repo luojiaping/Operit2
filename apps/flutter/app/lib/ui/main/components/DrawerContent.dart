@@ -13,6 +13,8 @@ import '../../common/CharacterAvatar.dart';
 import '../../features/chat/components/NewChatIntro.dart';
 import '../../features/chat/viewmodel/ChatSelectionTransition.dart';
 import '../navigation/AppNavigationModels.dart';
+import '../layout/SidebarDockController.dart';
+import '../layout/NavigationLayoutMetrics.dart';
 import '../screens/ScreenRouteRegistry.dart';
 import '../../theme/OperitTheme.dart';
 import '../../window/DetachedChatWindowLauncher.dart';
@@ -1129,6 +1131,17 @@ class _DrawerContentState extends State<DrawerContent> {
                               widget.onNavigationEntrySelected(entry),
                         );
                       }, childCount: widget.pluginEntries.length),
+                    ),
+                    SliverToBoxAdapter(
+                      child: SidebarDockEndDropTarget(
+                        controller:
+                            MediaQuery.sizeOf(context).width >=
+                                navigationTabletBreakpoint
+                            ? SidebarDockScope.maybeOf(context)
+                            : null,
+                        location: SidebarDockLocation.primary,
+                        height: 18,
+                      ),
                     ),
                   ],
                   const SliverToBoxAdapter(child: SizedBox(height: 16)),

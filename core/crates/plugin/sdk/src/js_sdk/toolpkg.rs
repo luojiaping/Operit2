@@ -517,6 +517,7 @@ pub enum ToolPkgHookEventName {
     Variant12(ToolPkgToolPromptComposeEventName),
     Variant13(ToolPkgPromptFinalizeEventName),
     Variant14(ToolPkgSummaryGenerateEventName),
+    Variant19(ToolPkgCoreCommandEventName),
     Variant15(ToolPkgHostEventName),
 }
 /// Accepts a JSON result, no result, or asynchronous completion from a generic hook.
@@ -804,6 +805,12 @@ pub enum ToolPkgSummaryGenerateEventName {
     #[serde(rename = "after_generate_summary")]
     AfterGenerateSummary,
 }
+/// Names the event dispatched for a registered Core command.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum ToolPkgCoreCommandEventName {
+    #[serde(rename = "core_command")]
+    CoreCommand,
+}
 /// Identifies the role and purpose of one prompt-history turn.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ToolPkgPromptTurnKind {
@@ -1020,6 +1027,17 @@ pub struct ToolPkgSummaryGenerateEventPayload {
     /// Carries structured context for later hook stages.
     pub metadata: Option<ToolPkgHookMetadata>,
 }
+/// Carries arguments supplied to a registered Core command.
+pub struct ToolPkgCoreCommandEventPayload {
+    /// Identifies the command registration selected by the host.
+    pub commandId: String,
+    /// Contains the command name entered by the user.
+    pub commandName: String,
+    /// Contains parsed command arguments without the command name.
+    pub args: Vec<String>,
+    /// Reports whether the caller requested structured JSON output.
+    pub json: bool,
+}
 /// Enumerates immediate and asynchronous results accepted from a tool lifecycle hook.
 pub struct ToolPkgToolLifecycleHookObjectResult {
     /// Selects whether the intercepted tool call may continue.
@@ -1086,6 +1104,20 @@ pub enum ToolPkgSummaryGenerateHookReturn {
     Null,
     Void,
     Variant5(JsFuture<ToolPkgSummaryGenerateHookReturnVariant5Output>),
+}
+/// Contains text and structured output returned by a Core command handler.
+pub struct ToolPkgCoreCommandResult {
+    /// Contains text displayed as standard output.
+    pub stdout: Option<String>,
+    /// Contains text displayed as standard error.
+    pub stderr: Option<String>,
+    /// Contains the structured result used by JSON command invocations.
+    pub json: Option<ToolPkgJsonValue>,
+}
+/// Accepts a Core command result immediately or asynchronously.
+pub enum ToolPkgCoreCommandHandlerOutput {
+    Variant1(ToolPkgCoreCommandResult),
+    Variant2(JsFuture<ToolPkgCoreCommandResult>),
 }
 /// Callback invoked when an application or activity lifecycle event is dispatched.
 pub type ToolPkgAppLifecycleHookHandler =
@@ -1155,6 +1187,9 @@ pub type ToolPkgPromptEstimateFinalizeHookHandler = Arc<
 /// Callback invoked when a summary generate event is dispatched.
 pub type ToolPkgSummaryGenerateHookHandler =
     Arc<dyn Fn(ToolPkgSummaryGenerateHookEvent) -> ToolPkgSummaryGenerateHookReturn + Send + Sync>;
+/// Callback invoked when the host executes a registered Core command.
+pub type ToolPkgCoreCommandHandler =
+    Arc<dyn Fn(ToolPkgCoreCommandHookEvent) -> ToolPkgCoreCommandHandlerOutput + Send + Sync>;
 /// Carries a hook discriminator, typed payload, package identity, and dispatch metadata.
 pub struct ToolPkgHookEventBase<TEventName, TPayload> {
     /// Identifies the hook event being dispatched.
@@ -1212,6 +1247,8 @@ pub struct ToolPkgXmlRenderEventPayload {
     pub xmlContent: Option<String>,
     /// Identifies the XML tag currently being rendered.
     pub tagName: Option<String>,
+    /// Identifies the conversation that owns the rendered XML block.
+    pub chatId: Option<String>,
 }
 /// Carries input menu toggle data supplied when the event is dispatched.
 pub struct ToolPkgInputMenuToggleEventPayload {
@@ -1564,6 +1601,12 @@ pub struct ToolPkgSummaryGenerateHookEvent {
     /// Carries shared dispatch metadata and the typed payload for this summary generate hook event.
     pub base_hook_event_base:
         ToolPkgHookEventBase<ToolPkgSummaryGenerateEventName, ToolPkgSummaryGenerateEventPayload>,
+}
+/// Combines shared dispatch metadata with Core command arguments.
+pub struct ToolPkgCoreCommandHookEvent {
+    /// Carries shared dispatch metadata and the command payload.
+    pub base_hook_event_base:
+        ToolPkgHookEventBase<ToolPkgCoreCommandEventName, ToolPkgCoreCommandEventPayload>,
 }
 /// Contains host configuration supplied to registered AI provider callbacks.
 pub struct ToolPkgAiProviderConfig {
@@ -2532,6 +2575,21 @@ pub struct ToolPkgSummaryGenerateHookRegistration {
     /// Provides the callback invoked for this summary generate hook registration.
     pub function: ToolPkgSummaryGenerateHookHandler,
 }
+/// Describes a slash command implemented by a ToolPkg callback.
+pub struct ToolPkgCoreCommandRegistration {
+    /// Uniquely identifies this command registration within the package.
+    pub id: String,
+    /// Selects the slash command name without the leading slash.
+    pub name: String,
+    /// Provides the localized title shown by command discovery surfaces.
+    pub title: ToolPkgLocalizedText,
+    /// Provides the localized command description.
+    pub description: ToolPkgLocalizedText,
+    /// Documents the command usage displayed by command discovery surfaces.
+    pub usage: String,
+    /// Provides the callback invoked when this command is executed.
+    pub function: ToolPkgCoreCommandHandler,
+}
 /// Describes an AI provider and every callback required to operate it.
 pub struct ToolPkgAiProviderRegistration {
     /// Uniquely identifies this AI provider registration within the package.
@@ -2750,6 +2808,8 @@ pub trait ToolPkgRegistryMethods: Send + Sync {
     /// Registers a callback for summary preparation and generation.
     fn registerSummaryGenerateHook(&self, definition: ToolPkgSummaryGenerateHookRegistration)
         -> ();
+    /// Registers a slash command handled by the current ToolPkg package.
+    fn registerCoreCommand(&self, definition: ToolPkgCoreCommandRegistration) -> ();
     /// Registers an AI provider and its required operation callbacks.
     fn registerAiProvider(&self, definition: ToolPkgAiProviderRegistration) -> ();
     /// Extracts a packaged plugin resource and resolves to its readable path.
@@ -2861,6 +2921,8 @@ pub trait GlobalHost: Send + Sync {
         &self,
         definition: ToolPkgSummaryGenerateHookRegistration,
     ) -> ();
+    /// Registers a slash command handled by the current ToolPkg package. The global binding delegates to the active ToolPkg registry.
+    fn registerToolPkgCoreCommand(&self, definition: ToolPkgCoreCommandRegistration) -> ();
     /// Registers an AI provider and its required operation callbacks. The global binding delegates to the active ToolPkg registry.
     fn registerToolPkgAiProvider(&self, definition: ToolPkgAiProviderRegistration) -> ();
 }

@@ -1,0 +1,13 @@
+[package]
+name = "operit-esp32-simulator"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+operit-edge-transport = { path = "../../../core/crates/node/edge-transport" }
+operit-link = { path = "../../../core/crates/foundation/link" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "net", "sync", "time", "io-util", "io-std"] }

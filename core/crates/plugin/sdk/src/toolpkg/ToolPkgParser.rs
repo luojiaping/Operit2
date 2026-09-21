@@ -122,6 +122,18 @@ pub struct ToolPkgFunctionHookRuntime {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ToolPkgCoreCommandRuntime {
+    pub id: String,
+    pub name: String,
+    pub title: LocalizedText,
+    pub description: LocalizedText,
+    pub usage: String,
+    pub function: String,
+    #[serde(rename = "functionSource", alias = "function_source")]
+    pub functionSource: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ToolPkgChatMessageMenuDialogRuntime {
     pub screen: String,
     pub title: LocalizedText,
@@ -287,6 +299,18 @@ pub struct ToolPkgRegisteredFunctionHook {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ToolPkgRegisteredCoreCommand {
+    pub id: String,
+    pub name: String,
+    pub title: LocalizedText,
+    pub description: LocalizedText,
+    pub usage: String,
+    pub function: String,
+    #[serde(rename = "functionSource", alias = "function_source")]
+    pub functionSource: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ToolPkgRegisteredChatMessageMenuDialog {
     pub screen: String,
     #[serde(default)]
@@ -413,6 +437,8 @@ pub struct ToolPkgMainRegistration {
     pub promptEstimateFinalizeHooks: Vec<ToolPkgRegisteredFunctionHook>,
     #[serde(rename = "summaryGenerateHooks", default)]
     pub summaryGenerateHooks: Vec<ToolPkgRegisteredFunctionHook>,
+    #[serde(rename = "coreCommands", default)]
+    pub coreCommands: Vec<ToolPkgRegisteredCoreCommand>,
     #[serde(rename = "aiProviders", default)]
     pub aiProviders: Vec<ToolPkgRegisteredAiProvider>,
 }
@@ -501,6 +527,8 @@ pub struct ToolPkgContainerRuntime {
     pub promptEstimateFinalizeHooks: Vec<ToolPkgFunctionHookRuntime>,
     #[serde(rename = "summaryGenerateHooks")]
     pub summaryGenerateHooks: Vec<ToolPkgFunctionHookRuntime>,
+    #[serde(rename = "coreCommands")]
+    pub coreCommands: Vec<ToolPkgCoreCommandRuntime>,
     #[serde(rename = "aiProviders")]
     pub aiProviders: Vec<ToolPkgAiProviderRuntime>,
     #[serde(rename = "logoResource")]
@@ -1191,6 +1219,7 @@ impl ToolPkgArchiveParser {
             &mainRegistration.summaryGenerateHooks,
             TOOLPKG_REGISTRATION_SUMMARY_GENERATE_HOOK,
         )?;
+        let coreCommands = validateCoreCommands(&mainRegistration.coreCommands)?;
         let aiProviders = validateAiProviders(&mainRegistration.aiProviders)?;
 
         let containerDescription = if hasLocalizedTextContent(&manifest.description) {
@@ -1250,6 +1279,7 @@ impl ToolPkgArchiveParser {
             promptFinalizeHooks,
             promptEstimateFinalizeHooks,
             summaryGenerateHooks,
+            coreCommands,
             aiProviders,
             logoResource,
             marketOrigin: mainRegistration.marketOrigin.clone(),
@@ -1611,6 +1641,44 @@ fn validateFunctionHooks(
             id,
             function,
             functionSource: hook.functionSource.clone(),
+        });
+    }
+    Ok(runtimes)
+}
+
+#[allow(non_snake_case)]
+/// Validates command registrations and produces executable runtime records.
+fn validateCoreCommands(
+    commands: &[ToolPkgRegisteredCoreCommand],
+) -> Result<Vec<ToolPkgCoreCommandRuntime>, String> {
+    let mut runtimes = Vec::new();
+    let mut ids = BTreeSet::new();
+    let mut names = BTreeSet::new();
+    for (index, command) in commands.iter().enumerate() {
+        let id = command.id.trim().to_string();
+        if !ids.insert(id.to_ascii_lowercase()) {
+            return Err(format!("Duplicate core command id: {id}"));
+        }
+        let name = command.name.trim().to_string();
+        if name
+            .chars()
+            .any(|character| character == '/' || character.is_whitespace())
+        {
+            return Err(format!(
+                "{TOOLPKG_REGISTRATION_CORE_COMMAND}[{index}].name must not contain '/' or whitespace"
+            ));
+        }
+        if !names.insert(name.to_ascii_lowercase()) {
+            return Err(format!("Duplicate core command name: {name}"));
+        }
+        runtimes.push(ToolPkgCoreCommandRuntime {
+            id,
+            name,
+            title: command.title.clone(),
+            description: command.description.clone(),
+            usage: command.usage.trim().to_string(),
+            function: command.function.trim().to_string(),
+            functionSource: command.functionSource.clone(),
         });
     }
     Ok(runtimes)

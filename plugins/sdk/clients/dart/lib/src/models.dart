@@ -663,6 +663,7 @@ class ToolPkgContainerRuntime {
     required this.promptFinalizeHooks,
     required this.promptEstimateFinalizeHooks,
     required this.summaryGenerateHooks,
+    required this.coreCommands,
     required this.aiProviders,
     required this.logoResource,
     required this.marketOrigin,
@@ -708,6 +709,7 @@ class ToolPkgContainerRuntime {
     promptFinalizeHooks: (value['promptFinalizeHooks'] as List<Object?>).map((item) => ToolPkgFunctionHookRuntime.fromMessagePackValue(item as Map<String, Object?>)).toList(growable: false),
     promptEstimateFinalizeHooks: (value['promptEstimateFinalizeHooks'] as List<Object?>).map((item) => ToolPkgFunctionHookRuntime.fromMessagePackValue(item as Map<String, Object?>)).toList(growable: false),
     summaryGenerateHooks: (value['summaryGenerateHooks'] as List<Object?>).map((item) => ToolPkgFunctionHookRuntime.fromMessagePackValue(item as Map<String, Object?>)).toList(growable: false),
+    coreCommands: (value['coreCommands'] as List<Object?>).map((item) => ToolPkgCoreCommandRuntime.fromMessagePackValue(item as Map<String, Object?>)).toList(growable: false),
     aiProviders: (value['aiProviders'] as List<Object?>).map((item) => ToolPkgAiProviderRuntime.fromMessagePackValue(item as Map<String, Object?>)).toList(growable: false),
     logoResource: value['logoResource'] == null ? null : ToolPkgResourceRuntime.fromMessagePackValue(value['logoResource'] as Map<String, Object?>),
     marketOrigin: value['marketOrigin'] == null ? null : ToolPkgMarketOrigin.fromMessagePackValue(value['marketOrigin'] as Map<String, Object?>),
@@ -753,6 +755,7 @@ class ToolPkgContainerRuntime {
     'promptFinalizeHooks': promptFinalizeHooks.map((item) => item.toMessagePackValue()).toList(growable: false),
     'promptEstimateFinalizeHooks': promptEstimateFinalizeHooks.map((item) => item.toMessagePackValue()).toList(growable: false),
     'summaryGenerateHooks': summaryGenerateHooks.map((item) => item.toMessagePackValue()).toList(growable: false),
+    'coreCommands': coreCommands.map((item) => item.toMessagePackValue()).toList(growable: false),
     'aiProviders': aiProviders.map((item) => item.toMessagePackValue()).toList(growable: false),
     'logoResource': logoResource == null ? null : logoResource!.toMessagePackValue(),
     'marketOrigin': marketOrigin == null ? null : marketOrigin!.toMessagePackValue(),
@@ -796,9 +799,53 @@ class ToolPkgContainerRuntime {
   final List<ToolPkgFunctionHookRuntime> promptFinalizeHooks;
   final List<ToolPkgFunctionHookRuntime> promptEstimateFinalizeHooks;
   final List<ToolPkgFunctionHookRuntime> summaryGenerateHooks;
+  final List<ToolPkgCoreCommandRuntime> coreCommands;
   final List<ToolPkgAiProviderRuntime> aiProviders;
   final ToolPkgResourceRuntime? logoResource;
   final ToolPkgMarketOrigin? marketOrigin;
+}
+
+/// Generated SDK model for Rust type `operit_plugin_sdk::toolpkg::ToolPkgParser::ToolPkgCoreCommandRuntime`.
+class ToolPkgCoreCommandRuntime {
+  const ToolPkgCoreCommandRuntime({
+    required this.id,
+    required this.name,
+    required this.title,
+    required this.description,
+    required this.usage,
+    required this.function,
+    required this.functionSource,
+  });
+
+  /// Decodes `operit_plugin_sdk::toolpkg::ToolPkgParser::ToolPkgCoreCommandRuntime` from a MessagePack value map.
+  factory ToolPkgCoreCommandRuntime.fromMessagePackValue(Map<String, Object?> value) => ToolPkgCoreCommandRuntime(
+    id: value['id'] as String,
+    name: value['name'] as String,
+    title: LocalizedText.fromMessagePackValue(value['title'] as Map<String, Object?>),
+    description: LocalizedText.fromMessagePackValue(value['description'] as Map<String, Object?>),
+    usage: value['usage'] as String,
+    function: value['function'] as String,
+    functionSource: value['functionSource'] == null ? null : value['functionSource'] as String,
+  );
+
+  /// Encodes this model into a MessagePack-compatible value map.
+  Map<String, Object?> toMessagePackValue() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'title': title.toMessagePackValue(),
+    'description': description.toMessagePackValue(),
+    'usage': usage,
+    'function': function,
+    'functionSource': functionSource == null ? null : functionSource!,
+  };
+
+  final String id;
+  final String name;
+  final LocalizedText title;
+  final LocalizedText description;
+  final String usage;
+  final String function;
+  final String? functionSource;
 }
 
 /// Generated SDK model for Rust type `operit_plugin_sdk::toolpkg::ToolPkgParser::ToolPkgDesktopWidgetRuntime`.

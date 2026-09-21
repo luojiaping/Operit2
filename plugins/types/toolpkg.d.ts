@@ -578,7 +578,7 @@ export namespace ToolPkg {
   /**
    * Enumerates every hook event that a ToolPkg plugin may register.
    */
-  export type HookEventName = AppLifecycleEvent | HookEventNameVariant2 | HookEventNameVariant3 | HookEventNameVariant4 | ChatInputEventName | ChatViewEventName | ChatMessageEventName | ChatMessageMenuItemEventName | ChatRuntimeEventName | HookEventNameVariant7 | ToolLifecycleEventName | PromptInputEventName | PromptHistoryEventName | SystemPromptComposeEventName | ToolPromptComposeEventName | PromptFinalizeEventName | SummaryGenerateEventName | HostEventName;
+  export type HookEventName = AppLifecycleEvent | HookEventNameVariant2 | HookEventNameVariant3 | HookEventNameVariant4 | ChatInputEventName | ChatViewEventName | ChatMessageEventName | ChatMessageMenuItemEventName | ChatRuntimeEventName | HookEventNameVariant7 | ToolLifecycleEventName | PromptInputEventName | PromptHistoryEventName | SystemPromptComposeEventName | ToolPromptComposeEventName | PromptFinalizeEventName | SummaryGenerateEventName | CoreCommandEventName | HostEventName;
 
   /**
    * Accepts a JSON result, no result, or asynchronous completion from a generic hook.
@@ -809,6 +809,11 @@ export namespace ToolPkg {
    * Names the stages used to prepare and generate a conversation summary.
    */
   export type SummaryGenerateEventName = "before_prepare_summary_prompt" | "before_send_to_model" | "after_generate_summary";
+
+  /**
+   * Names the event dispatched for a registered Core command.
+   */
+  export type CoreCommandEventName = "core_command";
 
   /**
    * Identifies the role and purpose of one prompt-history turn.
@@ -1161,6 +1166,28 @@ export namespace ToolPkg {
   }
 
   /**
+   * Carries arguments supplied to a registered Core command.
+   */
+  export interface CoreCommandEventPayload {
+    /**
+     * Identifies the command registration selected by the host.
+     */
+    commandId: string;
+    /**
+     * Contains the command name entered by the user.
+     */
+    commandName: string;
+    /**
+     * Contains parsed command arguments without the command name.
+     */
+    args: string[];
+    /**
+     * Reports whether the caller requested structured JSON output.
+     */
+    json: boolean;
+  }
+
+  /**
    * Enumerates immediate and asynchronous results accepted from a tool lifecycle hook.
    */
   export interface ToolLifecycleHookObjectResult {
@@ -1213,6 +1240,29 @@ export namespace ToolPkg {
    * Enumerates immediate and asynchronous results accepted from a summary generate hook.
    */
   export type SummaryGenerateHookReturn = string | SummaryHookObjectResult | null | void | Promise<SummaryGenerateHookReturnVariant5Output>;
+
+  /**
+   * Contains text and structured output returned by a Core command handler.
+   */
+  export interface CoreCommandResult {
+    /**
+     * Contains text displayed as standard output.
+     */
+    stdout?: string;
+    /**
+     * Contains text displayed as standard error.
+     */
+    stderr?: string;
+    /**
+     * Contains the structured result used by JSON command invocations.
+     */
+    json?: JsonValue;
+  }
+
+  /**
+   * Accepts a Core command result immediately or asynchronously.
+   */
+  export type CoreCommandHandlerOutput = CoreCommandResult | Promise<CoreCommandResult>;
 
   /**
    * Callback invoked when an application or activity lifecycle event is dispatched.
@@ -1305,6 +1355,11 @@ export namespace ToolPkg {
    * Callback invoked when a summary generate event is dispatched.
    */
   export type SummaryGenerateHookHandler = (arg0: SummaryGenerateHookEvent) => SummaryGenerateHookReturn;
+
+  /**
+   * Callback invoked when the host executes a registered Core command.
+   */
+  export type CoreCommandHandler = (arg0: CoreCommandHookEvent) => CoreCommandHandlerOutput;
 
   /**
    * Carries a hook discriminator, typed payload, package identity, and dispatch metadata.
@@ -1408,6 +1463,10 @@ export namespace ToolPkg {
      * Identifies the XML tag currently being rendered.
      */
     tagName?: string;
+    /**
+     * Identifies the conversation that owns the rendered XML block.
+     */
+    chatId?: string;
   }
 
   /**
@@ -1921,6 +1980,12 @@ export namespace ToolPkg {
    * Combines shared dispatch metadata with the typed payload for a summary generate hook.
    */
   export interface SummaryGenerateHookEvent extends HookEventBase<SummaryGenerateEventName, SummaryGenerateEventPayload> {
+  }
+
+  /**
+   * Combines shared dispatch metadata with Core command arguments.
+   */
+  export interface CoreCommandHookEvent extends HookEventBase<CoreCommandEventName, CoreCommandEventPayload> {
   }
 
   /**
@@ -3283,6 +3348,36 @@ export namespace ToolPkg {
   }
 
   /**
+   * Describes a slash command implemented by a ToolPkg callback.
+   */
+  export interface CoreCommandRegistration {
+    /**
+     * Uniquely identifies this command registration within the package.
+     */
+    id: string;
+    /**
+     * Selects the slash command name without the leading slash.
+     */
+    name: string;
+    /**
+     * Provides the localized title shown by command discovery surfaces.
+     */
+    title: LocalizedText;
+    /**
+     * Provides the localized command description.
+     */
+    description: LocalizedText;
+    /**
+     * Documents the command usage displayed by command discovery surfaces.
+     */
+    usage: string;
+    /**
+     * Provides the callback invoked when this command is executed.
+     */
+    function: CoreCommandHandler;
+  }
+
+  /**
    * Describes an AI provider and every callback required to operate it.
    */
   export interface AiProviderRegistration {
@@ -3528,6 +3623,10 @@ export namespace ToolPkg {
      */
     registerSummaryGenerateHook(definition: SummaryGenerateHookRegistration): void;
     /**
+     * Registers a slash command handled by the current ToolPkg package.
+     */
+    registerCoreCommand(definition: CoreCommandRegistration): void;
+    /**
      * Registers an AI provider and its required operation callbacks.
      */
     registerAiProvider(definition: AiProviderRegistration): void;
@@ -3577,6 +3676,10 @@ declare global {
    * Registers a callback for chat view lifecycle changes. The global binding delegates to the active ToolPkg registry.
    */
   function registerToolPkgChatViewHook(definition: ToolPkg.ChatViewHookRegistration): void;
+  /**
+   * Registers a slash command handled by the current ToolPkg package. The global binding delegates to the active ToolPkg registry.
+   */
+  function registerToolPkgCoreCommand(definition: ToolPkg.CoreCommandRegistration): void;
   /**
    * Registers a plugin widget on the desktop surface. The global binding delegates to the active ToolPkg registry.
    */

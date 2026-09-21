@@ -85,6 +85,32 @@ class RemotePairingBridge {
       clientDeviceInfo: clientDeviceInfo,
     );
   }
+
+  /// Starts the standard Link pairing exchange with a lightweight Edge.
+  Future<generated.RuntimeEdgePairStartResult> startEdgeWithToken({
+    required String endpoint,
+    required String token,
+  }) async {
+    final clientDeviceInfo = await RuntimeDeviceInfoProvider.current();
+    return _clients.server.runtimeRemoteLinkService.startEdgePairingWithToken(
+      endpoint: endpoint,
+      token: token,
+      clientDeviceInfo: clientDeviceInfo,
+    );
+  }
+
+  /// Completes Edge pairing and registers the Edge as a Space PeerLink member.
+  Future<generated.PairedEdgeSessionRecord> finishEdge({
+    required String pairingId,
+    required String pairingCode,
+    required String name,
+  }) {
+    return _clients.server.runtimeRemoteLinkService.finishEdgePairing(
+      pairingId: pairingId,
+      pairingCode: pairingCode,
+      name: name,
+    );
+  }
 }
 
 /// Derives the Link protocol token hash from the user-provided secret.

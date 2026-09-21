@@ -2,14 +2,12 @@
 
 use std::sync::Arc;
 
+use crate::edge_screen::{EdgeScreenInputRequest, Esp32ScreenService, ScreenService};
 use esp_idf_svc::http::server::{Configuration as HttpConfig, EspHttpServer};
 use esp_idf_svc::http::Method;
 use esp_idf_svc::io::Write;
 use operit_board_esp32::Esp32ScreenMirror;
 use operit_host_api::{HostError, HostResult};
-use operit_node_edge::{EdgeScreenInputRequest, ScreenService};
-
-use crate::edge_screen::Esp32ScreenService;
 
 use crate::status::{renderHomePage, renderStatusJson, FirmwareStatus};
 
@@ -113,7 +111,7 @@ impl Esp32WebHome {
                             .write_all(body.as_bytes())?;
                     }
                     Err(error) => {
-                        let body = format!("{{\"error\":\"{}\"}}", error.message);
+                        let body = format!("{{\"error\":\"{}\"}}", error);
                         request
                             .into_response(
                                 400,
@@ -123,7 +121,7 @@ impl Esp32WebHome {
                             .write_all(body.as_bytes())?;
                     }
                 }
-        Ok::<(), esp_idf_svc::io::EspIOError>(())
+                Ok::<(), esp_idf_svc::io::EspIOError>(())
             })
             .map_err(|error| HostError::new(format!("http /screen/input: {error}")))?;
         Ok(Self { _server: server })

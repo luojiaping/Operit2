@@ -11,20 +11,26 @@ static const operit_layout_node_t layout_page_0[] = {
  {2,-1,20,173,124,28,0x216c73,12,0,"Apps >","go:apps","","",14}
 };
 static const operit_layout_node_t layout_page_1[] = {
- {2,-1,12,10,36,32,0x216c73,12,0,"<","go:home","","",14},
- {1,-1,58,16,246,24,0xf4f8ff,0,0,"APPS","","","",14},
- {2,-1,24,48,56,56,0x216c73,12,0,"Face","go:face","","",14},
- {1,-1,22,106,86,22,0xf4f8ff,0,0,"Face","","","",14},
- {2,-1,124,48,56,56,0x216c73,12,0,"Plugins","go:plugins","","",14},
- {1,-1,122,106,86,22,0xf4f8ff,0,0,"Plugins","","","",14},
- {2,-1,224,48,56,56,0x216c73,12,0,"Theme","go:theme","","",14},
- {1,-1,222,106,86,22,0xf4f8ff,0,0,"Theme","","","",14},
- {2,-1,24,136,56,56,0x216c73,12,0,"Settings","go:settings","","",14},
- {1,-1,22,194,86,22,0xf4f8ff,0,0,"Settings","","","",14},
- {2,-1,124,136,56,56,0x216c73,12,0,"Terminal","go:terminal","","",14},
- {1,-1,122,194,86,22,0xf4f8ff,0,0,"Terminal","","","",14},
- {2,-1,224,136,56,56,0x216c73,12,0,"Network","go:network","","",14},
- {1,-1,222,194,86,22,0xf4f8ff,0,0,"Network","","","",14}
+ {2,-1,12,10,38,30,0x216c73,12,0,"<","go:home","","",14},
+ {1,-1,60,12,248,28,0xf4f8ff,0,0,"APPS","","","",14},
+ {0,-1,12,48,92,76,0x1f7d82,16,0,"","go:face","","",14},
+ {3,2,0,10,92,30,0xf4f8ff,0,0,"face","go:face","","",14},
+ {1,2,0,46,92,20,0xf4f8ff,0,0,"Face","","","",14},
+ {0,-1,114,48,92,76,0x5369a6,16,0,"","go:plugins","","",14},
+ {3,5,0,10,92,30,0xf4f8ff,0,0,"plugins","go:plugins","","",14},
+ {1,5,0,46,92,20,0xf4f8ff,0,0,"Plugins","","","",14},
+ {0,-1,216,48,92,76,0xa05e87,16,0,"","go:theme","","",14},
+ {3,8,0,10,92,30,0xf4f8ff,0,0,"theme","go:theme","","",14},
+ {1,8,0,46,92,20,0xf4f8ff,0,0,"Theme","","","",14},
+ {0,-1,12,136,92,76,0x61784f,16,0,"","go:settings","","",14},
+ {3,11,0,10,92,30,0xf4f8ff,0,0,"settings","go:settings","","",14},
+ {1,11,0,46,92,20,0xf4f8ff,0,0,"Settings","","","",14},
+ {0,-1,114,136,92,76,0x9b6a3c,16,0,"","go:terminal","","",14},
+ {3,14,0,10,92,30,0xf4f8ff,0,0,"terminal","go:terminal","","",14},
+ {1,14,0,46,92,20,0xf4f8ff,0,0,"Terminal","","","",14},
+ {0,-1,216,136,92,76,0x3273a6,16,0,"","go:network","","",14},
+ {3,17,0,10,92,30,0xf4f8ff,0,0,"wifi","go:network","","",14},
+ {1,17,0,46,92,20,0xf4f8ff,0,0,"Network","","","",14}
 };
 static const operit_layout_node_t layout_page_2[] = {
  {2,-1,12,10,36,32,0x216c73,12,0,"<","go:apps","","",14},
@@ -44,7 +50,11 @@ static const operit_layout_node_t layout_page_4[] = {
  {2,-1,12,10,36,32,0x216c73,12,0,"<","go:apps","","",14},
  {1,-1,58,16,246,24,0xf4f8ff,0,0,"NETWORK","","","",14},
  {1,-1,20,66,280,26,0xf4f8ff,0,0,"Wi-Fi status","","","connection",14},
- {1,-1,20,120,280,40,0xf4f8ff,0,0,"Configure Wi-Fi on device web","","","",14}
+ {1,-1,20,120,280,22,0xf4f8ff,0,0,"Edge Link: waiting for Space","","","space",14},
+ {1,-1,20,146,280,22,0x53dfc5,0,0,"Pairing code: waiting","","","pairing",14},
+ {2,-1,20,180,88,40,0x216c73,12,0,"Search","edge_search","","",14},
+ {2,-1,116,180,88,40,0x216c73,12,0,"Pair","edge_pair","","",14},
+ {2,-1,212,180,88,40,0x216c73,12,0,"Chat","edge_chat","","",14}
 };
 static const operit_layout_node_t layout_page_5[] = {
  {2,-1,12,10,36,32,0x216c73,12,0,"<","go:apps","","",14},
@@ -67,10 +77,10 @@ static const operit_layout_node_t layout_page_7[] = {
 };
 static const operit_layout_page_t layout_pages[] = {
  {"home",0x091420,layout_page_0,7,"apps",""},
- {"apps",0x091420,layout_page_1,14,"","home"},
+ {"apps",0x091420,layout_page_1,20,"","home"},
  {"theme",0x091420,layout_page_2,5,"",""},
  {"settings",0x091420,layout_page_3,5,"",""},
- {"network",0x091420,layout_page_4,4,"",""},
+ {"network",0x091420,layout_page_4,8,"",""},
  {"face",0x091420,layout_page_5,5,"",""},
  {"terminal",0x091420,layout_page_6,5,"",""},
  {"plugins",0x091420,layout_page_7,3,"",""}

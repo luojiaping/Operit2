@@ -20,6 +20,7 @@ class AdaptiveSidePanel extends StatefulWidget {
     this.resizeHandleHitWidth = 24,
     this.resizeHandleVisualWidth = 3,
     this.resizeHandleHeight = 56,
+    this.closedDropTarget,
   });
 
   final bool open;
@@ -33,6 +34,7 @@ class AdaptiveSidePanel extends StatefulWidget {
   final double resizeHandleHitWidth;
   final double resizeHandleVisualWidth;
   final double resizeHandleHeight;
+  final Widget? closedDropTarget;
 
   /// Creates the state that tracks the panel width and drag interaction.
   @override
@@ -131,6 +133,14 @@ class _AdaptiveSidePanelState extends State<AdaptiveSidePanel> {
                     },
                     onDragEnd: _endResize,
                   ),
+                ),
+              if (!widget.open && widget.closedDropTarget != null)
+                PositionedDirectional(
+                  top: 0,
+                  bottom: 0,
+                  end: 0,
+                  width: widget.resizeHandleHitWidth * 2,
+                  child: widget.closedDropTarget!,
                 ),
             ],
           ),

@@ -1379,10 +1379,28 @@ impl ChatHistoryManager {
         characterCardName: Option<String>,
         characterGroupId: Option<String>,
     ) -> ChatHistoryManagerResult<ChatHistory> {
+        self.createChatWithId(Uuid::new_v4().to_string(), title, group, characterCardName, characterGroupId, true)
+    }
+
+    /// Materializes metadata on the executor after Space has installed the
+    /// Binding. Reconnects reuse the same chat without changing UI selection.
+    pub fn ensureRoutedChat(&self, chatId: String) -> ChatHistoryManagerResult<()> {
+        self.bindingStore.binding(&chatId).map_err(ChatHistoryManagerError::IllegalState)?;
+        if self.chatDao.getChatById(&chatId)?.is_none() {
+            self.createChatWithId(chatId, Some("Edge Chat".into()), None, None, None, false)?;
+        }
+        Ok(())
+    }
+
+    fn createChatWithId(
+        &self, chatId: String, title: Option<String>, group: Option<String>,
+        characterCardName: Option<String>, characterGroupId: Option<String>,
+        createBinding: bool,
+    ) -> ChatHistoryManagerResult<ChatHistory> {
         let timestamp = currentTimeMillis();
         let finalTitle = title.unwrap_or_else(|| "New Chat".to_string());
         let chatEntity = ChatEntity {
-            id: Uuid::new_v4().to_string(),
+            id: chatId,
             title: finalTitle,
             createdAt: timestamp,
             updatedAt: timestamp,
@@ -1401,7 +1419,9 @@ impl ChatHistoryManager {
         self.chatDao.insertChat(chatEntity.clone())?;
         let history = chatEntity.toChatHistory(Vec::new());
         self.recordChatMetadata(&history.id)?;
-        self.createBinding(&history.id)?;
+        if createBinding {
+            self.createBinding(&history.id)?;
+        }
         Ok(history)
     }
 

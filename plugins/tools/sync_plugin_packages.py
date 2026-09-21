@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import zipfile
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -257,6 +261,10 @@ def _platform_command(executable: str) -> str:
         # cargo.exe is a rustup proxy and otherwise depends on the caller's
         # default-toolchain state (which is often stale inside VS Code).
         cargo_home = os.environ.get("CARGO_HOME", "").strip()
+        if not cargo_home:
+            derived: dict[str, str] = {}
+            _apply_rustup_proxy_environment(derived)
+            cargo_home = derived.get("CARGO_HOME", "").strip()
         if cargo_home:
             configured_wrapper = Path(cargo_home) / "bin" / f"{executable}.cmd"
             if configured_wrapper.is_file():
@@ -416,27 +424,108 @@ def _compute_hot_reload_signature(output_dir: Path) -> str:
     return digest.hexdigest()
 
 
+# Lists command lines of currently running processes for VM service discovery.
+def _running_process_command_lines() -> list[str]:
+    if os.name == "nt":
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine",
+        ]
+    else:
+        command = ["ps", "-Ao", "args="]
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        check=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
-def _maybe_hot_reload_buildin(
+
+# Finds the authenticated VM service URI created by Flutter's development service.
+def _discover_vm_service() -> str:
+    uri_pattern = re.compile(
+        r"--vm-service-uri=(?:\"([^\"]+)\"|'([^']+)'|([^\s]+))"
+    )
+    candidates: set[str] = set()
+    for command_line in _running_process_command_lines():
+        if not re.search(r"\bdevelopment-service\b", command_line):
+            continue
+        match = uri_pattern.search(command_line)
+        if match is None:
+            continue
+        candidate = next(value for value in match.groups() if value)
+        parsed = urllib.parse.urlsplit(candidate)
+        if parsed.scheme in {"http", "https", "ws", "wss"} and parsed.netloc:
+            candidates.add(candidate)
+    if len(candidates) != 1:
+        raise RuntimeError(
+            "Expected exactly one running Flutter development service with an authenticated VM Service URI; "
+            f"found {len(candidates)}"
+        )
+    discovered = next(iter(candidates))
+    print(f"AUTO-DISCOVERED-VM-SERVICE: {discovered}")
+    return discovered
+
+
+# Uploads packages and waits for the running application's reload acknowledgement.
+def _maybe_hot_reload_output(
     source_dir: Path,
     output_dir: Path,
     *,
+    state_key: str,
+    label: str,
     dry_run: bool,
     disabled: bool,
     timeout_seconds: float,
+    vm_service: str | None,
 ) -> None:
     if dry_run or disabled:
         return
+    if vm_service is None:
+        vm_service = _discover_vm_service()
+    parsed = urllib.parse.urlsplit(vm_service)
+    if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.netloc:
+        raise ValueError("--vm-service must be a complete authenticated VM Service URL")
+    scheme = {"ws": "http", "wss": "https"}.get(parsed.scheme, parsed.scheme)
+    path = parsed.path.removesuffix("/ws").rstrip("/") + "/"
+    endpoint = urllib.parse.urlunsplit((scheme, parsed.netloc, path, "", ""))
+
+    # Calls the VM service HTTP interface and rejects protocol errors.
+    def call(method: str, **params: str) -> dict:
+        url = endpoint + method + "?" + urllib.parse.urlencode(params)
+        with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
+            payload = json.load(response)
+        if "error" in payload:
+            raise RuntimeError(f"Plugin hot reload failed: {payload['error']}")
+        return payload["result"]
+
+    isolates = []
+    for isolate in call("getVM")["isolates"]:
+        info = call("getIsolate", isolateId=isolate["id"])
+        if "ext.operit.reloadPlugins" in info.get("extensionRPCs", []):
+            isolates.append(isolate["id"])
+    if len(isolates) != 1:
+        raise RuntimeError("Expected exactly one app isolate with ext.operit.reloadPlugins; restart the debug app with the new endpoint")
+    isolate_id = isolates[0]
+    call("ext.operit.reloadPlugins", isolateId=isolate_id, action="begin")
+    for artifact in _iter_signature_files(_collect_hot_reload_outputs(output_dir)):
+        content = base64.b64encode(artifact.read_bytes()).decode("ascii")
+        for offset in range(0, len(content), 24000):
+            call("ext.operit.reloadPlugins", isolateId=isolate_id, action="chunk",
+                 name=artifact.name, content=content[offset:offset + 24000])
+    call("ext.operit.reloadPlugins", isolateId=isolate_id, action="commit")
     signature = _compute_hot_reload_signature(output_dir)
     state_file = source_dir / HOT_RELOAD_STATE_FILE
     state = _load_state(state_file)
-    key = "buildin-output"
-    if state.get(key) == signature:
-        print("HOT-RELOAD-SKIP: buildin output signature unchanged")
-        return
-    state[key] = signature
+    state[state_key] = signature
     _save_state(state_file, state)
-    print("HOT-RELOAD-DONE: buildin output signature recorded")
+    print(f"HOT-RELOAD-DONE: {label} application acknowledged reload")
 
 
 # Builds ToolPkg sources before their synchronization operations run.
@@ -616,6 +705,7 @@ def main() -> int:
         default=str(plugins_root / ".out" / "examples"),
     )
     parser.add_argument("--no-hot-reload", action="store_true")
+    parser.add_argument("--vm-service", help="Authenticated VM Service URL printed by fvm flutter run")
     parser.add_argument("--hot-reload-timeout", type=float, default=5.0)
     args = parser.parse_args()
 
@@ -639,12 +729,26 @@ def main() -> int:
         total_deleted += deleted
 
     if args.source in {"buildin", "runtime", "all"}:
-        _maybe_hot_reload_buildin(
+        _maybe_hot_reload_output(
             _plugin_packages_root() / "buildin",
             Path(args.buildin_output),
+            state_key="buildin-output",
+            label="buildin",
             dry_run=args.dry_run,
             disabled=bool(args.no_hot_reload),
             timeout_seconds=float(args.hot_reload_timeout),
+            vm_service=args.vm_service,
+        )
+    if args.source in {"external", "runtime", "all"}:
+        _maybe_hot_reload_output(
+            _plugin_packages_root() / "external",
+            Path(args.external_output),
+            state_key="external-output",
+            label="external",
+            dry_run=args.dry_run,
+            disabled=bool(args.no_hot_reload),
+            timeout_seconds=float(args.hot_reload_timeout),
+            vm_service=args.vm_service,
         )
 
     print(

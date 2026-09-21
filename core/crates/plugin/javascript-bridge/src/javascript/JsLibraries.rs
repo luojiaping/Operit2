@@ -268,19 +268,45 @@ pub fn buildRuntimeBootstrapScript() -> String {
                 }}
                 var timerId = '__operit_timer_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
                 var timerArguments = Array.prototype.slice.call(arguments, 2);
+                var timerCallId = String(globalThis.__operitCurrentCallId || '');
                 window[timerId] = function() {{
                     try {{
                         delete window[timerId];
                     }} catch (_deleteTimerError) {{
                         window[timerId] = undefined;
                     }}
-                    handler.apply(window, timerArguments);
+                    if (typeof __operitUnregisterCallTimer === 'function') {{
+                        __operitUnregisterCallTimer(timerCallId, timerId);
+                    }}
+                    try {{
+                        handler.apply(window, timerArguments);
+                    }} catch (error) {{
+                        var activeRuntime = globalThis.__operit_call_runtime_ref;
+                        if (
+                            activeRuntime &&
+                            activeRuntime.callId === timerCallId &&
+                            typeof activeRuntime.fail === 'function'
+                        ) {{
+                            activeRuntime.fail(error);
+                        }}
+                    }}
                 }};
                 var normalizedDelay = Number(delayMs);
                 if (!isFinite(normalizedDelay) || normalizedDelay < 0) {{
                     throw new RangeError('setTimeout delay must be a finite non-negative number');
                 }}
-                __operitNativeScheduleJavaScriptTimer(timerId, String(Math.floor(normalizedDelay)));
+                if (typeof __operitRegisterCallTimer === 'function') {{
+                    __operitRegisterCallTimer(timerCallId, timerId);
+                }}
+                try {{
+                    __operitNativeScheduleJavaScriptTimer(timerId, String(Math.floor(normalizedDelay)));
+                }} catch (error) {{
+                    delete window[timerId];
+                    if (typeof __operitUnregisterCallTimer === 'function') {{
+                        __operitUnregisterCallTimer(timerCallId, timerId);
+                    }}
+                    throw error;
+                }}
                 return timerId;
             }},
             clearTimeout: function(timerId) {{
@@ -290,6 +316,12 @@ pub fn buildRuntimeBootstrapScript() -> String {
                         delete window[normalizedTimerId];
                     }} catch (_deleteTimerError) {{
                         window[normalizedTimerId] = undefined;
+                    }}
+                    if (typeof __operitUnregisterCallTimer === 'function') {{
+                        __operitUnregisterCallTimer(
+                            String(globalThis.__operitCurrentCallId || ''),
+                            normalizedTimerId
+                        );
                     }}
                 }}
             }},
@@ -873,6 +905,8 @@ pub fn buildRuntimeBootstrapScript() -> String {
                 return;
             }}
             var callState = registerCallSession(callId, params);
+            callState.previousCallId = previousCallId;
+            callState.previousCallRuntime = previousCallRuntime;
             globalThis.__operitCurrentCallId = callId;
             function getCallState() {{
                 return typeof globalThis.__operitGetCallState === 'function'
@@ -950,9 +984,12 @@ pub fn buildRuntimeBootstrapScript() -> String {
                     return;
                 }}
                 state.completed = true;
-                NativeInterface.logJsExecutionTrace(callId, 'complete ' + __operitText(resultText).slice(0, 240));
-                NativeInterface.setCallResult(callId, resultText);
-                finalizeCall();
+                try {{
+                    NativeInterface.logJsExecutionTrace(callId, 'complete ' + __operitText(resultText).slice(0, 240));
+                    NativeInterface.setCallResult(callId, resultText);
+                }} finally {{
+                    finalizeCall();
+                }}
             }}
             function emitError(message) {{
                 var state = getCallState();
@@ -960,12 +997,15 @@ pub fn buildRuntimeBootstrapScript() -> String {
                     return;
                 }}
                 state.completed = true;
-                NativeInterface.logJsExecutionTrace(callId, 'error ' + __operitText(message).slice(0, 240));
-                NativeInterface.setCallError(callId, JSON.stringify({{
-                    success: false,
-                    message: __operitText(message)
-                }}));
-                finalizeCall();
+                try {{
+                    NativeInterface.logJsExecutionTrace(callId, 'error ' + __operitText(message).slice(0, 240));
+                    NativeInterface.setCallError(callId, JSON.stringify({{
+                        success: false,
+                        message: __operitText(message)
+                    }}));
+                }} finally {{
+                    finalizeCall();
+                }}
             }}
             function callRuntimeReport(error, context) {{
                 if (typeof globalThis.__operitReportDetailedErrorForCall === 'function') {{
@@ -1038,6 +1078,13 @@ pub fn buildRuntimeBootstrapScript() -> String {
                     return typeof path === 'string' ? path : '';
                 }},
                 reportDetailedError: callRuntimeReport,
+                fail: function(error) {{
+                    var report = callRuntimeReport(error, 'Asynchronous Callback');
+                    var message = report && report.details && report.details.message
+                        ? report.details.message
+                        : __operitText(error && error.message ? error.message : error);
+                    emitError(message || 'Asynchronous callback failed');
+                }},
                 handleAsync: function(value) {{
                     if (!value || typeof value.then !== 'function') {{
                         return false;
@@ -1066,6 +1113,7 @@ pub fn buildRuntimeBootstrapScript() -> String {
                 }},
                 console: console
             }};
+            callState.callRuntime = callRuntime;
             globalThis.__operit_call_runtime_ref = callRuntime;
             try {{
                 var registrationMode = __operitToBoolean(readCallValue('__operit_registration_mode', false));

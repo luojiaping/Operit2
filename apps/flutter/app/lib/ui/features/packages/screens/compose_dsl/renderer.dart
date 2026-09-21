@@ -43,6 +43,7 @@ class _ComposeDslRenderer extends StatelessWidget {
       case 'Column':
         return _ComposeFlex(
           direction: Axis.vertical,
+          mainAxisSize: MainAxisSize.min,
           nodes: _slotNodes('content', useChildren: true),
           crossAxisAlignment: _crossAxis(node.props['horizontalAlignment']),
           mainAxisAlignment: _mainAxis(node.props['verticalArrangement']),
@@ -85,6 +86,23 @@ class _ComposeDslRenderer extends StatelessWidget {
               children: children,
             );
           },
+        );
+      case 'FlowRow':
+        return Wrap(
+          spacing: _flowSpacing(
+            node.props['horizontalArrangement'],
+            node.props['spacing'],
+          ),
+          runSpacing: _flowSpacing(
+            node.props['verticalArrangement'],
+            node.props['runSpacing'] ?? node.props['spacing'],
+          ),
+          alignment: _wrapAlignment(node.props['horizontalArrangement']),
+          runAlignment: _wrapAlignment(node.props['verticalArrangement']),
+          crossAxisAlignment: _wrapCrossAxis(
+            node.props['itemVerticalAlignment'],
+          ),
+          children: _slotChildren('content', useChildren: true),
         );
       case 'LazyRow':
         return _lazyList(Axis.horizontal);

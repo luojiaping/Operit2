@@ -1211,10 +1211,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "operit-edge-contract"
-version = "0.1.0"
-
-[[package]]
 name = "operit-edge-transport"
 version = "0.1.0"
 dependencies = [
@@ -1222,7 +1218,6 @@ dependencies = [
  "base64",
  "hmac",
  "operit-link",
- "operit-node-edge",
  "rand_core",
  "serde",
  "sha2",
@@ -1246,9 +1241,8 @@ dependencies = [
  "operit-edge-transport",
  "operit-host-api",
  "operit-link",
- "operit-node-edge",
- "operit-proxy-edge",
  "operit-ui",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -1273,30 +1267,6 @@ dependencies = [
  "serde",
  "serde_bytes",
  "tokio",
-]
-
-[[package]]
-name = "operit-node-edge"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "operit-edge-contract",
- "operit-host-api",
- "operit-link",
- "serde",
- "tokio",
-]
-
-[[package]]
-name = "operit-proxy-edge"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "operit-edge-contract",
- "operit-host-api",
- "operit-link",
- "operit-node-edge",
- "serde",
 ]
 
 [[package]]

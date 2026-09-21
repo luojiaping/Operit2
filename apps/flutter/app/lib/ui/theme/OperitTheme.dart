@@ -304,6 +304,7 @@ class _OperitMaterialApp extends StatelessWidget {
         enabled: hostInteractionHostsEnabled,
         child: WorkspaceWebVisitHost(
           child: ToolApprovalHost(
+            enabled: hostInteractionHostsEnabled,
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
@@ -350,6 +351,8 @@ class OperitThemeController {
   ThemePreferenceSnapshot get themePreferenceSnapshot =>
       _themePreferenceSnapshot;
   bool get suppressThemeAnimation => _suppressThemeAnimation;
+  ThemePreferenceSnapshot get themePreferenceSnapshot =>
+      _themePreferenceSnapshot;
   String get activeThemeTargetName {
     final name = _activeThemeTargetName;
     if (name == null || name.trim().isEmpty) {

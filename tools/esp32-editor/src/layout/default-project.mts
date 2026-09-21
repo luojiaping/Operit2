@@ -111,7 +111,11 @@ export function defaultProject(): LayoutDocument {
   ]);
   const network = screen('network', 'Network', [
     label('network_wifi', 20, 66, 280, 26, 'Wi-Fi status', {binding: 'connection'}),
-    label('network_help', 20, 120, 280, 40, 'Configure Wi-Fi on device web'),
+    label('network_help', 20, 120, 280, 22, 'Edge Link: waiting for Space', {binding: 'space'}),
+    label('network_pairing', 20, 146, 280, 22, 'Pairing code: waiting', {binding: 'pairing', color: '#53dfc5'}),
+    button('network_search', 20, 180, 88, 40, 'Search', 'edge_search'),
+    button('network_pair', 116, 180, 88, 40, 'Pair', 'edge_pair'),
+    button('network_chat', 212, 180, 88, 40, 'Chat', 'edge_chat'),
   ]);
   const face = screen('face', 'Face', [
     label('face_eyes', 50, 65, 220, 58, 'o   o', {fontSize: 48, color: '#53dfc5'}),

@@ -1074,8 +1074,10 @@ impl JsEngineState {
             let executionScript = format!(
                 "__operitExecuteScriptFunction({callIdJson}, {paramsJson}, {scriptJson}, {functionNameJson}, {timeoutSec}, 10000);"
             );
-            self.evalJavaScriptVoid(&executionScript)
-                .map_err(JsExecutionError::runtime)?;
+            if let Err(error) = self.evalJavaScriptVoid(&executionScript) {
+                self.cancelJavaScriptExecution(&callId);
+                return Err(JsExecutionError::runtime(error));
+            }
             Ok(JsPendingScriptExecution {
                 callId,
                 context: context.clone(),
@@ -1093,9 +1095,16 @@ impl JsEngineState {
         let pending = started?;
         loop {
             installThreadLocalCallContext(&pending.context);
-            let polled = self.pollCooperativeScriptExecution(&pending);
+            let polled = match self.pollCooperativeScriptExecution(&pending) {
+                Ok(polled) => polled,
+                Err(error) => {
+                    clearThreadLocalCallState();
+                    self.cancelJavaScriptExecution(&pending.callId);
+                    return Err(error);
+                }
+            };
             clearThreadLocalCallState();
-            match polled? {
+            match polled {
                 JsScriptExecutionPoll::Complete(output) => {
                     if let Some(message) = extractJsExecutionErrorMessage(output.as_deref()) {
                         return Err(JsExecutionError::runtime(message));
@@ -1104,12 +1113,17 @@ impl JsEngineState {
                 }
                 JsScriptExecutionPoll::Pending => {}
             }
-            let executionHost = pending.context.executionHost.clone().ok_or_else(|| {
-                JsExecutionError::worker_unavailable(
-                    "JavaScript execution host is unavailable for asynchronous execution",
-                )
-            })?;
+            let executionHost = match pending.context.executionHost.clone() {
+                Some(executionHost) => executionHost,
+                None => {
+                    self.cancelJavaScriptExecution(&pending.callId);
+                    return Err(JsExecutionError::worker_unavailable(
+                        "JavaScript execution host is unavailable for asynchronous execution",
+                    ));
+                }
+            };
             if let Err(error) = executionHost.wait_for_javascript_runtime_turn().await {
+                self.cancelJavaScriptExecution(&pending.callId);
                 return Err(JsExecutionError::worker_unavailable(error.to_string()));
             }
         }
@@ -1253,6 +1267,7 @@ impl JsEngineState {
                         callId, functionName, error
                     ),
                 );
+                self.cancelJavaScriptExecution(&callId);
                 clearNativeExecutionSession(&callId);
                 clearThreadLocalCallState();
                 return Err(JsExecutionError::runtime(error.to_string()));
@@ -1322,13 +1337,23 @@ impl JsEngineState {
             let executionScript = format!(
                 "__operitExecuteScriptFunction({callIdJson}, {paramsJson}, {scriptJson}, {functionNameJson}, 60, 10000);"
             );
-            self.evalJavaScriptVoid(&executionScript)
-                .map_err(JsExecutionError::runtime)?;
-            self.runJavaScriptJobs()
-                .map_err(JsExecutionError::runtime)?;
-            let output = readNativeExecutionSession(&callId).ok_or_else(|| {
-                JsExecutionError::runtime("ToolPkg registration JavaScript did not complete")
-            })?;
+            if let Err(error) = self.evalJavaScriptVoid(&executionScript) {
+                self.cancelJavaScriptExecution(&callId);
+                return Err(JsExecutionError::runtime(error));
+            }
+            if let Err(error) = self.runJavaScriptJobs() {
+                self.cancelJavaScriptExecution(&callId);
+                return Err(JsExecutionError::runtime(error));
+            }
+            let output = match readNativeExecutionSession(&callId) {
+                Some(output) => output,
+                None => {
+                    self.cancelJavaScriptExecution(&callId);
+                    return Err(JsExecutionError::runtime(
+                        "ToolPkg registration JavaScript did not complete",
+                    ));
+                }
+            };
             clearNativeExecutionSession(&callId);
             ensureRegistrationExecutionSucceeded(&output).map_err(JsExecutionError::runtime)?;
 
@@ -1371,6 +1396,30 @@ impl JsEngineState {
             .map_err(|error| error.to_string())
     }
 
+    /// Cancels one JavaScript call and releases its call-scoped callbacks and timers.
+    #[allow(non_snake_case)]
+    fn cancelJavaScriptExecution(&mut self, callId: &str) {
+        let callIdJson = match serde_json::to_string(callId) {
+            Ok(value) => value,
+            Err(error) => {
+                AppLogger::e(
+                    TAG,
+                    &format!("cancel JavaScript execution serialization failed: {error}"),
+                );
+                return;
+            }
+        };
+        let script = format!(
+            "if (typeof __operitCancelCallSession === 'function') {{ __operitCancelCallSession({callIdJson}); }}"
+        );
+        if let Err(error) = self.evalJavaScriptVoid(&script) {
+            AppLogger::e(
+                TAG,
+                &format!("cancel JavaScript execution failed callId={callId}: {error}"),
+            );
+        }
+    }
+
     #[allow(non_snake_case)]
     fn runJavaScriptJobs(&mut self) -> Result<(), String> {
         self.runtime
@@ -1392,13 +1441,16 @@ impl JsEngineState {
                 JsExecutionError::timeout("Script execution deadline exceeds host clock range")
             })?;
         loop {
-            self.runJavaScriptJobs()
-                .map_err(JsExecutionError::runtime)?;
+            if let Err(error) = self.runJavaScriptJobs() {
+                self.cancelJavaScriptExecution(callId);
+                return Err(JsExecutionError::runtime(error));
+            }
             if let Some(output) = readNativeExecutionSession(callId) {
                 return Ok(Some(output));
             }
             let nowMillis = currentTimeMillisU128();
             if nowMillis >= deadlineMillis {
+                self.cancelJavaScriptExecution(callId);
                 return Err(JsExecutionError::timeout(format!(
                     "Script execution timed out after {} milliseconds",
                     timeout.as_millis()
@@ -1412,11 +1464,15 @@ impl JsEngineState {
                     .expect("bounded JavaScript wait duration must fit in milliseconds"),
             );
             match self.asyncCallbackReceiver.recv_timeout(waitDuration) {
-                Ok(callback) => self
-                    .deliverAsyncCallback(callback)
-                    .map_err(JsExecutionError::runtime)?,
+                Ok(callback) => {
+                    if let Err(error) = self.deliverAsyncCallback(callback) {
+                        self.cancelJavaScriptExecution(callId);
+                        return Err(JsExecutionError::runtime(error));
+                    }
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    self.cancelJavaScriptExecution(callId);
                     return Err(JsExecutionError::worker_unavailable(
                         "JavaScript asynchronous callback queue disconnected",
                     ));

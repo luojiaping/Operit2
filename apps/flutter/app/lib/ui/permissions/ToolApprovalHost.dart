@@ -13,10 +13,12 @@ class ToolApprovalHost extends StatefulWidget {
     super.key,
     required this.child,
     this.bridge = const ToolApprovalBridge(),
+    this.enabled = true,
   });
 
   final Widget child;
   final ToolApprovalBridge bridge;
+  final bool enabled;
 
   @override
   State<ToolApprovalHost> createState() => _ToolApprovalHostState();
@@ -59,8 +61,9 @@ class _ToolApprovalHostState extends State<ToolApprovalHost> {
     super.dispose();
   }
 
+  /// Polls approval requests only while runtime interaction is enabled.
   Future<void> _pollRequest() async {
-    if (_polling) {
+    if (!widget.enabled || _polling) {
       return;
     }
     _polling = true;

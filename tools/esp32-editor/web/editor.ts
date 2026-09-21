@@ -125,7 +125,8 @@ export async function setupEditor(ui: EditorRuntime, log: (message: string) => v
   let revision = initial.revision;
   let selected: string | null = null;
   let activePageId = layout.entryPage ?? 'home';
-  let editing = true;
+  // Open the developer tool in device runtime mode; layout editing remains opt-in.
+  let editing = false;
   let holdTimer: number | null = null;
   let holdPointer: {x: number; y: number} | null = null;
   let saved = JSON.stringify(layout);
@@ -1136,7 +1137,9 @@ export async function setupEditor(ui: EditorRuntime, log: (message: string) => v
   window.operitEditor = bridge;
   window.setInterval(() => void pollExternalLayout(), 2000);
 
+  editLayer.hidden = !editing;
+  query<HTMLInputElement>('#edit-mode').checked = editing;
   preview();
   render();
-  notify('正在编辑实际首页 · 保存项目后可下发到设备，无需编译');
+  notify('运行实际首页 · 开启编辑布局可修改草稿');
 }

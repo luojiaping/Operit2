@@ -279,7 +279,17 @@ extension _ComposeInteractiveNodes on _ComposeDslRenderer {
                 : RoundedRectangleBorder(borderRadius: shape),
             child: _withSlotColor(
               context,
-              _childrenColumn(),
+              // Dialog content must retain the viewport bounds, including IME insets.
+              // An implicit Column gives its children infinite height and forces width.
+              _ComposeBox(
+                alignment: Alignment.center,
+                nodes: _slotNodes('content', useChildren: true),
+                children: _slotChildren(
+                  'content',
+                  useChildren: true,
+                  modifierScope: _ComposeDslModifierScope.box,
+                ),
+              ),
               _color(context, node.props['contentColor']),
             ),
           );

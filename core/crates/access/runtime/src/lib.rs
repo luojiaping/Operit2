@@ -439,6 +439,10 @@ impl LinkAccessStore {
         self.readRecordMap(RUNTIME_LINK_ACCESS_EDGE_SESSIONS_PATH)
     }
 
+    pub fn edgeSessionsFlow(&self) -> Flow<BTreeMap<String, PairedEdgeSessionRecord>> {
+        self.recordMapFlow(RUNTIME_LINK_ACCESS_EDGE_SESSIONS_PATH)
+    }
+
     /// Persists one named lightweight Edge session.
     pub fn saveEdgeSession(
         &self,
@@ -1428,8 +1432,8 @@ pub struct PendingOutboundPairingRecord {
     pub state: PairStartState,
 }
 
-/// Stores one completed Core-to-Edge pairing. Edge sessions are separate from
-/// CoreNode sessions because an Edge is not part of routed CoreNode topology.
+/// Stores one completed Core-to-Edge pairing. Its carrier credentials differ
+/// from HTTP sessions; the authenticated peer participates in Space PeerLink.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PairedEdgeSessionRecord {
     pub endpoint: String,

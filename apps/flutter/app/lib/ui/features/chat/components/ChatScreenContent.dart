@@ -603,6 +603,7 @@ class ChatScreenContent extends StatelessWidget {
       final image = await ChatShareImageGenerator.generate(
         context: context,
         messages: _selectedVisibleMessages,
+        splitMarkdownContent: viewModel.splitMarkdownContent,
       );
       if (!context.mounted) {
         return;

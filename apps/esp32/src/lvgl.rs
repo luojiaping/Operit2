@@ -34,6 +34,9 @@ unsafe extern "C" {
     fn operit_lvgl_navigate_home();
     fn operit_lvgl_set_connection(wifi_ready: bool, edge_ready: bool);
     fn operit_lvgl_set_expression(expression: *const c_char);
+    fn operit_lvgl_set_pairing_code(code: *const c_char);
+    fn operit_lvgl_set_space_state(state: *const c_char);
+    fn operit_lvgl_set_chat_preview(preview: *const c_char);
 }
 
 /// Owns the LVGL runtime and the small action queue emitted by app buttons.
@@ -107,6 +110,10 @@ impl Esp32Lvgl {
         unsafe { operit_lvgl_set_expression(bytes.as_ptr() as *const c_char) };
     }
 
+    pub fn setPairingCode(&mut self, code: &str) { setText(code, operit_lvgl_set_pairing_code); }
+    pub fn setSpaceState(&mut self, state: &str) { setText(state, operit_lvgl_set_space_state); }
+    pub fn setChatPreview(&mut self, preview: &str) { setText(preview, operit_lvgl_set_chat_preview); }
+
     /// Drains actions requested by LVGL app buttons.
     pub fn drainActions(&self) -> Vec<String> {
         self.context
@@ -115,6 +122,11 @@ impl Esp32Lvgl {
             .map(|mut actions| actions.drain(..).collect())
             .unwrap_or_default()
     }
+}
+
+fn setText(value: &str, setter: unsafe extern "C" fn(*const c_char)) {
+    let mut bytes = value.as_bytes().to_vec(); bytes.retain(|byte| *byte != 0); bytes.push(0);
+    unsafe { setter(bytes.as_ptr() as *const c_char) };
 }
 
 unsafe extern "C" fn flushCallback(
@@ -159,4 +171,6 @@ pub fn updateStatus(runtime: &mut Esp32Lvgl, status: &FirmwareStatus, edgeReady:
     let snapshot = status.snapshot();
     runtime.setConnection(!snapshot.ipv4.is_empty(), edgeReady);
     runtime.setExpression(&snapshot.expression);
+    runtime.setPairingCode(&snapshot.pairingCode);
+    runtime.setSpaceState(if edgeReady { "Connected to Space" } else { "Waiting for Space" });
 }

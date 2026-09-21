@@ -75,7 +75,7 @@ fn print_core_usage(output: &mut CoreCommandOutput) {
         "operit2 <tool|package|plugin|skill|mcp|market|host|log|local-models|stt|prefs|approval|tag|memory|character|group|active-prompt|model|chat|workspace|storage|update|usage>",
         "operit2 tool <list|show|exec>",
         "operit2 package <help|dir|list|more|load|show|import|enable|disable|use|exec>",
-        "operit2 plugin <help|list|more|load|show|import|enable|disable>",
+        "operit2 plugin <help|list|commands|exec|more|load|show|import|enable|disable>",
         "operit2 skill <dir|list|more|load|show|create|import-zip|delete|visible|errors>",
         "operit2 mcp <dir|list|show|import|export|remove|enable|disable|start|kill|tools|config|config-set|local-set|install-github|install-zip|meta|meta-set|describe>",
         "operit2 market <rank|list|search|show|comments|comment|like|notifications|my|publish|install|download>",

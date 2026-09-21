@@ -10,8 +10,8 @@ use crate::toolpkg::ToolPkgCommonPluginConstants::*;
 use crate::toolpkg::ToolPkgParser::{
     ToolPkgMainRegistration, ToolPkgMainRegistrationParseResult, ToolPkgMarketOrigin,
     ToolPkgRegisteredAiProvider, ToolPkgRegisteredAppLifecycleHook,
-    ToolPkgRegisteredChatMessageMenuItem, ToolPkgRegisteredDesktopWidget,
-    ToolPkgRegisteredFunctionHook, ToolPkgRegisteredHostEventHook,
+    ToolPkgRegisteredChatMessageMenuItem, ToolPkgRegisteredCoreCommand,
+    ToolPkgRegisteredDesktopWidget, ToolPkgRegisteredFunctionHook, ToolPkgRegisteredHostEventHook,
     ToolPkgRegisteredNavigationEntry, ToolPkgRegisteredTagFunctionHook, ToolPkgRegisteredUiModule,
     ToolPkgRegisteredUiRoute,
 };
@@ -232,6 +232,11 @@ fn parseCapturedRegistration(
             TOOLPKG_REGISTRATION_SUMMARY_GENERATE_HOOK,
             toolPkgId,
         )?,
+        coreCommands: parseRegisteredItems(
+            &captured.coreCommands,
+            TOOLPKG_REGISTRATION_CORE_COMMAND,
+            toolPkgId,
+        )?,
         aiProviders: parseRegisteredItems(
             &captured.aiProviders,
             TOOLPKG_REGISTRATION_AI_PROVIDER,
@@ -430,6 +435,25 @@ impl ValidateToolPkgRegistration for ToolPkgRegisteredFunctionHook {
     }
 }
 
+impl ValidateToolPkgRegistration for ToolPkgRegisteredCoreCommand {
+    /// Leaves a Core command unchanged before validation.
+    fn normalize(&mut self, _registryName: &str, _index: usize, _toolPkgId: &str) {}
+
+    /// Validates all required metadata and the callback of a Core command.
+    fn validate(&self, registryName: &str, index: usize) -> Result<(), String> {
+        requireNotBlank(&self.id, "id", registryName, index)?;
+        requireNotBlank(&self.name, "name", registryName, index)?;
+        if !hasLocalizedTextContent(&self.title) {
+            return Err(format!("{registryName}[{index}].title is required"));
+        }
+        if !hasLocalizedTextContent(&self.description) {
+            return Err(format!("{registryName}[{index}].description is required"));
+        }
+        requireNotBlank(&self.usage, "usage", registryName, index)?;
+        requireNotBlank(&self.function, "function", registryName, index)
+    }
+}
+
 impl ValidateToolPkgRegistration for ToolPkgRegisteredChatMessageMenuItem {
     /// Generates a title from the menu item identifier when omitted.
     fn normalize(&mut self, _registryName: &str, _index: usize, _toolPkgId: &str) {
@@ -525,6 +549,15 @@ mod tests {
                 r#"{"id":"nav","route":"main_route","surface":"toolbox"}"#.to_string()
             ],
             desktopWidgets: vec![r#"{"id":"widget","route":"main_route"}"#.to_string()],
+            coreCommands: vec![r#"{
+                    "id":"hello_command",
+                    "name":"hello",
+                    "title":{"en":"Hello","zh":"你好"},
+                    "description":{"en":"Greets the user","zh":"问候用户"},
+                    "usage":"/hello <name>",
+                    "function":"runHello"
+                }"#
+            .to_string()],
             aiProviders: vec![r#"{
                     "id":"provider",
                     "listModels":{"function":"listModels"},
@@ -566,6 +599,10 @@ mod tests {
 
         assert_eq!(registration.desktopWidgets[0].renderRouteId, "main_route");
         assert_eq!(registration.desktopWidgets[0].title.resolve(true), "widget");
+
+        assert_eq!(registration.coreCommands[0].name, "hello");
+        assert_eq!(registration.coreCommands[0].title.resolve(true), "Hello");
+        assert_eq!(registration.coreCommands[0].function, "runHello");
 
         assert_eq!(registration.aiProviders[0].displayName, "provider");
         assert_eq!(

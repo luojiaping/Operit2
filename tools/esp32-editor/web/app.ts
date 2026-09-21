@@ -41,6 +41,19 @@ let generation = -1;
 let lastFrame = 0;
 let pressed = false;
 let sourceHash = '';
+window.addEventListener('operit-simulator-state', event => {
+  const state = (event as CustomEvent<{running: boolean; connected: boolean; pairingCode?: string; spaceState?: string; chatPreview?: string}>).detail;
+  wifiInput.disabled = state.running;
+  edgeInput.disabled = state.running;
+  if (state.running) {
+    wifiInput.checked = true;
+    edgeInput.checked = state.connected;
+    if (runtime) {
+      applyControls();
+      setDeviceState(state);
+    }
+  }
+});
 
 /** Adds a timestamped message to the bounded event log. */
 function log(message: string): void {
@@ -94,6 +107,13 @@ function applyControls(): void {
   const currentRuntime = activeRuntime();
   currentRuntime._operit_lvgl_set_connection(wifiInput.checked, edgeInput.checked);
   currentRuntime.ccall('operit_lvgl_set_expression', null, ['string'], [expressionSelect.value]);
+}
+
+function setDeviceState(state: {pairingCode?: string; spaceState?: string; chatPreview?: string}): void {
+  if (!runtime) return;
+  runtime.ccall('operit_lvgl_set_pairing_code', null, ['string'], [state.pairingCode ?? '']);
+  runtime.ccall('operit_lvgl_set_space_state', null, ['string'], [state.spaceState ?? 'Waiting for Space']);
+  runtime.ccall('operit_lvgl_set_chat_preview', null, ['string'], [state.chatPreview ?? 'No chat session']);
 }
 
 /** Converts the Wasm RGB565 framebuffer into the visible Canvas image. */
@@ -166,6 +186,13 @@ function handleRuntimeAction(value: string): void {
     return;
   }
   log('LVGL action: ' + value);
+  if (value.startsWith('edge_')) {
+    void fetch('/api/simulator/action', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: value}),
+    }).then(response => { if (!response.ok) throw new Error(`设备 action 失败 (${response.status})`); })
+      .catch(error => log('设备 action 错误: ' + errorMessage(error)));
+  }
   pageLabel.textContent = value;
   if (value === 'face_online' || value === 'run_node') {
     expressionSelect.value = value === 'run_node' ? 'listening' : 'online';
@@ -176,7 +203,14 @@ function handleRuntimeAction(value: string): void {
 /** Reads a generated manifest from the local server. */
 async function loadManifest(): Promise<Required<Pick<BuildManifest, 'sourceHash'>> & BuildManifest> {
   const response = await fetch('./generated/manifest.json', {cache: 'no-store'});
-  if (!response.ok) throw new Error(`读取构建清单失败 (${response.status})`);
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const build = await request<BuildStatus>('/api/build');
+      detail = build.error ?? (build.running ? '构建正在进行，请刷新页面' : '请先运行 npm run build --prefix tools/esp32-editor');
+    } catch { /* Preserve the primary missing-artifact error. */ }
+    throw new Error(`读取构建清单失败 (${response.status})。${detail}`);
+  }
   return validManifest(await response.json() as BuildManifest);
 }
 
@@ -224,6 +258,7 @@ async function initialize(): Promise<void> {
   runtime.onAction = handleRuntimeAction;
   if (!runtime._simulator_init()) throw new Error('LVGL 初始化失败');
   applyControls();
+  setDeviceState({});
   syncTheme();
   sourceLabel.textContent = `共用源码：${manifest.source ?? 'apps/esp32/lvgl_port/operit_lvgl.c'} / LVGL ${manifest.lvgl ?? '未知'}`;
   log('真实 LVGL WebAssembly 已启动');
