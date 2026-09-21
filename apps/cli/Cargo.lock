@@ -2302,10 +2302,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "operit-edge-contract"
-version = "0.1.0"
-
-[[package]]
 name = "operit-edge-transport"
 version = "0.1.0"
 dependencies = [
@@ -2314,7 +2310,6 @@ dependencies = [
  "hmac",
  "operit-host-api",
  "operit-link",
- "operit-node-edge",
  "rand_core 0.6.4",
  "serde",
  "sha2",
@@ -2538,18 +2533,6 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
-]
-
-[[package]]
-name = "operit-node-edge"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "operit-edge-contract",
- "operit-host-api",
- "operit-link",
- "serde",
- "tokio",
 ]
 
 [[package]]

@@ -529,6 +529,25 @@ def _maybe_hot_reload_output(
 
 
 # Builds ToolPkg sources before their synchronization operations run.
+def _pack_script_toolpkg_if_needed(child_dir: Path, archive: Path) -> bool:
+    dist_dir = child_dir / "dist"
+    if not dist_dir.is_dir() or not any(dist_dir.glob("*.js")):
+        return False
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest = child_dir / "manifest.json"
+        if manifest.is_file():
+            zf.write(manifest, "manifest.json")
+        resources_dir = child_dir / "resources"
+        if resources_dir.is_dir():
+            for res in sorted(resources_dir.rglob("*")):
+                if res.is_file():
+                    zf.write(res, res.relative_to(child_dir).as_posix())
+        for js in sorted(dist_dir.rglob("*.js")):
+            zf.write(js, js.relative_to(child_dir).as_posix())
+    print(f"PACK-SCRIPT-FALLBACK: {child_dir} -> {archive}")
+    return True
+
 def _prebuild_plans(repo_root: Path, source_dir: Path, plans: list[SyncPlanItem], *, dry_run: bool) -> None:
     state_file = source_dir / ".sync_state.json"
     state = _load_state(state_file)
@@ -570,7 +589,17 @@ def _prebuild_plans(repo_root: Path, source_dir: Path, plans: list[SyncPlanItem]
     )
     for child_dir in child_dirs:
         if _is_script_packed_toolpkg(child_dir):
-            _run_checked_command(["pnpm", "run", "pack:toolpkg"], child_dir, dry_run=dry_run)
+            archive = child_dir / "dist" / f"{child_dir.name}.toolpkg"
+            if archive.is_file():
+                continue
+            pnpm = shutil.which("pnpm") or shutil.which("pnpm.cmd")
+            if pnpm:
+                _run_checked_command([pnpm, "run", "pack:toolpkg"], child_dir, dry_run=dry_run)
+            elif _pack_script_toolpkg_if_needed(child_dir, archive):
+                continue
+            else:
+                npm = shutil.which("npm") or shutil.which("npm.cmd") or "npm"
+                _run_checked_command([npm, "run", "pack:toolpkg"], child_dir, dry_run=dry_run)
             continue
 
         tsconfig = child_dir / "tsconfig.json"
