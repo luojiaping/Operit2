@@ -24,7 +24,10 @@ $items = @(
     },
     @{
         Name = "talloc-2.4.3"
-        Url = "https://www.samba.org/ftp/talloc/talloc-2.4.3.tar.gz"
+        Urls = @(
+            "https://sources.voidlinux.org/talloc-2.4.3/talloc-2.4.3.tar.gz",
+            "https://www.samba.org/ftp/talloc/talloc-2.4.3.tar.gz"
+        )
         Archive = "talloc-2.4.3.tar.gz"
         Sha256 = "DC46C40B9F46BB34DD97FE41F548B0E8B247B77A918576733C528E83ABD854DD"
         Extracted = "talloc-2.4.3"
@@ -40,20 +43,24 @@ $items = @(
 
 foreach ($item in $items) {
     $archivePath = Join-Path $downloadsDir $item.Archive
+    $urls = if ($item.ContainsKey("Urls")) { $item.Urls } else { @($item.Url) }
     $downloaded = $false
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
-        try {
-            Write-Host "Downloading $($item.Name) (attempt $attempt/5)"
-            Invoke-WebRequest -Uri $item.Url -OutFile $archivePath -TimeoutSec 60
-            $downloaded = $true
-            break
-        } catch {
-            Write-Warning "Attempt $attempt failed: $_. Retrying in 3 seconds..."
-            Start-Sleep -Seconds 3
+    foreach ($url in $urls) {
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                Write-Host "Downloading $($item.Name) from $url (attempt $attempt/3)"
+                Invoke-WebRequest -Uri $url -OutFile $archivePath -TimeoutSec 30
+                $downloaded = $true
+                break
+            } catch {
+                Write-Warning "Attempt $attempt failed: $_. Retrying..."
+                Start-Sleep -Seconds 2
+            }
         }
+        if ($downloaded) { break }
     }
     if (-not $downloaded) {
-        throw "Failed to download $($item.Name) after 5 attempts"
+        throw "Failed to download $($item.Name) after all attempts"
     }
 
     $actualSha256 = (Get-FileHash -Algorithm SHA256 -Path $archivePath).Hash.ToUpperInvariant()
