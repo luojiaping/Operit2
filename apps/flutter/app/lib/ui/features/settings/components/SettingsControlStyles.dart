@@ -228,11 +228,13 @@ class SettingsSectionAddButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     this.label = '添加',
+    this.icon = Icons.add,
   });
 
   final String tooltip;
   final VoidCallback onPressed;
   final String label;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -265,7 +267,7 @@ class SettingsSectionAddButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Icon(
-                  Icons.add,
+                  icon,
                   size: 13,
                   color: colorScheme.primary,
                 ),
@@ -281,6 +283,31 @@ class SettingsSectionAddButton extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class SettingsInfoBadge extends StatelessWidget {
+  const SettingsInfoBadge({super.key, required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: ShapeDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        shape: const StadiumBorder(),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
