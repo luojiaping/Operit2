@@ -1,3 +1,17 @@
 {
-  "dart.flutterSdkPath": "apps/flutter/app/.fvm/flutter_sdk"
+  "dart.flutterSdkPath": "apps/flutter/app/.fvm/flutter_sdk",
+  "cmake.sourceDirectory": "D:/Operit2/apps/esp32/lvgl_port",
+  "dart.analysisExcludedFolders": [
+    "apps/flutter/thirdparty",
+    "apps/flutter/app/.fvm",
+    "apps/flutter/app/build",
+    "_investigation",
+    "build",
+    "target"
+  ],
+  "files.watcherExclude": {
+    "**/apps/flutter/thirdparty/**": true,
+    "**/apps/flutter/app/.fvm/**": true,
+    "**/_investigation/**": true
+  }
 }
