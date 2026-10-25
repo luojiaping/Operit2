@@ -46,6 +46,10 @@
             mkdir -p tools/release/secrets
             cp apps/flutter/app/android/ci-signing/ci-test-release.keystore tools/release/secrets/
             cp apps/flutter/app/android/ci-signing/signing.properties tools/release/secrets/android-signing.properties
+            # /root/.gradle is a cache volume, so its contents shadow the init
+            # script baked into the image. Restore it before Gradle starts.
+            mkdir -p /root/.gradle/init.d
+            cp /opt/operit-gradle/aliyun.gradle /root/.gradle/init.d/aliyun.gradle
             python3 tools/build_scripts/build_flutter_android.py --enforce-lockfile
         - name: upload-apk
           image: cnbcool/attachments:latest

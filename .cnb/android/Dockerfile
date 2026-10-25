@@ -112,4 +112,33 @@ RUN fvm install --skip-pub-get \
     && fvm flutter precache --web --ohos \
     && git config --global --add safe.directory '*'
 
+# Flutter's Gradle plugin is an included build that resolves its dependencies
+# in its own settings script, so the project-level Aliyun mirrors never apply to
+# it and it reaches Maven Central directly. An init script runs before every
+# settings script, which puts the mirror ahead of the built-in repositories for
+# both the app build and the Flutter tool build.
+#
+# `beforeSettings` is required: the Flutter tool build sets
+# RepositoriesMode.FAIL_ON_PROJECT_REPOS, so project repositories are rejected.
+# The file is stored outside /root/.gradle as well, because that path is a
+# cache volume whose contents shadow the image.
+RUN mkdir -p /opt/operit-gradle /root/.gradle/init.d \
+    && printf '%s\n' \
+        "def aliyunMirrors = [" \
+        "    'https://maven.aliyun.com/repository/public'," \
+        "    'https://maven.aliyun.com/repository/google'," \
+        "    'https://maven.aliyun.com/repository/gradle-plugin'," \
+        "]" \
+        "" \
+        "beforeSettings { settings ->" \
+        "    settings.pluginManagement.repositories {" \
+        "        aliyunMirrors.each { mirror -> maven { url mirror } }" \
+        "    }" \
+        "    settings.dependencyResolutionManagement.repositories {" \
+        "        aliyunMirrors.each { mirror -> maven { url mirror } }" \
+        "    }" \
+        "}" \
+        > /opt/operit-gradle/aliyun.gradle \
+    && cp /opt/operit-gradle/aliyun.gradle /root/.gradle/init.d/aliyun.gradle
+
 WORKDIR /workspace
