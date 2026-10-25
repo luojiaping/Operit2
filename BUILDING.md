@@ -138,7 +138,7 @@ workflows when changing a build dependency.
 | Dart SDK | `^3.10.8` | `apps/flutter/app/pubspec.yaml`; supplied by the pinned Flutter SDK |
 | Rust toolchain | 1.95.0 | `RUST_TOOLCHAIN_VERSION` in `.github/workflows/`; rustup |
 | Node.js | 22 | `actions/setup-node` in the CI workflows |
-| Java | Temurin 17 | `actions/setup-java` in `.github/workflows/android-flutter-build.yml` |
+| Java | Temurin 17 | `.cnb/android/Dockerfile`; `openjdk-17-jdk-headless` |
 | Gradle | 8.14 | `apps/flutter/app/android/gradle/wrapper/gradle-wrapper.properties` |
 | Workflow package manager | pnpm 10.7.0 | `plugins/packages/buildin/workflow/package.json` |
 | Apple scientific-runtime host Python | 3.13 | `tools/ios-runtime/native/build_scientific.py` and `tools/ios-runtime/prepare.py` |
@@ -306,10 +306,14 @@ Local build_local.py:
   requirements. macOS can add unsigned iOS with --include-ios.
 
 GitHub Actions:
-  Apple Release Build, macOS Flutter Build, iOS Flutter Build, Windows Release
-  Build, Linux Release Build, and Android Flutter Build are manual cloud
-  entrypoints. Artifacts downloaded from cloud runs are collected into
-  tools/release/dist with download_action_artifacts.py.
+  Apple Release Build, macOS Flutter Build, iOS Flutter Build, and Windows
+  Release Build are manual cloud entrypoints. Artifacts downloaded from cloud
+  runs are collected into tools/release/dist manually.
+
+CNB (Android and Linux):
+  The Android APK and the Linux App and CLI are built by CNB from .cnb.yml
+  using the branch page buttons configured in .cnb/web_trigger.yml. Every
+  product is published as a commit attachment.
 ```
 
 Cloud build composition:
@@ -317,7 +321,7 @@ Cloud build composition:
 ```text
 1. Trigger the platform workflows needed for this release.
 2. Wait for every selected workflow to succeed.
-3. Collect every run into tools/release/dist with one --run-id per run.
+3. Collect every run into tools/release/dist by hand.
 4. Run publish_dist.py only when the collected files are ready to publish.
 ```
 
@@ -350,21 +354,13 @@ Apple Release Build       macOS App, macOS CLI, and unsigned iOS App
 macOS Flutter Build       macOS App and/or CLI
 iOS Flutter Build         unsigned iOS App
 Windows Release Build     Windows App and/or CLI
-Linux Release Build       Linux App and/or CLI
-Android Flutter Build     signed Android APKs
 ```
 
-Android Flutter Build requires these repository secrets before it can run:
-
-```text
-ANDROID_RELEASE_KEYSTORE_BASE64
-ANDROID_RELEASE_STORE_PASSWORD
-ANDROID_RELEASE_KEY_ALIAS
-ANDROID_RELEASE_KEY_PASSWORD
-```
-
-`ANDROID_RELEASE_KEYSTORE_BASE64` is the Base64 encoding of the Android release
-keystore. The workflow writes the signing material only inside its runner.
+Android and Linux are built by CNB, not GitHub Actions. Trigger `构建 Android
+APK`, `构建 Linux App`, or `构建 Linux CLI` on the branch page; the pipelines are
+defined in `.cnb.yml` and the buttons in `.cnb/web_trigger.yml`. Every product is
+uploaded as a commit attachment, so CNB needs no repository secrets. The preview
+Android signing material is committed in `apps/flutter/app/android/ci-signing`.
 
 OpenHarmony has no GitHub Actions workflow yet. Its SDK and command-line tools
 are not currently distributed from a reproducible URL available to this
@@ -377,13 +373,12 @@ gh workflow run "Apple Release Build" -f products=all -f include_ios=true
 gh workflow run "macOS Flutter Build" -f products=all
 gh workflow run "iOS Flutter Build"
 gh workflow run "Windows Release Build" -f products=all -f cli_arches=all
-gh workflow run "Linux Release Build" -f products=all -f cli_arches=all
-gh workflow run "Android Flutter Build"
-.\.venv\Scripts\python.exe tools\release\download_action_artifacts.py --run-id <apple-run-id> --run-id <windows-run-id> --run-id <linux-run-id> --run-id <android-run-id>
 ```
 
-`download_action_artifacts.py` accepts only completed successful runs and copies
-their release archives into the existing `tools/release/dist` staging directory.
+The Android and Linux archives are built on CNB instead. Open the branch page,
+click the matching button, and download the archive from the build's commit
+attachments. Linux publishes `operit2-app-linux-x86_64.tar.gz` and
+`operit2-cli-linux-x86_64.tar.gz`.
 
 Collaborators can still build the current host locally with one Python command.
 Run it from the repository root. On Windows, use the project virtual environment.
@@ -542,11 +537,11 @@ provide implicitly:
 
 5. **bindgen libclang**. The Rust bridge build runs bindgen for
    `aarch64-linux-android` (`rquickjs-sys` with the `bindgen` feature), which
-   loads `libclang.dll` at build time. CI provisions it from nuget.org into
-   `target/operit-build-tools` (see `android-flutter-build.yml`); locally, either
-   place that package the same way or point the Gradle task at a full LLVM
-   install before the daemon starts. Without it the bridge build fails with
-   "Unable to find libclang".
+   loads `libclang` at build time. The CNB image installs `libclang-18-dev` and
+   sets `OPERIT_LIBCLANG_DIR=/usr/lib/llvm-18/lib`; locally, either place the
+   Windows libclang package the same way or point `OPERIT_LIBCLANG_DIR` at a full
+   LLVM install before the Gradle daemon starts. Without it the bridge build
+   fails with "Unable to find libclang".
 
 With the prerequisites in place:
 

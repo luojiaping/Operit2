@@ -220,3 +220,5 @@ artifacts/*
 apps/flutter/app/web/runtime/generated/*
 # Developer-local Flutter macOS signing identity (never includes a private key).
 apps/flutter/app/macos/Runner/Configs/Signing.local.xcconfig
+# Local-only CNB build operations guide; never publish it.
+docs/cnb-pipeline.md

@@ -50,7 +50,8 @@ download_checked() {
     local sha256="$3"
 
     mkdir -p "$(dirname "$output")"
-    curl -fL -o "$output" "$url"
+    curl -fL --retry 5 --retry-delay 2 --retry-connrefused \
+        --connect-timeout 30 -o "$output" "$url"
     printf '%s  %s\n' "$sha256" "$output" | sha256sum -c -
 }
 
@@ -60,7 +61,8 @@ apk_index_record() {
     local index_path="$downloads_dir/APKINDEX-$repo-$host_arch.tar.gz"
 
     mkdir -p "$downloads_dir"
-    curl -fsSL -o "$index_path" "$mirror/$branch/$repo/$host_arch/APKINDEX.tar.gz"
+    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+        --connect-timeout 30 -o "$index_path" "$mirror/$branch/$repo/$host_arch/APKINDEX.tar.gz"
     tar -xzO -f "$index_path" APKINDEX | awk -v package_name="$package_name" '
         BEGIN { RS = "" }
         found != 1 && $0 ~ ("(^|\n)P:" package_name "(\n|$)") {
@@ -88,7 +90,8 @@ install_apk_static() {
 
     apk_name="apk-tools-static-$version.apk"
     apk_path="$downloads_dir/$apk_name"
-    curl -fL -o "$apk_path" "$mirror/$branch/main/$host_arch/$apk_name"
+    curl -fL --retry 5 --retry-delay 2 --retry-connrefused \
+        --connect-timeout 30 -o "$apk_path" "$mirror/$branch/main/$host_arch/$apk_name"
 
     rm -rf "$apk_static_dir"
     mkdir -p "$apk_static_dir"
@@ -99,7 +102,8 @@ install_apk_static() {
 minirootfs_metadata() {
     local alpine_arch="$1"
 
-    curl -fsSL "$mirror/$branch/releases/$alpine_arch/latest-releases.yaml" | awk '
+    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+        --connect-timeout 30 "$mirror/$branch/releases/$alpine_arch/latest-releases.yaml" | awk '
         BEGIN { RS = "-\n"; FS = "\n" }
         found != 1 && $0 ~ /flavor: alpine-minirootfs/ {
             for (i = 1; i <= NF; i++) {
@@ -188,7 +192,6 @@ build_rootfs_for_abi() {
     write_rootfs_config "$root_dir" "$release_branch"
 
     "$apk_static_dir/sbin/apk.static" \
-        --usermode \
         --root "$root_dir" \
         --arch "$alpine_arch" \
         --keys-dir "$root_dir/etc/apk/keys" \

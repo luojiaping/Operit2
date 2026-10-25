@@ -1,0 +1,125 @@
+# Manual Linux App and CLI builds. The branch page buttons in
+# .cnb/web_trigger.yml start them through web_trigger_linux_app and
+# web_trigger_linux_cli; the api_trigger_* events run the same pipelines from
+# the CNB OpenAPI for scripted verification.
+#
+# Android packages arm64-v8a only. Linux packages x86_64 only.
+"**":
+  web_trigger_android: &android-apk
+    - name: android-apk
+      runner:
+        tags: cnb:arch:amd64
+        cpus: 32
+      docker:
+        build:
+          dockerfile: .cnb/android/Dockerfile
+          by:
+            - .cnb/android/Dockerfile
+            - apps/flutter/app/.fvmrc
+          versionBy:
+            - .cnb/android/Dockerfile
+            - apps/flutter/app/.fvmrc
+        volumes:
+          - /root/.gradle:copy-on-write
+          - /root/.cargo:copy-on-write
+          - /root/.cache/operit-android-runtime:copy-on-write
+          - /cache/operit-plugin-sync:copy-on-write
+          - ./plugins/packages/buildin/character_cards/dist:copy-on-write
+          - ./plugins/packages/buildin/workflow/dist:copy-on-write
+          - ./apps/flutter/native/operit-flutter-bridge/target:copy-on-write
+      env: &build-env
+        RUSTFLAGS: -Awarnings
+        CARGO_INCREMENTAL: "1"
+        OPERIT_PLUGIN_SYNC_STATE_DIR: /cache/operit-plugin-sync
+      stages:
+        - name: android-runtime
+          timeout: 1h
+          script: |
+            bash tools/android-runtime/fetch_sources.sh
+            bash tools/android-runtime/build_android_tools_wsl.sh
+            bash tools/android-runtime/build_alpine_rootfs_wsl.sh
+        - name: build-apk
+          timeout: 2h
+          script: |
+            mkdir -p .venv/bin
+            ln -sf "$(readlink -f "$(command -v python3)")" .venv/bin/python
+            mkdir -p tools/release/secrets
+            cp apps/flutter/app/android/ci-signing/ci-test-release.keystore tools/release/secrets/
+            cp apps/flutter/app/android/ci-signing/signing.properties tools/release/secrets/android-signing.properties
+            python3 tools/build_scripts/build_flutter_android.py --enforce-lockfile
+        - name: upload-apk
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - ./tools/release/dist/operit2-app-android-arm64-v8a.apk
+
+  api_trigger_android: *android-apk
+
+  web_trigger_linux_app: &linux-app
+    - name: linux-app
+      runner:
+        tags: cnb:arch:amd64
+        cpus: 32
+      docker:
+        build:
+          dockerfile: .cnb/linux/Dockerfile
+          by:
+            - .cnb/linux/Dockerfile
+            - apps/flutter/app/.fvmrc
+          versionBy:
+            - .cnb/linux/Dockerfile
+            - apps/flutter/app/.fvmrc
+        volumes:
+          - /root/.cargo:copy-on-write
+          - /root/.pub-cache:copy-on-write
+          - /cache/operit-plugin-sync:copy-on-write
+          - ./plugins/packages/buildin/character_cards/dist:copy-on-write
+          - ./plugins/packages/buildin/workflow/dist:copy-on-write
+          - ./apps/flutter/native/operit-flutter-bridge/target:copy-on-write
+          - ./apps/flutter/app/build:copy-on-write
+      env: *build-env
+      stages:
+        - name: build-app
+          timeout: 2h
+          script: |
+            mkdir -p .venv/bin
+            ln -sf "$(readlink -f "$(command -v python3)")" .venv/bin/python
+            python3 tools/build_scripts/build_flutter_linux.py --enforce-lockfile
+        - name: upload-app
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - ./tools/release/dist/operit2-app-linux-x86_64.tar.gz
+
+  api_trigger_linux_app: *linux-app
+
+  web_trigger_linux_cli: &linux-cli
+    - name: linux-cli
+      runner:
+        tags: cnb:arch:amd64
+        cpus: 32
+      docker:
+        build:
+          dockerfile: .cnb/linux/Dockerfile
+          by:
+            - .cnb/linux/Dockerfile
+            - apps/flutter/app/.fvmrc
+          versionBy:
+            - .cnb/linux/Dockerfile
+            - apps/flutter/app/.fvmrc
+        volumes:
+          - /root/.cargo:copy-on-write
+          - ./apps/cli/target:copy-on-write
+      env: *build-env
+      stages:
+        - name: build-cli
+          timeout: 1h
+          script: |
+            python3 tools/build_scripts/build_cli_linux.py --arches x86_64
+        - name: upload-cli
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - ./tools/release/dist/operit2-cli-linux-x86_64.tar.gz
+
+  api_trigger_linux_cli: *linux-cli

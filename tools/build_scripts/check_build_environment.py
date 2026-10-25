@@ -37,8 +37,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--release-script", action="store_true", help="Check Android, OpenHarmony, and WSL release requirements.")
     parser.add_argument("--wsl", action="store_true", help="Check Fedora WSL release requirements from Windows.")
     parser.add_argument("--wsl-distro", default="FedoraLinux-43")
-    parser.add_argument("--github-dispatch", action="store_true", help="Check local GitHub CLI access for cloud build dispatch.")
-    parser.add_argument("--github-runner", action="store_true", help="Check requirements expected inside a GitHub-hosted runner job.")
     return parser.parse_args()
 
 
@@ -266,25 +264,6 @@ def check_wsl_release_tools(distro: str) -> list[CheckResult]:
     return [missing(f"WSL distro {distro}", result.stderr.strip() or result.stdout.strip())]
 
 
-# Checks GitHub CLI access for dispatching and downloading cloud builds.
-def check_github_dispatch_tools() -> list[CheckResult]:
-    results = [check_command("gh", ["--version"])]
-    gh = shutil.which("gh")
-    if gh is None:
-        return results
-    auth = command_output([gh, "auth", "status"])
-    if auth.returncode == 0:
-        results.append(ok("GitHub CLI auth", "authenticated"))
-    else:
-        results.append(missing("GitHub CLI auth", auth.stderr.strip() or auth.stdout.strip()))
-    workflow = command_output([gh, "workflow", "list"])
-    if workflow.returncode == 0:
-        results.append(ok("GitHub workflows", "workflow list is readable"))
-    else:
-        results.append(missing("GitHub workflows", workflow.stderr.strip() or workflow.stdout.strip()))
-    return results
-
-
 # Builds the full list of checks for the requested profile.
 def build_checks(args: argparse.Namespace) -> list[CheckResult]:
     checks = check_common_tools(args.products)
@@ -300,8 +279,6 @@ def build_checks(args: argparse.Namespace) -> list[CheckResult]:
         checks.extend(check_release_signing_files())
     if args.wsl:
         checks.extend(check_wsl_release_tools(args.wsl_distro))
-    if args.github_dispatch:
-        checks.extend(check_github_dispatch_tools())
     return checks
 
 

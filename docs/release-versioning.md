@@ -212,22 +212,16 @@ Apple Release Build       macOS App, macOS CLI, unsigned iOS App
 macOS Flutter Build       macOS App and/or CLI
 iOS Flutter Build         unsigned iOS App
 Windows Release Build     Windows App and/or CLI
-Linux Release Build       Linux App and/or CLI
-Android Flutter Build     signed Android APKs
 ```
 
-Android Flutter Build requires these repository secrets:
-
-```text
-ANDROID_RELEASE_KEYSTORE_BASE64
-ANDROID_RELEASE_STORE_PASSWORD
-ANDROID_RELEASE_KEY_ALIAS
-ANDROID_RELEASE_KEY_PASSWORD
-```
-
-The Android keystore secret must be Base64 encoded. OpenHarmony remains a local
-build because this repository has no reproducible distribution URL for its SDK
-and command-line tools. Do not treat it as an available cloud build until that
+Android and Linux are built by CNB instead of GitHub Actions. Trigger `构建
+Android APK`, `构建 Linux App`, or `构建 Linux CLI` from the branch page; the
+pipelines live in `.cnb.yml` and the buttons in `.cnb/web_trigger.yml`. Every
+product is published as a commit attachment. CNB needs no repository secrets
+because the preview Android signing material is committed under
+`apps/flutter/app/android/ci-signing`. OpenHarmony remains a local build because
+this repository has no reproducible distribution URL for its SDK and
+command-line tools. Do not treat it as an available cloud build until that
 external toolchain source and the signing secrets are configured.
 
 ```powershell
@@ -235,14 +229,10 @@ gh workflow run "Apple Release Build" -f products=all -f include_ios=true
 gh workflow run "macOS Flutter Build" -f products=all
 gh workflow run "iOS Flutter Build"
 gh workflow run "Windows Release Build" -f products=all -f cli_arches=all
-gh workflow run "Linux Release Build" -f products=all -f cli_arches=all
-gh workflow run "Android Flutter Build"
-.\.venv\Scripts\python.exe tools\release\download_action_artifacts.py --run-id <apple-run-id> --run-id <windows-run-id> --run-id <linux-run-id> --run-id <android-run-id>
 ```
 
-`download_action_artifacts.py` verifies that every requested run completed with
-the `success` conclusion before copying release assets into `tools/release/dist`.
-Publish the collected files through `publish_dist.py` when the release set is
+Collect the downloaded release archives into `tools/release/dist` by hand, then
+publish the collected files through `publish_dist.py` when the release set is
 complete.
 
 Collaborators can build the current host locally with one Python entrypoint. On

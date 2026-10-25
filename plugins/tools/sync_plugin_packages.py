@@ -82,6 +82,17 @@ def _is_script_packed_toolpkg(folder: Path) -> bool:
     return True
 
 
+# Returns the sibling package whose node_modules a script-packed ToolPkg resolves
+# shared build dependencies from, or None when the package declares its own.
+def _shared_build_dependency_dir(child_dir: Path, package_data: dict) -> Path | None:
+    if "dependencies" in package_data or "devDependencies" in package_data:
+        return None
+    shared_dir = child_dir.parent / "workflow"
+    if (shared_dir / "package.json").is_file():
+        return shared_dir
+    return None
+
+
 # Collects the output operations required for one plugin source directory.
 def _collect_sync_plan(source_dir: Path) -> list[SyncPlanItem]:
     plans: list[SyncPlanItem] = []
@@ -144,6 +155,17 @@ def _run_checked_command(
         if stderr_tail:
             print(stderr_tail, flush=True)
         raise RuntimeError(f"Command failed with exit code {completed.returncode}: {command_text}")
+
+
+# Returns the state file used to skip unchanged ToolPkg builds. CI points this at
+# a cache directory because the workspace is recreated on every run.
+def _sync_state_path(source_dir: Path) -> Path:
+    state_root = os.environ.get("OPERIT_PLUGIN_SYNC_STATE_DIR", "").strip()
+    if not state_root:
+        return source_dir / ".sync_state.json"
+    root = Path(state_root)
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{source_dir.name}.sync_state.json"
 
 
 # Builds the environment used for host-only Cargo code generators.
@@ -545,7 +567,7 @@ def _maybe_hot_reload_output(
 
 # Builds ToolPkg sources before their synchronization operations run.
 def _prebuild_plans(repo_root: Path, source_dir: Path, plans: list[SyncPlanItem], *, dry_run: bool) -> None:
-    state_file = source_dir / ".sync_state.json"
+    state_file = _sync_state_path(source_dir)
     state = _load_state(state_file)
     changed = False
     typescript_command: str | None = None
@@ -583,23 +605,44 @@ def _prebuild_plans(repo_root: Path, source_dir: Path, plans: list[SyncPlanItem]
         {plan.source for plan in plans if plan.source.is_dir()},
         key=lambda path: path.name.lower(),
     )
+    script_packed_dirs = [child_dir for child_dir in child_dirs if _is_script_packed_toolpkg(child_dir)]
+    corepack_command = shutil.which("corepack")
+    if script_packed_dirs and corepack_command is None:
+        raise FileNotFoundError("Corepack is required to build script-packed ToolPkgs")
+
+    # Install shared build dependencies before any package that resolves them,
+    # because sibling packages can reuse another package's node_modules.
+    installed_dirs: set[Path] = set()
+    for child_dir in script_packed_dirs:
+        package_data = json.loads((child_dir / "package.json").read_text(encoding="utf-8"))
+        if "dependencies" in package_data or "devDependencies" in package_data:
+            install_dir = child_dir
+        else:
+            install_dir = _shared_build_dependency_dir(child_dir, package_data)
+        if install_dir is None or install_dir in installed_dirs:
+            continue
+        installed_dirs.add(install_dir)
+        _run_checked_command(
+            [corepack_command, "pnpm", "install", "--frozen-lockfile"],
+            install_dir,
+            dry_run=dry_run,
+        )
+
     for child_dir in child_dirs:
-        if _is_script_packed_toolpkg(child_dir):
-            corepack_command = shutil.which("corepack")
-            if corepack_command is None:
-                raise FileNotFoundError("Corepack is required to build script-packed ToolPkgs")
-            package_data = json.loads((child_dir / "package.json").read_text(encoding="utf-8"))
-            if "dependencies" in package_data or "devDependencies" in package_data:
-                _run_checked_command(
-                    [corepack_command, "pnpm", "install", "--frozen-lockfile"],
-                    child_dir,
-                    dry_run=dry_run,
-                )
+        if child_dir in script_packed_dirs:
+            signature = _compute_paths_signature(repo_root, _collect_prebuild_inputs(source_dir, child_dir))
+            key = f"pack:{child_dir.relative_to(source_dir).as_posix()}"
+            packed_output = child_dir / "dist" / f"{child_dir.name}.toolpkg"
+            if state.get(key) == signature and packed_output.is_file():
+                print(f"SKIP-PACK: {child_dir}")
+                continue
             _run_checked_command(
                 [corepack_command, "pnpm", "run", "pack:toolpkg"],
                 child_dir,
                 dry_run=dry_run,
             )
+            state[key] = signature
+            changed = True
             continue
 
         tsconfig = child_dir / "tsconfig.json"

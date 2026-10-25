@@ -1,0 +1,14 @@
+branch:
+  - buttons:
+      - name: 构建 Android APK
+        description: 构建 arm64-v8a 测试版 APK
+        groupName: 安卓
+        event: web_trigger_android
+      - name: 构建 Linux App
+        description: 构建 x86_64 测试版 tar.gz
+        groupName: 桌面端
+        event: web_trigger_linux_app
+      - name: 构建 Linux CLI
+        description: 构建 x86_64 静态链接 tar.gz
+        groupName: 桌面端
+        event: web_trigger_linux_cli
