@@ -9,7 +9,7 @@
     - name: android-apk
       runner:
         tags: cnb:arch:amd64
-        cpus: 32
+        cpus: 64
       docker:
         build:
           dockerfile: .cnb/android/Dockerfile
@@ -63,7 +63,7 @@
     - name: linux-app
       runner:
         tags: cnb:arch:amd64
-        cpus: 32
+        cpus: 64
       docker:
         build:
           dockerfile: .cnb/linux/Dockerfile
@@ -101,7 +101,7 @@
     - name: linux-cli
       runner:
         tags: cnb:arch:amd64
-        cpus: 32
+        cpus: 64
       docker:
         build:
           dockerfile: .cnb/linux/Dockerfile
