@@ -40,7 +40,3 @@
 # classes are not on the classpath and R8 must not fail on the dangling
 # references.
 -dontwarn com.google.android.play.core.**
-
-# Keep source information so release crash reports stay readable.
--keepattributes SourceFile,LineNumberTable
--renamesourcefileattribute SourceFile
