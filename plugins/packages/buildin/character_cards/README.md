@@ -142,12 +142,17 @@ role command names and descriptions are supplied only by this package.
 
 ## Storage and released-data migration
 
-`Tools.Storage.objects` owns the plugin's `characters.sqlite` database in the stable
-Space data directory returned by `ToolPkg.getSpaceDataDir()`. Each domain record has
-its own collection/key and exact version; commits publish changed records, not an
-entire JSON library. Current operation sessions still load paged records into a
-validated domain snapshot. USER.md remains a real file for editing and attachment.
-Its staged publication and the SQLite transaction have separate failure boundaries.
+The request path is:
+
+- UI, commands and public APIs enter `service-runtime.ts`, which opens one lazy service.
+- Reads go directly to `storage/database.ts`. Writes use `operations.ts` and the repository's serialized session.
+- Configuration records live in native JSON preferences; memories and jobs live in `memory.sqlite`. USER.md stays a file.
+- `drafts.ts:readCharacter` decodes persisted and imported cards with the same defaults as new cards. It returns a new value and preserves existing content.
+
+There is no startup repair scan, whole-database record validation, or second service
+adapter. Missing fields are completed when read and persisted with the next normal
+write. A damaged unrelated memory job cannot block reading or editing a character.
+Released-data migration uses this same decoder before publishing its records.
 
 The unreleased plugin's former `state.json` format is removed without a compatibility
 reader. Released application data takes a distinct migration path: Core's centralized
@@ -183,6 +188,11 @@ See `docs/migration-acceptance.md` and `docs/operit1-restore-boundary.md` for ev
 
 ## Browser source and packaging
 
+Compose screens under `dist/ui/` ship as readable CommonJS JavaScript with UTF-8
+text and their authored UI declarations and callbacks. Users can edit these entry
+files and repackage the plugin. The runtime owns Compose compilation and caching;
+plugin packaging does not emit versioned Compose artifacts.
+
 Hand-written browser source is strict TypeScript under `web/`. esbuild produces a
 browser IIFE inside the offline HTML; generated JavaScript is a packaging artifact,
 not a second source implementation. `tsconfig.web.json` checks browser DOM code
@@ -212,7 +222,7 @@ startup require their own integration acceptance.
 
 `manifest.json` publishes the self-contained client `src/api.ts`. Consumers
 copy that file into their own source tree, import it locally and declare
-`com.operit.character_cards >= 0.1.0` in `requires`, following
+`com.operit.character_cards >= 0.2.0` in `requires`, following
 `plugins/docs/PUBLIC_API.md`. Public calls use `ToolPkg.callDependency`.
 
 `characterCards.memory.query({ participantId, query, limit, snapshotId })`
@@ -220,8 +230,32 @@ resolves the explicit participant's actual memory binding and reuses the
 plugin's existing query implementation. Results contain complete typed
 matches and document chunks; snapshots remain in the provider's main runtime.
 A `null` snapshot ID requests a fresh query. An explicit snapshot ID retains
-owner-scoped deduplication across calls. The extra information injection
-plugin consumes this method through an exact local SDK copy.
+owner-scoped deduplication across calls.
+
+## Built-in memory recall
+
+The plugin owns per-turn memory recall through its prompt finalize hook
+(`src/memory-recall.ts`). On every main character or group turn it strips host
+markup from the authored input, queries the speaking participant's primary
+memory owner with a per-chat snapshot for owner-scoped deduplication, and
+appends the configured number of matches as a transient `<memory_context>`
+block to the final model request. Injections never persist into chat history,
+an empty result injects nothing, and provider failures fail closed without
+blocking the send.
+
+The memory menu's expanded section controls the persisted `memoryRecall` state
+field: the 自动检索注入记忆 switch, a numeric input for the per-turn injection
+count (1–50, committing every valid typed value), and the 允许重复命中 switch
+that bypasses the per-chat snapshot exclusion. States written by the released
+plugin or the Core migration default to enabled, count three, and repeated
+hits off. This recall replaces the memory item formerly offered by the extra
+information injection package.
+
+Retrieval always honors the owner's persisted search weights from the memory
+settings retrieval tab. When the cloud embedding provider is unconfigured, the
+semantic channel is skipped instead of failing the search, so keyword, tag and
+graph retrieval keep working regardless of the stored vector weight; provider
+failures on a configured endpoint still surface as search errors.
 
 ## Owner memory controls
 
@@ -256,15 +290,28 @@ placeholder controls:
   without flags upgrades to its previously active behavior; malformed stored flags
   fail reads instead of guessing values. Provider prompt assembly trusts the plugin
   execution profile, not a second retired Core preference gate.
-- Retrieval debugging reuses the production search index and real provider embeddings.
+- Retrieval debugging reuses the production RRF search and real provider embeddings.
   Draft weights are not saved. Each candidate reports actual lexical/tag/vector/edge
   contributions and its threshold decision; normal retrieval filters the same results.
 - Graph export/import invokes the full owner backup codec, including records, document
-  chunks, relationships, settings and USER.md. Relationship editing reads the canonical
-  persisted link by ID, even if a graph projection lacks its description.
+  chunks, relationships, settings and USER.md. Relationship tools read one owner-scoped
+  graph snapshot containing the actual record and link identities and descriptions.
 - Character imports select Operit or Tavern JSON; exports invoke the corresponding
   production serializer. Preview avatars use the existing host-loaded image resources.
   Export dialogs only report success after the real host file operation acknowledges it.
+
+Memory nodes and document chunks share lexical and semantic ranking; tools no longer
+export full backups or maintain their own embedding/scoring implementation. UI memory
+mutations use the same domain operations as dependency clients. Extraction follows the
+Kotlin query budgets, duplicate-title prompt and new-identity merge behavior; the
+scheduler orders candidates by source timestamp before applying its twenty-record cap.
+
+Kotlin remains the behavior reference, with explicit implementation differences:
+lexical expansion uses bounded Unicode terms and Han unigrams/bigrams rather than
+Jieba; imported document chunks also participate in node recall; vectors use the
+configured HTTP provider, exact-input cache and linear comparison rather than native
+indices. Failed jobs stay terminal without automatic retry. Merge removes source
+chunks and internal links that would become self-links under this domain's invariant.
 
 The browser/main-IPC suite covers these flows, failed writes, runtime reopening,
 owner isolation and a real local HTTP vector provider. `cargo check -p operit-runtime
@@ -282,3 +329,20 @@ requires running the updated application.
 插件启用时，原生选择器提供“仅使用模型”，CLI 提供 `active-prompt set-model`。没有角色关联的现有聊天属于普通模型模式。该模式不注入角色提示词，不授予角色记忆资源，自动记忆队列不为其建立任务。全局无角色状态使用现有可空 active 存储表达，消息中的无记忆目的地使用空 primaryOwnerKey 表达；SQL 表声明不变。
 
 回复者名称使用实际模型名，头像通过明确的 `provider-logo:<providerTypeId>` 标识加载供应商 logo，不按供应商名称猜测。Core 为新消息和开场消息保存通用的显示身份；Flutter 各消息样式读取所选消息版本的身份，不使用当前聊天头像替换历史回复。v1 SDK 保持原设计。
+
+
+### 群组历史、输入持久化和回合结束摘要
+
+群组在调用 `ROLE_RESPONSE_PLANNER` 前，先通过 `record_only` 保存完整原始输入、附件和回复目标。
+输入钩子等待真实入库回执后才清空编辑框；入库失败时保留编辑框原文，规划失败时保留已入库的用户消息。
+所有成员回复均继续同一条用户消息，不重复提交输入。空计划仅留下用户消息。
+
+执行配置显式声明 `historyPolicy`。角色卡按已保存的作者 ID 区分历史；群组同时给用户消息添加
+`[From user]`。当前角色自己的历史保留 assistant/tool 边界，其他角色的 Markdown 发言以
+`[From role: name]` 作为参考上下文，排除其思考、状态和工具协议。姓名来自原消息的显示身份；
+改名、重名和成员退出不改变历史作者。缺失作者身份会直接报错。
+
+中间成员使用 `summaryPolicy: "defer"`，最后一个成员使用 `"after_reply"`。每次成员回复期间均不自动摘要；
+最后一个成员真实完成且原生发送清理结束后，Core 重新计算各参与者上下文窗口并检查摘要阈值，
+达到阈值时通过已有摘要任务执行一次摘要，不继续生成新回复。取消、发送失败和空计划不触发结束摘要。
+宿主只处理通用历史和摘要策略，群组计划仍由插件负责。

@@ -1,3 +1,5 @@
+import { CharacterChatStore } from "./chats";
+import { readCharacter } from "../drafts";
 import type { Storage } from "../../../../../types/storage";
 import type {
   CharacterDirectories,
@@ -6,6 +8,7 @@ import type {
   ActivePrompt,
   Group,
   GlobalMemoryPreferences,
+  MemoryRecallSettings,
   MemorySettings,
   MemorySearchConfig,
   Snapshot,
@@ -19,14 +22,15 @@ import type {
   CharacterRepositoryOwner,
 } from "../canonical";
 import { RepositorySession } from "../repository";
-import { assertCharacterState, createInitialState } from "./state";
+import { createInitialState, normalizeMemoryRecallSettings } from "./state";
 import {
   clone,
   collections,
   equal,
   records,
-  stateFromRecords,
+  decodeStateFromRecords,
   storedValue,
+  structuredNodes,
 } from "./records";
 import type { StoredRecord } from "./records";
 import { CharacterStorage, configurationNames, document, documents, recordPrefix } from "./preferences";
@@ -34,7 +38,6 @@ import type { ConfigurationSnapshot } from "./preferences";
 import type { ObjectMutation } from "./memory";
 import {
   assertBoolean,
-  assertCard,
   assertGroup,
   assertInteger,
   assertObject,
@@ -54,8 +57,43 @@ function completed(result: { successful: boolean; details: string }): void {
 /** Matches the host's per-transaction object-commit ceiling for plugin records. */
 const HOST_OBJECT_COMMIT_LIMIT = 1000;
 
+/**
+ * Keeps one commit far below the host structured bridge's 1,000,000-node conversion
+ * budget, which a full 1000-mutation batch of 1024-dimension embedding vectors exceeds.
+ */
+const HOST_COMMIT_NODE_LIMIT = 400_000;
+
+/** Counts the envelope nodes one mutation converts beyond its value: wrapper, op, collection, key and expectedVersion. */
+const HOST_MUTATION_ENVELOPE_NODES = 5;
+
+/** Splits mutations by host mutation count and estimated bridge nodes; a single oversized record still commits alone. */
+function boundedCommitBatches(mutations: ObjectMutation[]): ObjectMutation[][] {
+  const batches: ObjectMutation[][] = [];
+  let batch: ObjectMutation[] = [];
+  let nodes = 0;
+  for (const mutation of mutations) {
+    const cost =
+      (mutation.op === "put" ? structuredNodes(mutation.value) : 0) +
+      HOST_MUTATION_ENVELOPE_NODES;
+    if (
+      batch.length > 0 &&
+      (batch.length + 1 > HOST_OBJECT_COMMIT_LIMIT ||
+        nodes + cost > HOST_COMMIT_NODE_LIMIT)
+    ) {
+      batches.push(batch);
+      batch = [];
+      nodes = 0;
+    }
+    batch.push(mutation);
+    nodes += cost;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+}
+
 /** Owns record transactions in the persistent synchronized plugin data namespace. */
 export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
+  readonly chatBindings: CharacterChatStore;
   private busy = false;
   private publicationFailure: { error: unknown } | null = null;
   private readonly waiters: (() => void)[] = [];
@@ -65,9 +103,9 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
     private readonly storage: CharacterStorage,
     private readonly directory: string,
     private readonly directories: CharacterDirectories | null,
-  ) {}
+  ) { this.chatBindings = new CharacterChatStore(storage); }
 
-  /** Initializes a new plugin database or opens the records written by the centralized Core migration. */
+  /** Opens storage and initializes first-install records without retaining a synchronized domain snapshot. */
   static async open(
     directories: CharacterDirectories | null = null,
   ): Promise<DatabaseCharacterRepository> {
@@ -79,7 +117,6 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
     const existing = (await storage.metadata.data()).get<Storage.Value>("state");
     if (existing === undefined) {
       const state = createInitialState(Date.now());
-      assertCharacterState(state);
       for (const name of configurationNames) {
         await storage.configuration[name].edit(preferences => {
           if (preferences.entries().length !== 0) throw new Error("Character initialization found existing configuration: " + name);
@@ -95,14 +132,10 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
       }
       await storage.metadata.edit(preferences => {
         if (preferences.contains("state")) throw new Error("Character initialization changed concurrently");
-        preferences.set("state", { version: state.version, active: storedValue(state.active), memoryPreferences: storedValue(state.memoryPreferences) });
+        preferences.set("state", { version: state.version, active: storedValue(state.active), memoryPreferences: storedValue(state.memoryPreferences), memoryRecall: storedValue(state.memoryRecall) });
       });
     }
-    const metadata = (await storage.metadata.data()).get<Storage.Value>("state");
-    if (metadata === undefined) throw new Error("Character initialization did not publish metadata");
-    const configuration = await storage.data();
-    const loaded = stateFromRecords(metadata, await repository.readRecords(configuration));
-    assertCharacterState(loaded);
+    await repository.readMetadata();
     return repository;
   }
 
@@ -111,7 +144,7 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
     const rows: StoredRecord[] = [];
     for (const name of configurationNames) {
       for (const [key, value] of configuration[name].entries()) {
-        if (key.startsWith(recordPrefix)) rows.push({ collection: name, key: key.slice(recordPrefix.length), value, version: null });
+        if (key.startsWith(recordPrefix)) rows.push({ collection: name, key: key.slice(recordPrefix.length), value: clone(value), version: null });
       }
     }
     const results = await Promise.allSettled(["owners", "memories", "links", "chunks", "candidates", "embeddings"].map(async collection =>
@@ -136,15 +169,15 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
         throw new Error("Character database metadata disappeared");
       const configuration = await this.storage.data(), rows = await this.readRecords(configuration);
       assertObject(metadata, "character metadata");
-      const before = stateFromRecords(metadata, rows);
+      const before = decodeStateFromRecords(metadata, rows);
       const state = clone(before),
         session = new RepositorySession(
           state,
           this.directory,
+          this.chatBindings,
           this.directories,
         );
       const result = await action(session);
-      assertCharacterState(state);
       const documents = session.documentWrites();
       const removed = before.owners
         .filter(
@@ -196,15 +229,8 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
   /** Reads the role directory from native immutable preference snapshots. */
   async readSidebarDirectory(): Promise<Pick<Snapshot, "cards" | "groups">> {
     this.requirePublicationReady();
-    const cards = await this.storage.configuration.cards.data(), groups = await this.storage.configuration.groups.data();
-    const value = { cards: documents<Card>(cards), groups: documents<Group>(groups) };
-    for (const card of value.cards) assertCard(card);
-    const ids = new Set(value.cards.map(card => card.id));
-    for (const group of value.groups) {
-      assertGroup(group);
-      for (const member of group.members) if (!ids.has(member.characterCardId)) throw new Error("Missing group member: " + member.characterCardId);
-    }
-    return value;
+    const [cards, groups] = await Promise.all([this.readCharacters(), this.readGroups()]);
+    return { cards, groups };
   }
 
   /** Reads the explicitly stored active selection. */
@@ -245,10 +271,9 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
 
   /** Validates complete character documents including nested configuration. */
   private async readCharacters(): Promise<Card[]> {
-    return documents<Card>(await this.storage.configuration.cards.data()).map(value => {
-      assertCard(value);
-      return value;
-    });
+    const snapshot = await this.storage.configuration.cards.data();
+    return snapshot.entries().filter(([key]) => key.startsWith(recordPrefix))
+      .map(([key, value]) => readCharacter(value, key.slice(recordPrefix.length)));
   }
 
   /** Validates complete group documents including ordered members. */
@@ -273,8 +298,7 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
     return this.readConsistent(async () => {
       const value = document<Card>(await this.storage.configuration.cards.data(), id);
       if (value === undefined) throw new Error("Character not found: " + id);
-      assertCard(value);
-      return value;
+      return readCharacter(value, id);
     });
   }
 
@@ -370,6 +394,14 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
   async readGlobalMemoryPreferences(): Promise<GlobalMemoryPreferences> {
     this.requirePublicationReady();
     return (await this.readMetadata()).memoryPreferences;
+  }
+
+  /** Reads recall settings; states persisted by the released plugin predate the field. */
+  async readMemoryRecallSettings(): Promise<MemoryRecallSettings> {
+    this.requirePublicationReady();
+    const metadata = (await this.storage.metadata.data()).get<Record<string, Storage.Value>>("state");
+    if (metadata === undefined) throw new Error("Character database metadata disappeared");
+    return normalizeMemoryRecallSettings(metadata.memoryRecall === undefined ? { enabled: true } : metadata.memoryRecall);
   }
 
   /** Reads the selected owner's actual USER.md document. */
@@ -472,11 +504,11 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
       });
     const memoryMutations = mutations.filter(row => !configurationNames.some(name => name === row.collection));
     // One host object commit accepts at most 1000 mutations, and a large import exceeds that
-    // on its own. Sequential batches keep it possible; a failure after an earlier batch leaves
-    // those records committed, which a repeated SKIP/UPDATE import resumes.
-    const memoryBatches: ObjectMutation[][] = [];
-    for (let start = 0; start < memoryMutations.length; start += HOST_OBJECT_COMMIT_LIMIT)
-      memoryBatches.push(memoryMutations.slice(start, start + HOST_OBJECT_COMMIT_LIMIT));
+    // on its own. The structured bridge additionally counts every converted node against a
+    // 1,000,000-node budget that a full batch of embedding vectors alone exceeds. Sequential
+    // size-bounded batches keep both limits; a failure after an earlier batch leaves those
+    // records committed, which a repeated SKIP/UPDATE import resumes.
+    const memoryBatches = boundedCommitBatches(memoryMutations);
     const stagedDocuments: { path: string; stagedPath: string }[] = [];
     for (const document of documents) {
       if (document.newDocument) {
@@ -511,14 +543,17 @@ export class DatabaseCharacterRepository implements CharacterRepositoryOwner {
       });
     }
     for (const batch of memoryBatches) await this.storage.memory.commit(batch);
-    const nextMetadata = { ...metadata, version: state.version, active: "Model" in state.active ? null : storedValue(state.active), memoryPreferences: storedValue(state.memoryPreferences) };
+    const nextMetadata = { ...metadata, version: state.version, active: "Model" in state.active ? null : storedValue(state.active), memoryPreferences: storedValue(state.memoryPreferences), memoryRecall: storedValue(state.memoryRecall) };
     await this.storage.metadata.edit(preferences => {
       if (!equal(preferences.get("state"), metadata)) throw new Error("Character metadata edit conflict");
       preferences.set("state", nextMetadata);
     });
     for (const document of stagedDocuments)
       completed(await Tools.Files.move(document.stagedPath, document.path));
-    for (const path of removed)
+    for (const path of removed) {
+      // A pruned owner's document directory may never have been materialized on this device.
+      if (!(await Tools.Files.exists(path)).exists) continue;
       completed(await Tools.Files.deleteFile(path, true));
+    }
   }
 }

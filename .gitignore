@@ -212,6 +212,7 @@ plugins/**/.sync_hot_reload_state.json
 AGENTS.md
 .codex*
 .zcodeignore
+.zcode/*
 tools/ios-runtime/native/sources
 
 # Local ESP32 Edge pairing secret
@@ -222,3 +223,7 @@ apps/flutter/app/web/runtime/generated/*
 apps/flutter/app/macos/Runner/Configs/Signing.local.xcconfig
 # Local-only CNB build operations guide; never publish it.
 docs/cnb-pipeline.md
+
+# Build-owned Flutter engine font resources
+apps/flutter/app/web/fonts/
+tools/theme/preview/web/fonts/

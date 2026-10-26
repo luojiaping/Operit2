@@ -225,6 +225,8 @@ export interface MemorySearchConfig {
 
 /** Aggregates independent canonical reads only after every requested read succeeds. */
 export interface GlobalMemoryPreferences { userDescriptionEnabled: boolean; autoUpdateEnabled: boolean }
+/** Controls the built-in per-turn recall that injects matched memories into the model request. */
+export interface MemoryRecallSettings { enabled: boolean; limit: number; allowRepeated: boolean }
 export interface MemorySearchHit { memory: Memory; score: number; keywordScore: number; tagScore: number; vectorScore: number; edgeScore: number; passedThreshold: boolean }
 export interface MemorySearchDebug { query: string; config: MemorySearchConfig; relevanceThreshold: number; memoriesInScopeCount: number; candidates: MemorySearchHit[] }
 
@@ -246,7 +248,13 @@ export type Request =
   | { action: "readGlobalMemoryPreferences" }
   | { action: "readChatMemoryAutoSaveStatus"; chatId: string }
   | { action: "updateCurrentChatMemory"; chatId: string }
+  | { action: "retryFailedCandidates"; chatId: string }
+  | { action: "clearFailedCandidates"; chatId: string }
+  | { action: "retryFailedCandidates"; ownerKey: string }
+  | { action: "clearFailedCandidates"; ownerKey: string }
   | { action: "writeGlobalMemoryPreference"; key: keyof GlobalMemoryPreferences; value: boolean }
+  | { action: "readMemoryRecallSettings" }
+  | { action: "writeMemoryRecallSettings"; settings: MemoryRecallSettings }
   | { action: "searchMemoryDebug"; ownerKey: string; query: string; config: MemorySearchConfig; relevanceThreshold: number }
   | { action: "readMemoryLink"; ownerKey: string; linkId: string }
   | { action: "listThemeChoices" }
@@ -298,6 +306,7 @@ export type Request =
   | { action: "listMemoryFolders"; ownerKey: string }
   | { action: "readMemoryAutoSaveStatus"; ownerKey: string }
   | { action: "listMemoryChats"; ownerKey: string }
+  | { action: "pruneMissingChatBindings"; ownerKey: string }
   | { action: "updateChatMemory"; ownerKey: string; chatId: string }
   | { action: "autoCategorizeMemory"; ownerKey: string }
   | { action: "startMemoryRebuild"; ownerKey: string; rebuild: MemoryRebuild }
@@ -325,6 +334,9 @@ export interface MemoryChat {
   isCurrent: boolean; inputTokens: number; outputTokens: number;
 }
 
+/** Reports surviving bound chats alongside bindings whose Core conversation no longer exists. */
+export interface MemoryChatListing { chats: MemoryChat[]; missingChatIds: string[] }
+
 /** Uses only message fields actually supplied by the generic chat message reader. */
 export interface MemoryChatMessage {
   sender: string; content: string; timestamp: number; variantIndex: number; variantCount: number; provider: string; modelName: string;
@@ -337,7 +349,7 @@ export interface MemoryRebuildTask { id: string; windows: MemoryJobWindow[]; nex
 /** Stores a real provider embedding, keyed by exact configured source and input text. */
 export interface MemoryEmbedding { id: string; endpoint: string; model: string; text: string; vector: number[]; updatedAt: number }
 /** Reports actual committed domain operations for a manual or background extraction. */
-export interface MemoryExtractionResult { ownerKey: string; created: number; updated: number; merged: number; links: number; profileUpdated: boolean }
+export interface MemoryExtractionResult { ownerKey: string; created: number; updated: number; merged: number; links: number; profileUpdated: boolean; skipped: number }
 
 /** Matches the complete MessagePart serde record used by extraction windows. */
 export interface MemoryMessagePart {
@@ -395,6 +407,7 @@ export interface MemorySpace {
 export interface CharacterState {
   version: 1;
   memoryPreferences: GlobalMemoryPreferences;
+  memoryRecall: MemoryRecallSettings;
   cards: Card[];
   groups: Group[];
   tags: Tag[];
@@ -435,7 +448,11 @@ export interface RequestResults {
   readGlobalMemoryPreferences: GlobalMemoryPreferences;
   readChatMemoryAutoSaveStatus: MemoryAutoSaveStatus;
   updateCurrentChatMemory: MemoryExtractionResult;
+  retryFailedCandidates: { retried: number };
+  clearFailedCandidates: { cleared: number };
   writeGlobalMemoryPreference: GlobalMemoryPreferences;
+  readMemoryRecallSettings: MemoryRecallSettings;
+  writeMemoryRecallSettings: MemoryRecallSettings;
   searchMemoryDebug: MemorySearchDebug;
   readMemoryLink: MemoryLink;
   listThemeChoices: import("./selection-application").ThemeChoice[];
@@ -486,7 +503,8 @@ export interface RequestResults {
   exportGroup: string;
   listMemoryFolders: string[];
   readMemoryAutoSaveStatus: MemoryAutoSaveStatus;
-  listMemoryChats: MemoryChat[];
+  listMemoryChats: MemoryChatListing;
+  pruneMissingChatBindings: { removedChatIds: string[]; removedCandidateIds: string[] };
   updateChatMemory: MemoryExtractionResult;
   autoCategorizeMemory: number;
   startMemoryRebuild: MemoryRebuildProgress;

@@ -64,6 +64,14 @@ verify(/if let Some\(participantId\) = &initial\.participantId/.test(create) && 
 verify(!/profile\.openingStatement|participants\.first|configuration\.profile/.test(create), "Core must not infer opening statements or select an execution participant during draft display");
 verify(/purpose: ChatConfigurationPurpose::Display/.test(create) && /resolveDraft/.test(create), "Drafts must resolve the explicit display purpose");
 verify(!/switchConfiguredChat|publishChatConfiguration/.test(processor), "Message execution must not publish an execution descriptor into the presentation cache");
+const deletion = section(history, "pub async fn deleteChatHistory(", "/// Deletes a message from a chat by timestamp.");
+verify(/self\.requireChatExists\(&chatId\)\?;/.test(deletion) && deletion.indexOf("requireChatExists") < deletion.indexOf("canDeleteChatHistory") && deletion.indexOf("if !canDelete") < deletion.indexOf("ChatConfigurationApi::ready"), "Deletion must reject missing or locked histories before invoking their owner");
+verify(/api\.deleteConfiguration\(&chatId\)\.await\?;/.test(deletion), "Owner cleanup errors must stop deletion and propagate to the caller");
+verify(deletion.indexOf("api.deleteConfiguration") < deletion.indexOf(".deleteChatHistory(chatId.clone())"), "Owner cleanup must finish before the Core conversation is deleted");
+verify(/\.deleteChatHistory\(chatId\.clone\(\)\)[\s\S]*?\.map_err\(\|error\| error\.to_string\(\)\)\?;/.test(deletion), "Persistence failures must propagate without panicking or reporting success");
+verify(deletion.indexOf("if !deleted") < deletion.indexOf("self.chatConfigurationsFlow.update") && deletion.indexOf("self.chatConfigurationsFlow.update") < deletion.indexOf("self.finishDestructiveHistoryMutation"), "Deletion may clear projections and publish completion only after persistence succeeds");
+const coreDeletion = section(core, "pub async fn deleteChatHistory(", "/// Deletes one message from an explicit chat");
+verify(/self\s*\.chatHistoryDelegate\s*\.deleteChatHistory\(service, chatId\)\s*\.await\?/.test(coreDeletion) && !/deleteConfiguration|if let Err|AppLogger/.test(coreDeletion), "Core deletion must use the single history lifecycle and retain its errors");
 const startup = section(history, "pub fn initialize(", "/// Loads the newest indexed display window");
 verify(/openChatHistory\(chatId, false\)\?/.test(startup) && !/switchConfiguredChat|\.resolve\(|ChatConfigurationApi/.test(startup), "Unbound startup must restore persisted history without resolving execution configuration");
 const historyOpen = section(history, "pub fn openChatHistory(", "/// Requires an actual Core chat record");
@@ -157,7 +165,7 @@ verify(/handler\.executeToolInvocation\(&call, ToolExecutionPolicy::Direct\)/.te
 verify(/ownedActiveExecution\(owner, chatId\)/.test(toolsRuntime)
   && /sequence\.owner == owner && sequence\.chatId == chatId/.test(nativeTransport), "Cancellation captures the actual authenticated owner/chat execution before asynchronous model access");
 verify(/source\.sender != "user"/.test(nativeTransport) && /Continuation source was superseded/.test(nativeTransport), "A continuation must identify a real nonsuperseded committed user row");
-verify(/ChatSendRequest::Continue/.test(nativeTransport) && /AdmittedChatTurnWork::Continue \{ userMessageTimestamp, participantId \}/.test(nativeTransport), "Continuation admission never resubmits replacement input or attachments");
+verify(/ChatSendRequest::Continue/.test(nativeTransport) && /AdmittedChatTurnWork::Continue \{ userMessageTimestamp, participantId, summaryPolicy \}/.test(nativeTransport), "Continuation admission never resubmits replacement input or attachments");
 verify(/requestCancellation/.test(nativeTransport) && /cancelled\.store\(true, Ordering::Release\)/.test(nativeTransport), "Cancellation covers the admitted-before-start interval");
 verify(/nativeExecutionId\.as_deref\(\) == Some\(executionId\)/.test(processor) && /isNativeExecutionActive\(chatId, executionId\)/.test(core), "Native cancellation must match the precise runtime execution before touching the model");
 verify(/commitUserMessage/.test(nativeRecordOnly) && /protectRevision/.test(nativeRecordOnly) && /buildRecordedUserMessageContent/.test(nativeRecordOnly), "Record-only must use checked canonical persistence and the real sequence lease");

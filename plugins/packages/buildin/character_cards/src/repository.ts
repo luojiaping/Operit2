@@ -1,12 +1,12 @@
 import { uuid } from "./identity";
 import type { CharacterRepository } from "./canonical";
 import type { ActivePrompt, BackupImportResult, Card, ChatBinding, CharacterDirectories, CharacterState, ConversationGroupRecord, Group, Memory, MemoryAutoSaveStatus, MemoryGraph, MemoryImportResult, MemoryLink, MemoryLinkUpdate, MemoryLinkValues, MemoryRebuildProgress, MemorySearchConfig, MemorySearchOptions, MemorySettings, MemorySpace, MemoryValues, ModelSummary, Store, Tag, TagValues, ToolCatalog, TtsConfig, UserDocument, UserDocumentWrite } from "./model";
-import { assertBoolean, assertCard, assertConversationGroups, assertGroup, assertMemory, assertMemorySettings, assertMemoryValues, assertNumber, assertSearchConfig, assertSearchOptions, assertString, assertTag, assertTagValues, normalizeNames, requireId, requireName } from "./validation";
+import { assertBoolean, assertConversationGroups, assertGroup, assertMemory, assertMemorySettings, assertMemoryValues, assertNumber, assertSearchConfig, assertSearchOptions, assertString, assertTag, assertTagValues, normalizeNames, requireId, requireName } from "./validation";
 import { clone } from "./storage/records";
-import { createMemorySpace, assertMemorySpace } from "./storage/state";
+import { createMemorySpace, assertMemorySpace, normalizeMemoryRecallSettings } from "./storage/state";
 import { searchMemorySpace, searchMemorySpaceDebug } from "./memory-search";
 import { requireChatSelection } from "./chat-bindings";
-import { deleteChatBinding, listChatBindings, readChatBinding, writeChatBinding } from "./chat-storage";
+import type { CharacterChatBindings } from "./chat-bindings";
 
 /** Copies structured domain records so consumers cannot mutate the in-flight snapshot outside this repository. */
 function copy<T>(value: T): T { return clone(value); }
@@ -42,11 +42,15 @@ export class RepositorySession implements CharacterRepository {
   private readonly documents = new Map<string, UserDocumentWrite>();
 
   /** Receives the operation snapshot and explicitly connected external directory readers. */
-  constructor(private readonly state: CharacterState, private readonly directory: string, private readonly directories: CharacterDirectories | null = null) {}
+  constructor(private readonly state: CharacterState, private readonly directory: string, readonly chatBindings: CharacterChatBindings, private readonly directories: CharacterDirectories | null = null) {}
   async readGlobalMemoryPreferences(): Promise<import("./model").GlobalMemoryPreferences> { return copy(this.state.memoryPreferences); }
   async writeGlobalMemoryPreference(key: keyof import("./model").GlobalMemoryPreferences, value: boolean): Promise<import("./model").GlobalMemoryPreferences> {
     if (key !== "userDescriptionEnabled" && key !== "autoUpdateEnabled") throw new Error("Unknown global memory preference");
     assertBoolean(value, key); this.state.memoryPreferences[key] = value; return this.readGlobalMemoryPreferences();
+  }
+  async readMemoryRecallSettings(): Promise<import("./model").MemoryRecallSettings> { return copy(this.state.memoryRecall); }
+  async writeMemoryRecallSettings(settings: import("./model").MemoryRecallSettings): Promise<import("./model").MemoryRecallSettings> {
+    this.state.memoryRecall = normalizeMemoryRecallSettings(settings); return this.readMemoryRecallSettings();
   }
   async searchMemoryDebug(options: MemorySearchOptions, config: MemorySearchConfig): Promise<import("./model").MemorySearchDebug> {
     assertSearchOptions(options); assertSearchConfig(config); return copy(await searchMemorySpaceDebug(this.space(options.ownerKey), options, config));
@@ -84,15 +88,33 @@ export class RepositorySession implements CharacterRepository {
   async listCharacters(): Promise<Card[]> { return copy(this.state.cards); }
   /** Reads one complete stored character. */
   async getCharacter(id: string): Promise<Card> { return copy(get(this.state.cards, id, "character")); }
+  /** Removes memory owners whose backing entity no longer exists and returns their pruned owner keys.
+    * Orphan owners appear when a character or shared store is lost outside the removal path
+    * (for example a deleted-synced card); every scheduler transaction on such an owner throws,
+    * so the interval prunes them up front instead of failing forever. */
+  async pruneOrphanMemoryOwners(): Promise<string[]> {
+    const alive = (ownerKey: string): boolean => {
+      const parts = ownerKey.split(":");
+      if (parts.length !== 2) return false;
+      if (parts[0] === "character") return this.state.cards.some(card => card.id === parts[1]);
+      if (parts[0] === "shared") return this.state.stores.some(store => store.id === parts[1]);
+      return false;
+    };
+    const orphans = this.state.owners.filter(space => !alive(space.ownerKey)).map(space => space.ownerKey);
+    if (orphans.length === 0) return [];
+    this.state.owners = this.state.owners.filter(space => alive(space.ownerKey));
+    for (const ownerKey of orphans) this.documents.delete(ownerKey);
+    return orphans;
+  }
   /** Creates all character fields and its genuine initialized memory space. */
   async createCharacter(card: Card): Promise<Card> {
-    assertCard(card); const name = requireName(card.name, "character name"); uniqueName(this.state.cards, name, "");
+    const name = requireName(card.name, "character name"); uniqueName(this.state.cards, name, "");
     const now = Date.now(), saved = { ...copy(card), id: uuid(), name, createdAt: now, updatedAt: now };
     this.state.cards.push(saved); this.addSpace("character:" + saved.id); return copy(saved);
   }
   /** Writes the full editable character while preserving its stable creation identity. */
   async updateCharacter(card: Card): Promise<Card> {
-    assertCard(card); const original = get(this.state.cards, card.id, "character"), name = requireName(card.name, "character name");
+    const original = get(this.state.cards, card.id, "character"), name = requireName(card.name, "character name");
     uniqueName(this.state.cards, name, card.id);
     const saved = { ...copy(card), name, createdAt: original.createdAt, updatedAt: Date.now() };
     Object.assign(original, saved); return copy(original);
@@ -219,24 +241,14 @@ export class RepositorySession implements CharacterRepository {
     else if (active.Model.id !== "chat") throw new Error("Invalid model selection");
     this.state.active = copy(active);
   }
-  /** Rejects deletion using only selections on existing authoritative host records. */
+  /** Rejects deletion while any stored chat binding references the selection. */
   private async requireUnboundSelection(selection: string): Promise<void> {
-    for (const binding of await this.listChatBindings()) if (binding.selection === selection) throw new Error("Rebind or delete the chat extension before deleting its selection: " + binding.chatId);
+    const binding = (await this.chatBindings.listChatBindings()).find(
+      /** Matches the exact selection proposed for deletion. */
+      binding => binding.selection === selection,
+    );
+    if (binding !== undefined) throw new Error("Rebind or delete the chat extension before deleting its selection: " + binding.chatId);
   }
-  /** Enumerates only real host records and their authenticated plugin extension markers. */
-  async listChatBindings(): Promise<ChatBinding[]> { return listChatBindings(); }
-  /** Reads the sole record-extension source and validates its actual stored domain reference. */
-  async readChatBinding(chatId: string): Promise<ChatBinding> {
-    const binding = await readChatBinding(chatId);
-    requireChatSelection(binding.selection, this.state.cards, this.state.groups); return binding;
-  }
-  /** Writes an explicit selector submission solely to the authenticated host record namespace. */
-  async writeChatBinding(binding: ChatBinding): Promise<ChatBinding> {
-    requireChatSelection(binding.selection, this.state.cards, this.state.groups);
-    return writeChatBinding(binding);
-  }
-  /** Deletes only the authenticated record namespace without touching manual membership or file state. */
-  async deleteChatBinding(chatId: string): Promise<{ chatId: string; deleted: boolean }> { return deleteChatBinding(chatId); }
   /** Reads the actual owner USER.md file or the edit staged within this same operation. */
   async readUser(ownerKey: string): Promise<UserDocument> {
     const path = await this.readUserPath(ownerKey), document = this.documents.get(ownerKey);
@@ -337,6 +349,41 @@ export class RepositorySession implements CharacterRepository {
       name => ({ id: uuid(), name }),
     ) });
   }
+  /** Replaces every exact source-title match with a new identity and redirects surviving external links. */
+  async mergeMemories(ownerKey: string, sourceTitles: string[], values: MemoryValues): Promise<Memory> {
+    assertMemoryValues(values);
+    const space = this.space(ownerKey), titles = new Set<string>();
+    for (const title of sourceTitles) titles.add(requireName(title, "merge source title"));
+    const ids = new Set<string>(), uuids = new Set<string>(), found = new Set<string>();
+    for (const memory of space.memories) if (titles.has(memory.title)) {
+      ids.add(memory.id); uuids.add(memory.uuid); found.add(memory.title);
+    }
+    for (const title of titles) if (!found.has(title)) throw new Error("Memory merge source does not exist: " + title);
+    if (ids.size < 2) throw new Error("Memory merge requires at least two unique source records");
+    const remaining = space.memories.filter(
+      /** Retains only records outside the explicitly selected merge. */
+      memory => !ids.has(memory.id),
+    );
+    if (remaining.some(
+      /** Rejects a target title already held by an unrelated record. */
+      memory => memory.title === values.title.trim(),
+    )) throw new Error("Name already exists: " + values.title);
+    space.memories = remaining;
+    const merged = await this.createMemory(ownerKey, values);
+    space.chunks = space.chunks.filter(
+      /** Deletes chunks owned by source documents as Kotlin mergeMemories does. */
+      chunk => !uuids.has(chunk.memoryUuid),
+    );
+    for (const link of space.links) {
+      if (ids.has(link.sourceMemoryId)) link.sourceMemoryId = merged.id;
+      if (ids.has(link.targetMemoryId)) link.targetMemoryId = merged.id;
+    }
+    space.links = space.links.filter(
+      /** Removes internal relationships that would become forbidden self-links. */
+      link => link.sourceMemoryId !== link.targetMemoryId,
+    );
+    return merged;
+  }
   /** Deletes a memory and all referencing chunks and links in this operation. */
   async deleteMemory(ownerKey: string, id: string): Promise<void> {
     requireId(id, "memory id"); const space = this.space(ownerKey), memory = get(space.memories, id, "memory");
@@ -410,7 +457,7 @@ export class RepositorySession implements CharacterRepository {
       if (matches.length === 0) this.state.tags.push(copy(tag)); else Object.assign(matches[0], copy(tag));
     }
     for (const card of cards) {
-      assertCard(card); requireId(card.id, "backup character id"); const matches = this.state.cards.filter(
+      requireId(card.id, "backup character id"); const matches = this.state.cards.filter(
         /** Resolves the imported character by exact identity. */
         existing => existing.id === card.id,
       );
