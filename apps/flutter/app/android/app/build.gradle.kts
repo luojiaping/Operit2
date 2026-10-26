@@ -152,16 +152,8 @@ android {
         }
 
         release {
-            // R8 shrinking, optimization, and obfuscation. The optimize variant
-            // of the default rules is required: proguard-android.txt carries
-            // -dontoptimize, which would leave R8 doing shrinking only.
-            isMinifyEnabled = true
-            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
-            )
+            proguardFiles("proguard-rules.pro")
         }
     }
 
