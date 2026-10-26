@@ -50,6 +50,10 @@
             # script baked into the image. Restore it before Gradle starts.
             mkdir -p /root/.gradle/init.d
             cp /opt/operit-gradle/aliyun.gradle /root/.gradle/init.d/aliyun.gradle
+            # The bridge compiles through Gradle's Exec tasks. Cargo would
+            # otherwise start one rustc per core and compete with the 48G
+            # Gradle heap for the 128G the 64-core runner provides.
+            export CARGO_BUILD_JOBS=32
             python3 tools/build_scripts/build_flutter_android.py --enforce-lockfile
         - name: upload-apk
           image: cnbcool/attachments:latest
