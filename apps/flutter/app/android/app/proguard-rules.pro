@@ -13,3 +13,28 @@
 -keep class com.k2fsa.sherpa.onnx.** {
     *;
 }
+
+# FlutterEngine loads the generated plugin registrant by name, and the embedding
+# reaches several entry points through reflection.
+-keep class io.flutter.plugins.** {
+    *;
+}
+-keep class io.flutter.app.** {
+    *;
+}
+-keep class io.flutter.embedding.** {
+    *;
+}
+-keep class io.flutter.plugin.** {
+    *;
+}
+-keep class io.flutter.util.** {
+    *;
+}
+-keep class io.flutter.view.** {
+    *;
+}
+
+# Keep source information so release crash reports stay readable.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
