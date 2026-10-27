@@ -16,33 +16,75 @@
           by:
             - .cnb/android/Dockerfile
             - apps/flutter/app/.fvmrc
+            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - tools/android-runtime/fetch_sources.sh
+            - tools/android-runtime/build_android_tools_wsl.sh
+            - tools/android-runtime/build_alpine_rootfs_wsl.sh
+            - tools/android-runtime/patches/termux-proot-operit-android.patch
+            - tools/runtime/verify_alpine_node24.py
           versionBy:
             - .cnb/android/Dockerfile
             - apps/flutter/app/.fvmrc
+            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - tools/android-runtime/fetch_sources.sh
+            - tools/android-runtime/build_android_tools_wsl.sh
+            - tools/android-runtime/build_alpine_rootfs_wsl.sh
+            - tools/android-runtime/patches/termux-proot-operit-android.patch
+            - tools/runtime/verify_alpine_node24.py
         volumes:
           - /root/.gradle:copy-on-write
           - /root/.cargo:copy-on-write
-          - /root/.cache/operit-android-runtime:copy-on-write
+          # PUB_CACHE is redirected to this path so downloaded packages survive
+          # between runs; the image's fvm launcher is unaffected.
+          - /root/.pub-cache:copy-on-write
           - /cache/operit-plugin-sync:copy-on-write
+          # Gradle keeps its up-to-date state in the project .gradle directory
+          # and every task output in build/, so both must survive between runs.
+          - ./apps/flutter/app/build:copy-on-write
+          - ./apps/flutter/app/android/.gradle:copy-on-write
           - ./plugins/packages/buildin/character_cards/dist:copy-on-write
           - ./plugins/packages/buildin/workflow/dist:copy-on-write
           - ./apps/flutter/native/operit-flutter-bridge/target:copy-on-write
+          # The Dart proxy generation step runs a host cargo check that builds
+          # llama.cpp and MNN through CMake; keep those artifacts too.
+          - ./core/target:copy-on-write
+          # The V8 source build is cached here; the env file Gradle uses for
+          # its up-to-date check lives in the bridge target volume above, so
+          # both must persist or the second build skips a missing artifact.
+          - ./tools/release/work/android-v8:copy-on-write
       env: &build-env
         RUSTFLAGS: -Awarnings
         CARGO_INCREMENTAL: "1"
         OPERIT_PLUGIN_SYNC_STATE_DIR: /cache/operit-plugin-sync
+        # The images install cargo under /usr/local/cargo, which is not one of
+        # the mounted cache paths. Point it at the volume so crates and the
+        # registry index survive between runs; rustup toolchains stay in
+        # RUSTUP_HOME and the cargo proxy is still resolved from PATH.
+        CARGO_HOME: /root/.cargo
+        # The images install the fvm launcher with an absolute snapshot path,
+        # so pointing pub at the mounted cache does not hide it.
+        PUB_CACHE: /root/.pub-cache
       stages:
         - name: android-runtime
-          timeout: 1h
+          timeout: 10m
           script: |
-            bash tools/android-runtime/fetch_sources.sh
-            bash tools/android-runtime/build_android_tools_wsl.sh
-            bash tools/android-runtime/build_alpine_rootfs_wsl.sh
+            # The image already contains the pinned runtime build.
+            src=/opt/operit-android-runtime/apps/flutter/app/android/app/src/main
+            dest=apps/flutter/app/android/app/src/main
+            mkdir -p "$dest/jniLibs" "$dest/assets/android-runtime"
+            cp -a "$src/jniLibs/." "$dest/jniLibs/"
+            cp -a "$src/assets/android-runtime/." "$dest/assets/android-runtime/"
         - name: build-apk
           timeout: 2h
           script: |
             mkdir -p .venv/bin
             ln -sf "$(readlink -f "$(command -v python3)")" .venv/bin/python
+            # The image already contains the pinned SDK. Linking it directly
+            # keeps fvm from re-resolving the git tag and re-checking every
+            # artifact on each run.
+            sdk_version="$(python3 -c "import json; print(json.load(open('apps/flutter/app/.fvmrc'))['flutter'])")"
+            mkdir -p apps/flutter/app/.fvm
+            ln -sfn "/opt/fvm/versions/${sdk_version}" apps/flutter/app/.fvm/flutter_sdk
             mkdir -p tools/release/secrets
             cp apps/flutter/app/android/ci-signing/ci-test-release.keystore tools/release/secrets/
             cp apps/flutter/app/android/ci-signing/signing.properties tools/release/secrets/android-signing.properties
@@ -54,7 +96,14 @@
             # otherwise start one rustc per core and compete with the 48G
             # Gradle heap for the 128G the 64-core runner provides.
             export CARGO_BUILD_JOBS=32
+            # The V8 source build inherits Cargo's job count, and the helper
+            # defaults to six; give ninja the runner's cores instead.
+            export OPERIT_ANDROID_V8_JOBS=48
             python3 tools/build_scripts/build_flutter_android.py --enforce-lockfile
+            # Attachment paths are version independent; stage the versioned
+            # release asset under the name upload-apk expects.
+            cp tools/release/dist/operit2-app-android-arm64-v8a-*.apk \
+               tools/release/dist/operit2-app-android-arm64-v8a.apk
         - name: upload-apk
           image: cnbcool/attachments:latest
           settings:
@@ -74,9 +123,11 @@
           by:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
+            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
           versionBy:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
+            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
         volumes:
           - /root/.cargo:copy-on-write
           - /root/.pub-cache:copy-on-write
@@ -85,6 +136,9 @@
           - ./plugins/packages/buildin/workflow/dist:copy-on-write
           - ./apps/flutter/native/operit-flutter-bridge/target:copy-on-write
           - ./apps/flutter/app/build:copy-on-write
+          # The Dart proxy generation step runs a host cargo check that builds
+          # llama.cpp and MNN through CMake; keep those artifacts too.
+          - ./core/target:copy-on-write
       env: *build-env
       stages:
         - name: build-app
@@ -92,7 +146,12 @@
           script: |
             mkdir -p .venv/bin
             ln -sf "$(readlink -f "$(command -v python3)")" .venv/bin/python
+            sdk_version="$(python3 -c "import json; print(json.load(open('apps/flutter/app/.fvmrc'))['flutter'])")"
+            mkdir -p apps/flutter/app/.fvm
+            ln -sfn "/opt/fvm/versions/${sdk_version}" apps/flutter/app/.fvm/flutter_sdk
             python3 tools/build_scripts/build_flutter_linux.py --enforce-lockfile
+            cp tools/release/dist/operit2-app-linux-x86_64-*.tar.gz \
+               tools/release/dist/operit2-app-linux-x86_64.tar.gz
         - name: upload-app
           image: cnbcool/attachments:latest
           settings:
@@ -112,18 +171,39 @@
           by:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
+            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
           versionBy:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
+            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
         volumes:
           - /root/.cargo:copy-on-write
           - ./apps/cli/target:copy-on-write
       env: *build-env
       stages:
         - name: build-cli
-          timeout: 1h
+          timeout: 2h
           script: |
+            # V8's prebuilt musl archive carries Chromium's libc++ (the __Cr
+            # ABI namespace), so compile the native inference engines against
+            # that same libc++ from the v8 crate instead of libstdc++. The
+            # static binary then holds a single C++ runtime. Target-scoped
+            # flags keep host build scripts on the system compiler.
+            export CC_x86_64_unknown_linux_musl=/usr/lib/llvm-21/bin/clang
+            export CXX_x86_64_unknown_linux_musl=/usr/lib/llvm-21/bin/clang++
+            export CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl --sysroot=/opt/musl-sysroot --gcc-toolchain=/opt/x86_64-linux-musl-cross"
+            export CXXFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl --sysroot=/opt/musl-sysroot --gcc-toolchain=/opt/x86_64-linux-musl-cross -nostdinc++ -isystem /opt/operit-v8/libcxx/config -isystem /opt/operit-v8/libcxx/include -DANDROID_HOST_MUSL -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE -nostdlib++"
+            # Link the libc++ runtime pieces the V8 archive leaves out.
+            export OPERIT_CXX_SUPPLEMENT_DIR=/opt/operit-v8/lib
+            cargo fetch --manifest-path apps/cli/Cargo.toml --target x86_64-unknown-linux-musl
+            python3 tools/build_scripts/prepare_linux_v8.py
             python3 tools/build_scripts/build_cli_linux.py --arches x86_64
+            package=tools/release/work/cli-linux-x86_64/operit2
+            file -b "$package"
+            file -b "$package" | grep -Eq 'statically linked|static-pie linked'
+            "$package" cli version
+            cp tools/release/dist/operit2-cli-linux-x86_64-*.tar.gz \
+               tools/release/dist/operit2-cli-linux-x86_64.tar.gz
         - name: upload-cli
           image: cnbcool/attachments:latest
           settings:

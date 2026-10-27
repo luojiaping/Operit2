@@ -129,13 +129,17 @@ def prepare_fvm_flutter_sdk() -> None:
     global _fvm_sdk_prepared
     if _fvm_sdk_prepared:
         return
-    fvm = require_command("fvm")
-    run([fvm, "install", "--skip-pub-get"], cwd=FLUTTER_APP_DIR)
     executable_name = "flutter.bat" if host_platform() == "windows" else "flutter"
     executable = FLUTTER_APP_DIR / ".fvm" / "flutter_sdk" / "bin" / executable_name
+    # CI mounts the project .fvm link so the SDK resolved by a previous run is
+    # still valid. Installing and precaching again would re-check the pinned
+    # git tag and every artifact, which costs more than the whole Gradle build.
+    if not executable.is_file():
+        fvm = require_command("fvm")
+        run([fvm, "install", "--skip-pub-get"], cwd=FLUTTER_APP_DIR)
+        run([fvm, "flutter", "precache", "--web", "--ohos"], cwd=FLUTTER_APP_DIR)
     if not executable.is_file():
         raise RuntimeError(f"FVM SDK command not found: {executable}")
-    run([fvm, "flutter", "precache", "--web", "--ohos"], cwd=FLUTTER_APP_DIR)
     _fvm_sdk_prepared = True
 
 
@@ -337,6 +341,11 @@ def verify_cli_plugin_assets(binary_path: Path) -> None:
 
 def generate_dart_proxy_artifacts() -> None:
     manifest = REPO_ROOT / "core" / "crates" / "proxy" / "local" / "Cargo.toml"
+    # The artifacts are written by this crate's build script, which Cargo skips
+    # whenever the target directory is warm. The generated files are ignored by
+    # git and therefore absent from a fresh checkout, so drop just this package
+    # to run the codegen again without discarding the rest of the cache.
+    run(["cargo", "clean", "--manifest-path", str(manifest), "-p", "operit-proxy-local"])
     run(["cargo", "check", "--manifest-path", str(manifest), "--quiet"])
     for path in [
         FLUTTER_APP_DIR / "lib" / "core" / "proxy" / "generated" / "CoreProxyClients.g.dart",
@@ -356,7 +365,7 @@ def dart_pub_get(enforce_lockfile: bool = False, env: dict[str, str] | None = No
 
 def flutter_pub_get(enforce_lockfile: bool = False, env: dict[str, str] | None = None) -> None:
     """Resolves app dependencies and generates native plugin registrants with FVM Flutter."""
-    command = [require_command("fvm"), "flutter", "pub", "get"]
+    command = [flutter_command(), "pub", "get"]
     if enforce_lockfile:
         command.append("--enforce-lockfile")
     run(command, cwd=FLUTTER_APP_DIR, env=env)

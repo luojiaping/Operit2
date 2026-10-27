@@ -19,14 +19,22 @@ for item in "${items[@]}"; do
     IFS='|' read -r name url archive expected_sha256 extracted <<< "$item"
     archive_path="$downloads_dir/$archive"
 
-    echo "Downloading $name"
-    curl -fL --retry 5 --retry-delay 2 --retry-connrefused \
-        --connect-timeout 30 -o "$archive_path" "$url"
+    actual_sha256=""
+    if [ -f "$archive_path" ]; then
+        actual_sha256="$(sha256sum "$archive_path" | awk '{ print toupper($1) }')"
+    fi
+    if [ "$actual_sha256" = "$expected_sha256" ]; then
+        echo "Using verified $name"
+    else
+        echo "Downloading $name"
+        curl -fL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+            --connect-timeout 30 -o "$archive_path" "$url"
 
-    actual_sha256="$(sha256sum "$archive_path" | awk '{ print toupper($1) }')"
-    if [ "$actual_sha256" != "$expected_sha256" ]; then
-        echo "$archive SHA256 mismatch: $actual_sha256" >&2
-        exit 1
+        actual_sha256="$(sha256sum "$archive_path" | awk '{ print toupper($1) }')"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+            echo "$archive SHA256 mismatch: $actual_sha256" >&2
+            exit 1
+        fi
     fi
 
     extract_path="$sources_dir/$extracted"

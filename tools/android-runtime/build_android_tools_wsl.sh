@@ -560,6 +560,11 @@ EOF
             bash_cv_dev_fd=whacky \
             bash_cv_getcwd_malloc=yes
 
+        # The intl subdirectory generates libintl.h, but top-level objects
+        # include it without depending on that rule. With -j$(nproc) the header
+        # can still be missing when they compile, so generate it up front.
+        PATH="$toolchain_dir:$PATH" make -C lib/intl libintl.h
+
         PATH="$toolchain_dir:$PATH" \
         make -j"$(nproc)" \
             CC_FOR_BUILD=gcc \

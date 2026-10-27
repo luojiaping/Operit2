@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         bzip2 \
         ca-certificates \
+        cmake \
         curl \
         file \
         flex \
@@ -37,6 +38,46 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         xz-utils \
         zip \
     && rm -rf /var/lib/apt/lists/*
+
+# Android has no prebuilt rusty_v8 artifact, so the bridge compiles V8 from
+# source. prepare_android_v8.py needs libclang 21+ for bindgen and ld.lld for
+# Chromium's host toolchain; Ubuntu 24.04 only ships LLVM 18.
+RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+        -o /usr/share/keyrings/llvm-snapshot.gpg.key \
+    && printf '%s\n' \
+        "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg.key] http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" \
+        > /etc/apt/sources.list.d/llvm.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        clang-21 \
+        libclang-21-dev \
+        libclang-rt-21-dev \
+        lld-21 \
+    && rm -rf /var/lib/apt/lists/*
+
+# prepare_android_v8.py matches libclang.so.<major>, while libclang-21-dev only
+# ships libclang.so -> libclang-21.so.1.
+RUN libclang="$(readlink -f /usr/lib/llvm-21/lib/libclang.so)" \
+    && test -f "$libclang" \
+    && ln -sf "$libclang" /usr/lib/llvm-21/lib/libclang.so.21
+
+# cmake-rs runs CMake with LC_ALL=C, and CMake's archive reader cannot convert
+# MNN's UTF-8 paths in that locale. Unpack the pinned source here and hand it to
+# FetchContent through OPERIT_MNN_SOURCE instead. The source-dir override skips
+# FetchContent's PATCH_COMMAND, so run PatchMnnBuild.cmake against the tree.
+ARG MNN_VERSION=3.6.1
+COPY core/crates/provider/local-model/native/PatchMnnBuild.cmake /opt/operit-native/PatchMnnBuild.cmake
+RUN curl -fsSL "https://codeload.github.com/alibaba/MNN/zip/refs/tags/${MNN_VERSION}" \
+        -o /tmp/mnn.zip \
+    && echo "93d60848879e68be554c247afe376657630a30652a7d8ec713e9e7d1bbf69260  /tmp/mnn.zip" \
+        | sha256sum -c - \
+    && unzip -q /tmp/mnn.zip -d /tmp/mnn \
+    && mv "/tmp/mnn/MNN-${MNN_VERSION}" /opt/operit-native/mnn \
+    && rm -rf /tmp/mnn /tmp/mnn.zip \
+    && cd /opt/operit-native/mnn \
+    && cmake -P /opt/operit-native/PatchMnnBuild.cmake
+
+ENV OPERIT_MNN_SOURCE=/opt/operit-native/mnn
 
 # bindgen resolves libclang through OPERIT_LIBCLANG_DIR on Linux hosts.
 ENV OPERIT_LIBCLANG_DIR=/usr/lib/llvm-18/lib
@@ -89,6 +130,21 @@ RUN curl -fsSL "https://dl.google.com/android/repository/android-ndk-r29-beta4-l
     && unzip -q /tmp/ndk.zip -d /opt \
     && rm /tmp/ndk.zip \
     && "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" --version > /dev/null
+
+# The Android terminal runtime is built from pinned third-party sources and
+# does not depend on the app. Producing it here removes the six-minute runtime
+# stage from every pipeline run; the stage only copies the finished assets.
+COPY tools/android-runtime/fetch_sources.sh /opt/operit-android-runtime/tools/android-runtime/fetch_sources.sh
+COPY tools/android-runtime/build_android_tools_wsl.sh /opt/operit-android-runtime/tools/android-runtime/build_android_tools_wsl.sh
+COPY tools/android-runtime/build_alpine_rootfs_wsl.sh /opt/operit-android-runtime/tools/android-runtime/build_alpine_rootfs_wsl.sh
+COPY tools/android-runtime/patches/termux-proot-operit-android.patch /opt/operit-android-runtime/tools/android-runtime/patches/termux-proot-operit-android.patch
+COPY tools/runtime/verify_alpine_node24.py /opt/operit-android-runtime/tools/runtime/verify_alpine_node24.py
+RUN cd /opt/operit-android-runtime \
+    && bash tools/android-runtime/fetch_sources.sh \
+    && bash tools/android-runtime/build_android_tools_wsl.sh \
+    && bash tools/android-runtime/build_alpine_rootfs_wsl.sh \
+    && rm -rf tools/android-runtime/downloads tools/android-runtime/sources \
+        "$HOME/.cache/operit-android-runtime"
 
 RUN curl -fsSL "https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-x64-release.zip" \
         -o /tmp/dart.zip \

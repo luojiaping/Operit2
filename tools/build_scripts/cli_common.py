@@ -285,7 +285,10 @@ def linux_cross_target_env(target: CliBuildTarget) -> dict[str, str]:
     if target.rust_target == "x86_64-unknown-linux-musl":
         linker = require_command("musl-gcc")
         build_env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"] = linker
-        build_env["CC_x86_64_unknown_linux_musl"] = linker
+        # A caller may pin a compiler pair that matches the C++ runtime of the
+        # V8 archive it links, so only fill in the default musl drivers.
+        build_env.setdefault("CC_x86_64_unknown_linux_musl", linker)
+        build_env.setdefault("CXX_x86_64_unknown_linux_musl", require_command("musl-g++"))
         return build_env
     if target.rust_target == "aarch64-unknown-linux-gnu":
         linker = require_command("aarch64-linux-gnu-gcc")

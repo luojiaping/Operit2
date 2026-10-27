@@ -86,7 +86,14 @@ fn main() {
                 .define("OHOS_STL", "c++_static");
         }
         let windows = os == "windows";
-        let shared = windows || os == "android" || target_env == "ohos";
+        // On Linux, V8's prebuilt archive carries its own libc++ while the
+        // native engines use the system libstdc++; their ABI symbols collide.
+        // A shared engine isolates the C++ runtime behind its C interface, as
+        // it already does on Windows, Android, and OHOS. A static musl binary
+        // cannot load a shared object, so that target keeps the static engine.
+        let shared =
+            windows || os == "android" || target_env == "ohos" || (os == "linux" && target_env != "musl");
+        config.define("OPERIT_LOCAL_LLM_SHARED", if shared { "ON" } else { "OFF" });
         let out_dir = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
         let profile_dir = out_dir
             .ancestors()
@@ -152,6 +159,16 @@ fn main() {
         }
         if shared {
             return;
+        }
+        // The static musl CLI resolves libc++ from the V8 archive. The runtime
+        // pieces V8 never references are built next to that archive, and have
+        // to precede the system libraries on the link line.
+        if let Some(directory) = std::env::var_os("OPERIT_CXX_SUPPLEMENT_DIR") {
+            println!(
+                "cargo:rustc-link-search=native={}",
+                std::path::PathBuf::from(directory).display()
+            );
+            println!("cargo:rustc-link-lib=static=operit_cxx_supplement");
         }
         match os.as_str() {
             "macos" | "ios" => println!("cargo:rustc-link-lib=c++"),

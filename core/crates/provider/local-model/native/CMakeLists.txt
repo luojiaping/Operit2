@@ -76,7 +76,8 @@ FetchContent_Declare(mnn URL https://codeload.github.com/alibaba/MNN/zip/refs/ta
     PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/PatchMnnBuild.cmake)
 FetchContent_MakeAvailable(mnn)
 # Isolate the platform C++ runtime from V8 behind the exported C interface.
-if(WIN32 OR ANDROID OR OHOS)
+option(OPERIT_LOCAL_LLM_SHARED "Build the local inference engine as a shared library" OFF)
+if(OPERIT_LOCAL_LLM_SHARED)
     add_library(operit_local_llm SHARED inference.cpp)
     set_target_properties(operit_local_llm PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "$<1:${OPERIT_LOCAL_LLM_RUNTIME_DIR}>"
