@@ -50,7 +50,7 @@ download_checked() {
     local sha256="$3"
 
     mkdir -p "$(dirname "$output")"
-    curl -fL --retry 5 --retry-delay 2 --retry-connrefused \
+    curl -fL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
         --connect-timeout 30 -o "$output" "$url"
     printf '%s  %s\n' "$sha256" "$output" | sha256sum -c -
 }
@@ -61,7 +61,7 @@ apk_index_record() {
     local index_path="$downloads_dir/APKINDEX-$repo-$host_arch.tar.gz"
 
     mkdir -p "$downloads_dir"
-    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
         --connect-timeout 30 -o "$index_path" "$mirror/$branch/$repo/$host_arch/APKINDEX.tar.gz"
     tar -xzO -f "$index_path" APKINDEX | awk -v package_name="$package_name" '
         BEGIN { RS = "" }
@@ -90,7 +90,7 @@ install_apk_static() {
 
     apk_name="apk-tools-static-$version.apk"
     apk_path="$downloads_dir/$apk_name"
-    curl -fL --retry 5 --retry-delay 2 --retry-connrefused \
+    curl -fL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
         --connect-timeout 30 -o "$apk_path" "$mirror/$branch/main/$host_arch/$apk_name"
 
     rm -rf "$apk_static_dir"
@@ -102,7 +102,7 @@ install_apk_static() {
 minirootfs_metadata() {
     local alpine_arch="$1"
 
-    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
         --connect-timeout 30 "$mirror/$branch/releases/$alpine_arch/latest-releases.yaml" | awk '
         BEGIN { RS = "-\n"; FS = "\n" }
         found != 1 && $0 ~ /flavor: alpine-minirootfs/ {
@@ -158,6 +158,7 @@ build_rootfs_for_abi() {
     local abi="$1"
     local alpine_arch
     local metadata
+    local metadata_output
     local release_branch
     local version
     local file
@@ -168,7 +169,12 @@ build_rootfs_for_abi() {
     local output_path
 
     alpine_arch="$(alpine_arch_for_abi "$abi")"
-    mapfile -t metadata < <(minirootfs_metadata "$alpine_arch")
+    metadata_output="$(minirootfs_metadata "$alpine_arch")"
+    mapfile -t metadata <<< "$metadata_output"
+    test "${#metadata[@]}" -eq 4 || {
+        echo "Unexpected minirootfs metadata for $alpine_arch: $metadata_output" >&2
+        exit 1
+    }
     release_branch="${metadata[0]}"
     version="${metadata[1]}"
     file="${metadata[2]}"
