@@ -406,6 +406,7 @@ class ThemeConversationRow extends StatelessWidget {
     required this.showActions,
     required this.action,
     this.workspaceStyle = false,
+    this.metadata,
     this.pinned = false,
     this.locked = false,
     this.dragHovering = false,
@@ -423,6 +424,7 @@ class ThemeConversationRow extends StatelessWidget {
   final bool showActions;
   final Widget action;
   final bool workspaceStyle;
+  final Widget? metadata;
   final bool pinned;
   final bool locked;
   final bool dragHovering;
@@ -476,6 +478,10 @@ class ThemeConversationRow extends StatelessWidget {
                   ),
                 ),
               ),
+              if (metadata != null) ...<Widget>[
+                const SizedBox(width: 5),
+                metadata!,
+              ],
               if (pinned) ...<Widget>[
                 const SizedBox(width: 5),
                 Icon(
