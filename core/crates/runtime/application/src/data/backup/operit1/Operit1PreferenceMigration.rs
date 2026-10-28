@@ -111,15 +111,6 @@ impl SnapshotFileImportPlan {
     }
 
     #[allow(non_snake_case)]
-    /// Rewrites the persisted chat workspace binding into the current virtual path space.
-    fn rewriteChatWorkspace(&self, workspace: Option<String>) -> Result<Option<String>, String> {
-        let Some(workspace) = workspace else {
-            return Ok(None);
-        };
-        self.rewritePath(&workspace).map(Some)
-    }
-
-    #[allow(non_snake_case)]
     fn rewriteWorkspacePath(&self, workspace: &str) -> Result<String, String> {
         let pathText = workspace.trim().replace('\\', "/");
         if pathText.is_empty() {

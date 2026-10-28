@@ -1,4 +1,5 @@
 import type { CharacterRepository, CharacterRepositoryOwner } from "../canonical";
+import { memoryJobProducer } from "./producer";
 import type { MemoryCandidate, MemoryChatMessage, MemoryRebuild, MemoryRebuildProgress, MemoryRebuildTask } from "../model";
 import { assertInteger, assertObject, assertStrings, requireId } from "../validation";
 import { extractMessages } from "./analysis";
@@ -20,6 +21,18 @@ export class MemoryJobStatusError extends Error {
   constructor(readonly executionError: unknown, readonly statusPublicationError: unknown) {
     super("Memory job failed: " + errorText(executionError) + "; status publication also failed: " + errorText(statusPublicationError));
     this.name = "MemoryJobStatusError";
+  }
+}
+
+/** Retains every failed owner after independent owners finish their own work. */
+export class MemoryJobPassError extends Error {
+  /** Keeps original failures and completed work available to diagnostics without reporting false success. */
+  constructor(readonly failures: Array<{ ownerKey: string; error: unknown }>, readonly report: MemoryJobReport) {
+    super("Memory jobs failed for " + failures.length + " owner(s): " + failures.map(
+      /** Identifies each failed owner while retaining its original failure text. */
+      failure => failure.ownerKey + ": " + errorText(failure.error),
+    ).join("; "));
+    this.name = "MemoryJobPassError";
   }
 }
 
@@ -62,7 +75,7 @@ export async function enqueueCandidate(input: CandidateRequest, repository: Char
       /** Authorizes only the exact submitted resource through the already-read current author permissions. */
       resource => resource.key === ownerKey && resource.writable,
     )) throw new Error("Current message author cannot write this memory owner: " + ownerKey);
-    await repository.readMemorySpace(ownerKey); owners.add(ownerKey);
+    await repository.readMemoryJobState(ownerKey); owners.add(ownerKey);
   } else if (input.ownerKey !== null) {
     await requireChatOwner(input.chatId, input.ownerKey, repository); owners.add(input.ownerKey);
   } else {
@@ -71,8 +84,9 @@ export async function enqueueCandidate(input: CandidateRequest, repository: Char
     owners.add(await primaryOwner(participants[0], repository));
   }
   const result: CandidateResult = { owners: [...owners], candidateIds: [] }, now = Date.now();
+  const producerNodeId = await memoryJobProducer();
   for (const ownerKey of owners) {
-    const space = await repository.readMemorySpace(ownerKey), previous = space.candidates.filter(
+    const space = await repository.readMemoryJobState(ownerKey), previous = space.candidates.filter(
       /** Uses the full owner-scoped source identity for genuine hook idempotency. */
       candidate => candidate.chatId === input.chatId && candidate.triggerMessageTimestamp === input.timestamp && candidate.triggerVariantIndex === input.variantIndex && candidate.sourceType === input.sourceType,
     );
@@ -82,32 +96,32 @@ export async function enqueueCandidate(input: CandidateRequest, repository: Char
       continue;
     }
     const id = await repository.allocateRecordId();
-    space.candidates.push({ id, chatId: input.chatId, triggerMessageTimestamp: input.timestamp, triggerVariantIndex: input.variantIndex, createdAt: now, updatedAt: now, status: "pending", attemptCount: 0, lastError: "", sourceType: input.sourceType });
+    space.candidates.push({ id, producerNodeId, chatId: input.chatId, triggerMessageTimestamp: input.timestamp, triggerVariantIndex: input.variantIndex, createdAt: now, updatedAt: now, status: "pending", attemptCount: 0, lastError: "", sourceType: input.sourceType });
     if (space.settings.autoSaveIntervalMinutes > 0 && space.settings.nextAutoSaveRunAtMs === 0) space.settings.nextAutoSaveRunAtMs = now + space.settings.autoSaveIntervalMinutes * 60000;
-    await repository.writeMemorySpace(ownerKey, space); result.candidateIds.push(id);
+    await repository.writeMemoryJobState(ownerKey, space); result.candidateIds.push(id);
   }
   return result;
 }
 
 /** Returns genuine terminal failures to the pending queue so a later interval can retry them. */
 export async function retryFailedCandidates(ownerKey: string, repository: CharacterRepository): Promise<{ retried: number }> {
-  const space = await repository.readMemorySpace(ownerKey), now = Date.now();
+  const space = await repository.readMemoryJobState(ownerKey), now = Date.now(), producerNodeId = await memoryJobProducer();
   let retried = 0;
   for (const candidate of space.candidates) if (candidate.status === "failed") {
-    candidate.status = "pending"; candidate.lastError = ""; candidate.updatedAt = now; retried += 1;
+    candidate.producerNodeId = producerNodeId; candidate.status = "pending"; candidate.lastError = ""; candidate.updatedAt = now; retried += 1;
   }
-  if (retried !== 0) await repository.writeMemorySpace(ownerKey, space);
+  if (retried !== 0) await repository.writeMemoryJobState(ownerKey, space);
   return { retried };
 }
 
 /** Removes only terminal failed records so the queue stops reporting permanent failures. */
 export async function clearFailedCandidates(ownerKey: string, repository: CharacterRepository): Promise<{ cleared: number }> {
-  const space = await repository.readMemorySpace(ownerKey);
+  const space = await repository.readMemoryJobState(ownerKey);
   const remaining = space.candidates.filter(
     /** Retains pending and processing records for their real owners. */
     candidate => candidate.status !== "failed",
   ), cleared = space.candidates.length - remaining.length;
-  if (cleared !== 0) { space.candidates = remaining; await repository.writeMemorySpace(ownerKey, space); }
+  if (cleared !== 0) { space.candidates = remaining; await repository.writeMemoryJobState(ownerKey, space); }
   return { cleared };
 }
 
@@ -117,9 +131,9 @@ export async function startMemoryRebuild(ownerKey: string, rebuild: MemoryRebuil
   for (const key of ["fromInclusive", "toInclusive"] as const) if (rebuild[key] !== null) assertInteger(rebuild[key], key, 0);
   if (rebuild.fromInclusive !== null && rebuild.toInclusive !== null && rebuild.fromInclusive > rebuild.toInclusive) throw new Error("Rebuild start must not follow its end");
   if (rebuild.chatIds.length === 0) throw new Error("Rebuild requires selected chats");
-  const space = await repository.readMemorySpace(ownerKey);
+  const space = await repository.readMemoryJobState(ownerKey);
   if (space.rebuildProgress.status === "preparing" || space.rebuildProgress.status === "running") throw new Error("Memory rebuild is already active");
-  const task: MemoryRebuildTask = { id: await repository.allocateRecordId(), windows: [], nextWindow: 0 }, ids = new Set<string>();
+  const task: MemoryRebuildTask = { id: await repository.allocateRecordId(), producerNodeId: await memoryJobProducer(), windows: [], nextWindow: 0 }, ids = new Set<string>();
   for (const id of rebuild.chatIds) {
     requireId(id, "rebuild chat id"); if (ids.has(id)) throw new Error("Duplicate selected rebuild chat: " + id); ids.add(id);
     const chat = await requireChat(id), messages = await readMessages(id); await requireMessagesOwner(id, messages, ownerKey, repository);
@@ -132,7 +146,7 @@ export async function startMemoryRebuild(ownerKey: string, rebuild: MemoryRebuil
   for (const window of task.windows) { totalSourceMessages += window.sourceMessageCount; plannedChats.add(window.chatId); }
   space.rebuildTask = task; space.rebuildProgress = { status: "preparing", totalChats: plannedChats.size, completedChats: 0,
     totalWindows: task.windows.length, completedWindows: 0, totalSourceMessages, processedSourceMessages: 0, failedWindows: 0, currentChatTitle: "", lastError: "" };
-  await repository.writeMemorySpace(ownerKey, space); return space.rebuildProgress;
+  await repository.writeMemoryJobState(ownerKey, space); return space.rebuildProgress;
 }
 
 /** Advances a finished window and counts visited sources independently of the failure counter. */
@@ -152,7 +166,7 @@ async function processRebuildWindow(ownerKey: string, taskId: string, owner: Cha
     await owner.run(
       /** Keeps one model result, graph mutation and progress checkpoint in the same publication. */
       async repository => {
-        const space = await repository.readMemorySpace(ownerKey), task = space.rebuildTask;
+        const space = await repository.readMemoryJobState(ownerKey), task = space.rebuildTask;
         if (task === null || task.id !== taskId) throw new Error("Rebuild task identity changed");
         if (space.rebuildProgress.status === "cancelled") return;
         if (space.rebuildProgress.status !== "preparing" && space.rebuildProgress.status !== "running") throw new Error("Rebuild task is not runnable");
@@ -167,10 +181,10 @@ async function processRebuildWindow(ownerKey: string, taskId: string, owner: Cha
         }
         await requireMessagesOwner(window.chatId, window.messages, ownerKey, repository);
         await extractMessages(ownerKey, window.messages, repository);
-        const updated = await repository.readMemorySpace(ownerKey), savedTask = updated.rebuildTask;
+        const updated = await repository.readMemoryJobState(ownerKey), savedTask = updated.rebuildTask;
         if (savedTask === null || savedTask.id !== taskId || savedTask.nextWindow !== task.nextWindow) throw new Error("Rebuild cursor changed within execution");
         advanceRebuildWindow(savedTask, updated.rebuildProgress);
-        await repository.writeMemorySpace(ownerKey, updated);
+        await repository.writeMemoryJobState(ownerKey, updated);
       },
     );
   } catch (error) {
@@ -179,12 +193,12 @@ async function processRebuildWindow(ownerKey: string, taskId: string, owner: Cha
       () => owner.run(
         /** Retains the error and skips the failed window without publishing partial memory edits. */
         async repository => {
-          const space = await repository.readMemorySpace(ownerKey);
+          const space = await repository.readMemoryJobState(ownerKey);
           if (space.rebuildTask === null || space.rebuildTask.id !== taskId) throw new Error("Failed rebuild task identity changed");
           if (space.rebuildProgress.status === "cancelled") return;
           space.rebuildProgress.failedWindows += 1; space.rebuildProgress.lastError = errorText(error);
           advanceRebuildWindow(space.rebuildTask, space.rebuildProgress);
-          await repository.writeMemorySpace(ownerKey, space);
+          await repository.writeMemoryJobState(ownerKey, space);
         },
       ),
     );
@@ -243,7 +257,7 @@ async function processCandidates(ownerKey: string, candidates: MemoryCandidate[]
           }
           await extractMessages(ownerKey, messages, repository);
         }
-        const space = await repository.readMemorySpace(ownerKey);
+        const space = await repository.readMemoryJobState(ownerKey);
         for (const candidate of space.candidates) {
           const failure = failures.get(candidate.id);
           if (failure !== undefined) failCandidate(candidate, failure);
@@ -252,7 +266,7 @@ async function processCandidates(ownerKey: string, candidates: MemoryCandidate[]
           /** Deletes only candidates included in the committed extraction. */
           candidate => !completed.has(candidate.id),
         );
-        await repository.writeMemorySpace(ownerKey, space);
+        await repository.writeMemoryJobState(ownerKey, space);
       },
     );
   } catch (error) {
@@ -262,12 +276,12 @@ async function processCandidates(ownerKey: string, candidates: MemoryCandidate[]
       () => owner.run(
         /** Preserves individual source errors when a later extraction also fails. */
         async repository => {
-          const space = await repository.readMemorySpace(ownerKey);
+          const space = await repository.readMemoryJobState(ownerKey);
           for (const candidate of space.candidates) {
             const failure = failures.get(candidate.id);
             if (failure !== undefined) failCandidate(candidate, failure);
           }
-          await repository.writeMemorySpace(ownerKey, space);
+          await repository.writeMemoryJobState(ownerKey, space);
         },
       ),
     );
@@ -297,88 +311,109 @@ export class MemoryJobRunner {
     return this.running;
   }
 
-  /** Advances persisted rebuild windows and due candidates once. */
+  /** Advances only tasks produced by this device while preserving independent owner failures. */
   private async runTick(): Promise<MemoryJobReport> {
-    const prunedOwners = await this.owner.run(
-      /** Drops memory owners whose backing entity vanished; without this their first transaction throws every interval. */
+    await this.owner.run(
+      /** Removes memory owners whose backing entity disappeared. */
       repository => repository.pruneOrphanMemoryOwners(),
     );
     const keys = await this.owner.run(
-      /** Enumerates only genuine initialized memory spaces. */
+      /** Enumerates initialized memory owners without loading their corpora. */
       repository => repository.listMemoryOwnerKeys(),
     ), report = { owners: keys.length, rebuildWindows: 0, candidateBatches: 0 };
+    const failures: Array<{ ownerKey: string; error: unknown }> = [], producerNodeId = await memoryJobProducer();
     for (const ownerKey of keys) {
-      await this.owner.run(
-        /** Reclaims only outdated processing claims so interrupted batches can genuinely run again. */
-        async repository => {
-          const space = await repository.readMemorySpace(ownerKey), now = Date.now();
-          let reclaimed = 0;
-          for (const candidate of space.candidates) if (candidate.status === "processing" && now - candidate.updatedAt >= CANDIDATE_PROCESSING_LEASE_MS) {
-            candidate.status = "pending"; candidate.updatedAt = now; reclaimed += 1;
-          }
-          if (reclaimed !== 0) await repository.writeMemorySpace(ownerKey, space);
-        },
-      );
-      const taskId = await this.owner.run(
-        /** Reads a persisted runnable rebuild identity without fabricating a job. */
-        async repository => {
-          const space = await repository.readMemorySpace(ownerKey);
-          return space.rebuildTask !== null && (space.rebuildProgress.status === "preparing" || space.rebuildProgress.status === "running") ? space.rebuildTask.id : null;
-        },
-      );
-      if (taskId !== null) { await processRebuildWindow(ownerKey, taskId, this.owner); report.rebuildWindows += 1; }
-      const batches = await this.owner.run(
-        /** Claims only due pending records; failed attempts are never automatically retried. */
-        async repository => {
-          if (!(await repository.readGlobalMemoryPreferences()).autoUpdateEnabled) return [] as MemoryCandidate[][];
-          const space = await repository.readMemorySpace(ownerKey), now = Date.now();
-          if (space.settings.autoSaveIntervalMinutes === 0 || now < space.settings.nextAutoSaveRunAtMs) return [] as MemoryCandidate[][];
-          const pending = space.candidates.filter(
-            /** Selects genuinely pending records, not terminal failures. */
-            candidate => candidate.status === "pending",
-          );
-          const batches: MemoryCandidate[][] = [];
-          if (pending.length >= 5) {
-            const grouped = new Map<string, MemoryCandidate[]>();
-            for (const candidate of pending) { const list = grouped.get(candidate.chatId); if (list === undefined) grouped.set(candidate.chatId, [candidate]); else list.push(candidate); }
-            for (const records of grouped.values()) {
-              const capped = records.sort(
-                /** Applies the Kotlin oldest-source order before the per-chat twenty-record cap. */
-                (left, right) => left.triggerMessageTimestamp - right.triggerMessageTimestamp || left.createdAt - right.createdAt,
-              ).slice(0, 20);
-              for (const sourceType of ["selected_user_message", "reply_finalized_auto"] as const) {
-                const batch = capped.filter(
-                  /** Preserves the original selected/automatic source partition. */
-                  candidate => candidate.sourceType === sourceType,
-                );
-                if (batch.length !== 0) batches.push(batch);
-              }
-            }
-          }
-          space.settings.nextAutoSaveRunAtMs = now + space.settings.autoSaveIntervalMinutes * 60000;
-          await repository.writeMemorySpace(ownerKey, space); return batches;
-        },
-      );
-      for (const batch of batches) {
-        const claimed = await this.owner.run(
-          /** Claims each batch immediately before processing so independent failures cannot strand later work. */
-          async repository => {
-            if (!(await repository.readGlobalMemoryPreferences()).autoUpdateEnabled) return false;
-            const space = await repository.readMemorySpace(ownerKey), ids = new Set<string>();
-            for (const candidate of batch) ids.add(candidate.id);
-            let count = 0;
-            for (const candidate of space.candidates) if (ids.has(candidate.id)) {
-              if (candidate.status !== "pending") throw new Error("Candidate is no longer pending: " + candidate.id);
-              candidate.status = "processing"; candidate.attemptCount += 1; candidate.updatedAt = Date.now(); count += 1;
-            }
-            if (count !== batch.length) throw new Error("A selected candidate no longer exists");
-            await repository.writeMemorySpace(ownerKey, space); return true;
-          },
-        );
-        if (!claimed) break;
-        await processCandidates(ownerKey, batch, this.owner); report.candidateBatches += 1;
-      }
+      try { await this.runOwner(ownerKey, producerNodeId, report); }
+      catch (error) { failures.push({ ownerKey, error }); }
     }
+    if (failures.length !== 0) throw new MemoryJobPassError(failures, report);
     return report;
+  }
+
+  /** Advances one owner's rebuild window and due candidate batches. */
+  private async runOwner(ownerKey: string, producerNodeId: string, report: MemoryJobReport): Promise<void> {
+    const runnable = await this.owner.run(
+      /** Recovers this device's interrupted work and exposes released tasks with unknown provenance. */
+      async repository => {
+        const space = await repository.readMemoryJobState(ownerKey), now = Date.now();
+        let changed = false;
+        for (const candidate of space.candidates) {
+          if (candidate.producerNodeId === undefined && candidate.status !== "failed") {
+            failCandidate(candidate, "This legacy task has no producing device. Retry it on the device that should process it."); changed = true;
+          } else if (candidate.producerNodeId === producerNodeId && candidate.status === "processing" && now - candidate.updatedAt >= CANDIDATE_PROCESSING_LEASE_MS) {
+            candidate.status = "pending"; candidate.updatedAt = now; changed = true;
+          }
+        }
+        const task = space.rebuildTask, active = space.rebuildProgress.status === "preparing" || space.rebuildProgress.status === "running";
+        if (task !== null && task.producerNodeId === undefined && active) {
+          space.rebuildProgress.status = "failed";
+          space.rebuildProgress.lastError = "This legacy rebuild has no producing device. Start a new rebuild on the device that should process it.";
+          changed = true;
+        }
+        if (changed) await repository.writeMemoryJobState(ownerKey, space);
+        return (task !== null && task.producerNodeId === producerNodeId && active)
+          || space.candidates.some(/** Selects only runnable requests created on this device. */ candidate => candidate.producerNodeId === producerNodeId && candidate.status === "pending");
+      },
+    );
+    if (!runnable) return;
+    const taskId = await this.owner.run(
+      /** Reads a persisted runnable rebuild identity without fabricating a job. */
+      async repository => {
+        const space = await repository.readMemoryJobState(ownerKey);
+        return space.rebuildTask !== null && space.rebuildTask.producerNodeId === producerNodeId && (space.rebuildProgress.status === "preparing" || space.rebuildProgress.status === "running") ? space.rebuildTask.id : null;
+      },
+    );
+    if (taskId !== null) { await processRebuildWindow(ownerKey, taskId, this.owner); report.rebuildWindows += 1; }
+    const batches = await this.owner.run(
+      /** Claims only due pending records; failed attempts are never automatically retried. */
+      async repository => {
+        if (!(await repository.readGlobalMemoryPreferences()).autoUpdateEnabled) return [] as MemoryCandidate[][];
+        const space = await repository.readMemoryJobState(ownerKey), now = Date.now();
+        if (space.settings.autoSaveIntervalMinutes === 0 || now < space.settings.nextAutoSaveRunAtMs) return [] as MemoryCandidate[][];
+        const pending = space.candidates.filter(
+          /** Selects genuinely pending records, not terminal failures. */
+          candidate => candidate.producerNodeId === producerNodeId && candidate.status === "pending",
+        );
+        const batches: MemoryCandidate[][] = [];
+        if (pending.length >= 5) {
+          const grouped = new Map<string, MemoryCandidate[]>();
+          for (const candidate of pending) { const list = grouped.get(candidate.chatId); if (list === undefined) grouped.set(candidate.chatId, [candidate]); else list.push(candidate); }
+          for (const records of grouped.values()) {
+            const capped = records.sort(
+              /** Applies the Kotlin oldest-source order before the per-chat twenty-record cap. */
+              (left, right) => left.triggerMessageTimestamp - right.triggerMessageTimestamp || left.createdAt - right.createdAt,
+            ).slice(0, 20);
+            for (const sourceType of ["selected_user_message", "reply_finalized_auto"] as const) {
+              const batch = capped.filter(
+                /** Preserves the original selected/automatic source partition. */
+                candidate => candidate.sourceType === sourceType,
+              );
+              if (batch.length !== 0) batches.push(batch);
+            }
+          }
+        }
+        space.settings.nextAutoSaveRunAtMs = now + space.settings.autoSaveIntervalMinutes * 60000;
+        await repository.writeMemoryJobState(ownerKey, space); return batches;
+      },
+    );
+    for (const batch of batches) {
+      const claimed = await this.owner.run(
+        /** Claims each batch immediately before processing so independent failures cannot strand later work. */
+        async repository => {
+          if (!(await repository.readGlobalMemoryPreferences()).autoUpdateEnabled) return false;
+          const space = await repository.readMemoryJobState(ownerKey), ids = new Set<string>();
+          for (const candidate of batch) ids.add(candidate.id);
+          let count = 0;
+          for (const candidate of space.candidates) if (ids.has(candidate.id)) {
+            if (candidate.producerNodeId !== producerNodeId || candidate.status !== "pending") throw new Error("Candidate is no longer pending on this device: " + candidate.id);
+            candidate.status = "processing"; candidate.attemptCount += 1; candidate.updatedAt = Date.now(); count += 1;
+          }
+          if (count !== batch.length) throw new Error("A selected candidate no longer exists");
+          await repository.writeMemoryJobState(ownerKey, space); return true;
+        },
+      );
+      if (!claimed) break;
+      await processCandidates(ownerKey, batch, this.owner); report.candidateBatches += 1;
+    }
   }
 }

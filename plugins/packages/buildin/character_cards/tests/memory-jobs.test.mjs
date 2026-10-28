@@ -275,29 +275,30 @@ test("controlled Chat/AI: a malformed analysis item is skipped while the rest of
 });
 
 /** Preserves both original failures when execution and real status-file publication fail, for each production job path. */
-test("controlled Chat/AI: rebuild and candidate execution plus state-publication failures retain both errors and stop the same repository", async t => {
-  for (const kind of ["rebuild", "candidates"]) {
+test("controlled Chat/AI: rebuild and candidate execution plus state-publication failures retain both errors without poisoning unrelated reads", async t => {
+  for (const [kind, publication] of [["rebuild", "io"], ["candidates", "io"], ["rebuild", "conflict"], ["candidates", "conflict"]]) {
     const harness = await createMemoryJobsHarness(t), runtime = harness.openRuntime(); await runtime.initialize(); await runtime.bind();
     if (kind === "rebuild") await runtime.startRebuild();
     else { await runtime.enqueueReplies(); await runtime.makeDue(); }
-    const failure = new Error("Controlled execution failure: " + kind), statusFailure = new Error("Controlled native state publication failure: " + kind);
+    const failure = new Error("Controlled execution failure: " + kind), statusFailure = new Error(publication === "conflict" ? "Storage version conflict: owners/" + CONTROLLED_OWNER : "Controlled native state publication failure: " + kind);
     const before = await readOwner(harness); harness.disk.clearCalls(); harness.queueExecutionAndStatusError(failure, statusFailure);
     await assert.rejects(runtime.interval(),
       /** Checks exact preserved error identities from both unsuccessful phases. */
-      error => error.name === "MemoryJobStatusError" && error.executionError === failure && error.statusPublicationError === statusFailure,
+      error => error.name === "MemoryJobPassError" && error.failures.length === 1
+        && error.failures[0].error.name === "MemoryJobStatusError"
+        && error.failures[0].error.executionError === failure && error.failures[0].error.statusPublicationError === statusFailure,
     );
     harness.assertOutputsConsumed(); const stored = await readOwner(harness); assert.deepEqual(stored.memories, before.memories);
     if (kind === "rebuild") { assert.equal(stored.rebuildProgress.status, "preparing"); assert.equal(stored.rebuildProgress.completedWindows, 0); assert.equal(stored.rebuildProgress.failedWindows, 0); }
     else { assert.equal(stored.candidates.length, 5); for (const candidate of stored.candidates) { assert.equal(candidate.status, "processing"); assert.equal(candidate.attemptCount, 1); } }
-    const calls = harness.modelCalls.length;
-    await assert.rejects(runtime.interval(),
-      /** Requires the retained original IO rejection from the repository's fail-stop state. */
-      error => error === statusFailure,
-    );
-    assert.equal(harness.modelCalls.length, calls);
+    assert.ok((await runtime.api("memory.rebuild.progress", owner)).status.length > 0);
     const writes = harness.disk.calls.filter(call => call.method === "storage.commit");
     assert.ok(writes.length > 0, "The failure must occur during an actual storage transaction");
-    const unpublished = writes[writes.length - 1].args[0];
+    /** Locates the attempted failure publication by its actual collection. */
+    const publicationCollection = kind === "rebuild" ? "owners" : "candidates";
+    const unpublished = [...writes].reverse().find(
+      call => call.args[0].some(mutation => mutation.op === "put" && mutation.collection === publicationCollection),
+    ).args[0];
     if (kind === "rebuild") {
       const owner = unpublished.find(mutation => mutation.collection === "owners" && mutation.op === "put");
       assert.equal(owner.value.rebuildProgress.status, "running");
@@ -498,4 +499,114 @@ test("controlled Chat/AI: interval prunes orphan memory owners and still serves 
   /** A second interval runs cleanly without the orphan and keeps making progress for the genuine owner. */
   await runtime.interval();
   assert.equal((await harness.readState()).owners.some(space => space.ownerKey === "character:90a3122d-b374-4422-9589-44a9d7fc18a9"), false);
+});
+
+
+/** Owner failures stay visible while independent owners complete and later intervals remain usable. */
+test("memory jobs isolate real owner failures without swallowing composite publication errors", async () => {
+  const { MemoryJobRunner, MemoryJobStatusError } = loadModule("src/memory-jobs/scheduler.ts", {
+    /** Supplies only the executing device identity for this scheduler boundary test. */
+    async toolCall() { return JSON.stringify({ currentNodeId: "controlled-node", nodes: [] }); },
+  });
+  for (const failure of [new Error("Storage version conflict: owners/first"), new MemoryJobStatusError(new Error("model failed"), new Error("Storage version conflict: owners/first"))]) {
+    let failFirst = true;
+    const visited = new Set();
+    const owner = {
+      /** Exposes the actual scheduling boundary without replacing the runner's failure policy. */
+      async run(callback) {
+        return callback({
+          /** Keeps this fixture focused on initialized owners. */
+          async pruneOrphanMemoryOwners() { return 0; },
+          /** Schedules the failing owner before a healthy independent owner. */
+          async listMemoryOwnerKeys() { return ["first", "healthy"]; },
+          /** Retains the original failure identity or reads a genuine idle job state. */
+          async readMemoryJobState(ownerKey) {
+            visited.add(ownerKey);
+            if (ownerKey === "first" && failFirst) throw failure;
+            return { candidates: [], rebuildTask: null, rebuildProgress: { status: "idle" } };
+          },
+          /** Prevents candidate work while testing owner error isolation. */
+          async readGlobalMemoryPreferences() { return { autoUpdateEnabled: false }; },
+        });
+      },
+    };
+    const runner = new MemoryJobRunner(owner);
+    await assert.rejects(runner.tick(),
+      /** Requires both the original error and the completed independent owner's report. */
+      error => error.name === "MemoryJobPassError" && error.failures.length === 1
+        && error.failures[0].ownerKey === "first" && error.failures[0].error === failure
+        && error.report.owners === 2,
+    );
+    assert.ok(visited.has("healthy"));
+    failFirst = false;
+    assert.equal((await runner.tick()).owners, 2);
+  }
+});
+
+
+/** Independent replicas never reclaim another device's work and can process their own sources while disconnected. */
+test("producer ownership: independent devices process only the replies they produced", async t => {
+  const a = await createMemoryJobsHarness(t, "node-a"), b = await createMemoryJobsHarness(t, "node-b");
+  const first = a.openRuntime(), second = b.openRuntime();
+  await first.initialize(); await first.bind(); await second.initialize(); await second.bind();
+  await first.enqueueReplies();
+  const replicated = await a.readState(), source = replicated.owners.find(space => space.ownerKey === CONTROLLED_OWNER);
+  assert.ok(source.candidates.every(candidate => candidate.producerNodeId === "node-a"));
+  source.candidates[0].status = "processing"; source.candidates[0].updatedAt = 1;
+  a.disk.replaceState(replicated); b.disk.replaceState(replicated);
+  const before = b.disk.stateBytes(); await second.interval();
+  assert.deepEqual(b.disk.stateBytes(), before); assert.equal(b.modelCalls.length, 0);
+
+  for (const index of [1, 3, 5, 7, 9]) await second.persistMessage(b.message(index));
+  await second.makeDue(); b.queueAnalysis({}); await second.interval(); b.assertOutputsConsumed();
+  const remaining = (await readOwner(b)).candidates;
+  assert.equal(b.modelCalls.length, 1); assert.deepEqual(remaining, source.candidates);
+
+  // The producer resumes its original work on restart without contacting the other device.
+  const restarted = a.openRuntime(); await restarted.initialize(); await restarted.makeDue();
+  a.queueAnalysis({}); await restarted.interval(); a.assertOutputsConsumed();
+  assert.equal(a.modelCalls.length, 1); assert.equal((await readOwner(a)).candidates.length, 0);
+});
+
+/** A synchronized rebuild plan retains its requesting device instead of starting on every replica. */
+test("producer ownership: a remote rebuild is read-only until its requester resumes", async t => {
+  const a = await createMemoryJobsHarness(t, "node-a"), b = await createMemoryJobsHarness(t, "node-b");
+  const first = a.openRuntime(), second = b.openRuntime();
+  await first.initialize(); await first.bind(); await second.initialize(); await second.bind();
+  await first.startRebuild(); const state = await a.readState();
+  assert.equal(state.owners.find(space => space.ownerKey === CONTROLLED_OWNER).rebuildTask.producerNodeId, "node-a");
+  b.disk.replaceState(state); const before = b.disk.stateBytes();
+  await second.interval(); assert.deepEqual(b.disk.stateBytes(), before); assert.equal(b.modelCalls.length, 0);
+  a.queueAnalysis({}); await first.interval(); a.assertOutputsConsumed();
+  assert.equal((await readOwner(a)).rebuildTask.nextWindow, 1);
+});
+
+/** Released unassigned work stays visible and requires an explicit retry rather than an invented producer. */
+test("producer ownership: legacy candidates fail visibly and explicit retry records the requesting device", async t => {
+  const harness = await createMemoryJobsHarness(t, "node-b"), runtime = harness.openRuntime();
+  await runtime.initialize(); await runtime.bind(); await runtime.enqueueReplies();
+  const state = await harness.readState();
+  for (const candidate of state.owners.find(space => space.ownerKey === CONTROLLED_OWNER).candidates) delete candidate.producerNodeId;
+  harness.disk.replaceState(state); await runtime.interval();
+  const failed = (await readOwner(harness)).candidates;
+  assert.equal(harness.modelCalls.length, 0);
+  assert.ok(failed.every(candidate => candidate.status === "failed" && candidate.lastError.includes("no producing device")));
+  assert.deepEqual(plain(await runtime.web({ action: "retryFailedCandidates", ownerKey: CONTROLLED_OWNER })), { retried: 5 });
+  assert.ok((await readOwner(harness)).candidates.every(candidate => candidate.producerNodeId === "node-b"));
+  await runtime.makeDue(); harness.queueAnalysis({}); await runtime.interval(); harness.assertOutputsConsumed();
+  assert.equal((await readOwner(harness)).candidates.length, 0);
+});
+
+/** Missing provenance on a released rebuild never assigns execution to whichever device first sees it. */
+test("producer ownership: legacy rebuilds require an explicit new request", async t => {
+  const harness = await createMemoryJobsHarness(t, "node-b"), runtime = harness.openRuntime();
+  await runtime.initialize(); await runtime.bind(); await runtime.startRebuild();
+  const state = await harness.readState();
+  delete state.owners.find(space => space.ownerKey === CONTROLLED_OWNER).rebuildTask.producerNodeId;
+  harness.disk.replaceState(state); await runtime.interval();
+  const failed = await readOwner(harness);
+  assert.equal(harness.modelCalls.length, 0); assert.equal(failed.rebuildProgress.status, "failed");
+  assert.match(failed.rebuildProgress.lastError, /no producing device/u);
+  await runtime.startRebuild(); harness.queueAnalysis({}); await runtime.interval(); harness.assertOutputsConsumed();
+  assert.equal((await readOwner(harness)).rebuildTask.producerNodeId, "node-b");
 });

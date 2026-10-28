@@ -41,6 +41,14 @@ const MAX_SYNC_PAGES_PER_PASS: usize = 64;
 const PEER_FULL_SYNC_BACKOFF_BASE_MS: i64 = 2_000;
 /// Ceiling for the exponential retry delay of one peer's full synchronization pass.
 const PEER_FULL_SYNC_BACKOFF_MAX_MS: i64 = 60_000;
+/// Fast workspace-scan polling while scans keep finding changes. App writes and
+/// incoming batches scan inline, so this only bounds discovery latency for
+/// writes made by terminals and external editors while activity continues.
+const WORKSPACE_SCAN_ACTIVE_INTERVAL_MS: u64 = 2_000;
+/// Idle ceiling for the adaptive workspace-scan backoff. Steady-state scans are
+/// metadata-only (unchanged sizes reuse inventory references), so one listing
+/// comparison per minute is the worst idle cost.
+const WORKSPACE_SCAN_IDLE_INTERVAL_MS: u64 = 60_000;
 
 /// Per-peer scheduling state behind the change-gated synchronization floor.
 ///
@@ -249,20 +257,29 @@ impl SpacePersistenceSyncService {
         defaultHostRuntimeTaskSchedulerHost().scheduleHostRuntimeAsyncTask(
             "core-node-workspace-file-scan",
             Box::new(move || Box::pin(async move {
+                let mut intervalMs = WORKSPACE_SCAN_ACTIVE_INTERVAL_MS;
                 loop {
                     tokio::select! {
                         _ = &mut stopped => break,
-                        result = defaultHostRuntimeTaskSchedulerHost().waitForHostRuntimeDelay(2000) => {
+                        result = defaultHostRuntimeTaskSchedulerHost().waitForHostRuntimeDelay(intervalMs) => {
                             if result.is_err() { break; }
                         }
                     }
                     let Some(state) = weakState.upgrade() else { break; };
                     if !state.active.load(Ordering::Acquire) { break; }
                     let service = SpacePersistenceSyncService { state };
-                    if let Err(error) = service.workspaceFiles().scan() {
+                    let mut changes = 0;
+                    if let Err(error) = service.workspaceFiles().scan().map(|scanned| changes = scanned) {
                         operit_util::AppLogger::AppLogger::w("SpacePersistenceSyncService",
                             &format!("Workspace scan failed; no missing-file deletions published: {error}"));
                     }
+                    // A productive round pulls the scanner back to fast polling;
+                    // quiet rounds double the interval up to the idle ceiling.
+                    intervalMs = if changes > 0 {
+                        WORKSPACE_SCAN_ACTIVE_INTERVAL_MS
+                    } else {
+                        (intervalMs * 2).min(WORKSPACE_SCAN_IDLE_INTERVAL_MS)
+                    };
                     // Also retry interrupted transfers even when no new edits occur.
                     let _ = service.scheduleSynchronization();
                 }
@@ -541,17 +558,22 @@ impl SpacePersistenceSyncService {
     /// trigger: the replication journal clock (journal plus chat storage,
     /// mirroring the application clock), projected operations and preferences.
     /// Projected operations advance neither clock, so their count is what
-    /// makes this device push relayed authority to its peers. Read through
-    /// local stores directly: gating must never enter the application
-    /// backend, which non-storage peers are not permitted to reach.
+    /// makes this device push relayed authority to its peers. Device
+    /// preferences have their own revision. The process mutation revision is
+    /// deliberately excluded: opening and closing a storage handle publishes
+    /// it without writing any data, which would schedule a pass per plugin
+    /// read. Read through local stores directly: gating must never enter the
+    /// application backend, which non-storage peers are not permitted to reach.
     async fn localStateSummary(&self) -> Result<String, String> {
         let storageHost = self.state.localRuntime.runtimeStorageHost();
-        let mut clock = operit_store::SyncOperationStore::SyncOperationStore::new(
+        let syncStore = operit_store::SyncOperationStore::SyncOperationStore::new(
             storageHost.clone(),
             RUNTIME_SYNC_DIR_PATH.to_string(),
-        )
-        .localClock()
-        .map_err(|error| error.to_string())?;
+        );
+        let localDeviceId = syncStore.localDeviceId().map_err(|error| error.to_string())?;
+        let mut clock = syncStore
+            .localClock()
+            .map_err(|error| error.to_string())?;
         // The chat storage belongs to the process default store root. A root
         // that was never registered means this process holds no chat state
         // at all, so an empty chat clock is the correct contribution; a real
@@ -581,13 +603,18 @@ impl SpacePersistenceSyncService {
                 }
             }
         }
+        // Operations applied from peers advance their origins in this clock.
+        // Counting that as local progress would open a full pass for every
+        // member whenever any other device writes, even though this device may
+        // have nothing to send. Members fetch another member's operations over
+        // routed links, so a partition catches up when the route returns.
+        clock.retainAuthoredBy(&localDeviceId);
         let control = NetworkControlStore::new(storageHost)?;
         Ok(format!(
-            "{}#{}#{}#{}",
+            "{}#{}#{}",
             serde_json::to_string(&clock).map_err(|error| error.to_string())?,
             control.projectionEntryCount()?,
-            operit_store::DevicePreferencesStore::devicePreferencesMutationRevision(),
-            operit_store::SyncOperationStore::syncMutationRevision()
+            operit_store::DevicePreferencesStore::devicePreferencesMutationRevision()
         ))
     }
 
@@ -640,26 +667,59 @@ impl SpacePersistenceSyncService {
                     gate.lastRemoteClockSummary.as_deref() != Some(summary.as_str())
                         || gate.lastLocalStateSummary.as_deref() != Some(localStateSummary)
                 }
-                // The clock is unobservable (the probe was lost): fall back to
-                // exchanging, as before.
-                Err(_) => true,
+                // The clock is unobservable (the probe was lost). Forcing the
+                // full exchange from here made every cycle re-export the whole
+                // operation journal against an unreachable peer — seconds of
+                // serialization per attempt, indefinitely. Record the failed
+                // pass instead so the exponential backoff governs the retry;
+                // once the peer answers again, the retry converges and the
+                // gate returns to probing.
+                Err(_) => {
+                    self.recordPeerPassFailed(targetNodeId);
+                    false
+                }
             }
         };
         cycleDecisions.insert(targetNodeId.to_string(), decision);
         decision
     }
 
-    /// Reads one peer's synchronization clock through the cheap probe RPC and
-    /// returns its comparable summary.
+    /// Reads one peer's comparable change fingerprint through the cheap probe
+    /// RPC. The fingerprint is a constant-size digest of the durable operation
+    /// clocks, so idle cycles never move the complete per-entity clock. Peers
+    /// that predate the digest method still answer the full clock probe, which
+    /// is summarized exactly as before.
     async fn probeRemoteClockSummary(&self, targetNodeId: &str) -> Result<String, String> {
-        let clock: Value = callRemote(
+        match callRemote::<Value>(
             &self.state.nodeRouter,
             targetNodeId,
-            PeerSyncMethod::SyncClock,
+            PeerSyncMethod::SyncClockDigest,
             Value::Null,
         )
-        .await?;
-        Ok(summarizeSyncClock(&clock))
+        .await
+        {
+            Ok(value) => value
+                .get("digest")
+                .and_then(Value::as_str)
+                .filter(|digest| !digest.is_empty())
+                .map(|digest| format!("digest:{digest}"))
+                .ok_or_else(|| "remote synchronization clock digest is missing".to_string()),
+            // Only a peer that predates the digest method is expected to
+            // answer this way. Every other failure means the probe was lost,
+            // and reading the full clock instead would hide that from the
+            // backoff gate (and momentarily compare two different formats).
+            Err(error) if peerSyncDigestUnsupported(&error) => {
+                let clock: Value = callRemote(
+                    &self.state.nodeRouter,
+                    targetNodeId,
+                    PeerSyncMethod::SyncClock,
+                    Value::Null,
+                )
+                .await?;
+                Ok(summarizeSyncClock(&clock))
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Records one completed full pass: the freshly probed clock and the
@@ -1605,6 +1665,14 @@ fn summarizeSyncClock(value: &Value) -> String {
         "ranges={}#pending={}#errors={}",
         value["ranges"], value["pending"], value["errors"]
     )
+}
+
+/// Reports whether a peer refused the digest probe because its synchronization
+/// surface does not implement the method (an older build), as opposed to a
+/// lost or failed probe.
+#[allow(non_snake_case)]
+fn peerSyncDigestUnsupported(error: &str) -> bool {
+    error.contains("PEER_SYNC_METHOD_DENIED")
 }
 
 

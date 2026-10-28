@@ -116,7 +116,7 @@
         return mostRecentLiveCallId(excludeCallId);
     }
 
-    function registerCallSession(callId, params) {
+    function registerCallSession(callId, params, toolPkgContext) {
         var resolvedCallId = normalizeCallId(callId);
         if (!resolvedCallId) {
             throw new Error('callId is required');
@@ -127,6 +127,7 @@
         callState.callId = resolvedCallId;
         callState.activatedAt = nextCallActivation();
         callState.params = params && typeof params === 'object' ? params : {};
+        callState.toolPkgContext = toolPkgContext ? Object.freeze(toolPkgContext) : null;
         callState.completed = false;
         callState.resultCompleted = false;
         callState.detached = false;
@@ -139,8 +140,6 @@
         callState.lastRequireRequest = '';
         callState.lastRequireFrom = '';
         callState.lastRequireResolved = '';
-        callState.currentModule = null;
-        callState.currentModuleExports = null;
         callState.timerIds = {};
         callState.previousCallId = '';
         callState.previousCallRuntime = null;
@@ -180,6 +179,9 @@
         var callState = getCallState(callId);
         if (!callState) return;
         callState.pendingReferences = Math.max(0, Number(callState.pendingReferences || 0) - 1);
+        if (callState.detached && callState.pendingReferences === 0) {
+            root.__operitNotifyDetachedCall(callId);
+        }
     }
 
     /** Finalizes one detached call after its queued JavaScript jobs are delivered. */
@@ -250,6 +252,10 @@
     });
 
     var originalThen = Promise.prototype.then;
+    /** Internal timer reactions already retain their owner through the timer registration. */
+    expose('__operitThenUntracked', function(promise, fulfilled, rejected) {
+        return originalThen.call(promise, fulfilled, rejected);
+    });
     /** Retains each subscribed reaction until delivery under its exact execution owner. */
     Promise.prototype.then = function(onFulfilled, onRejected) {
         var ownerCallId = normalizeCallId(root.__operitCurrentCallId);
@@ -413,14 +419,6 @@
     expose('__operitBuildRuntimeContext', buildRuntimeContext);
 
     expose('__operitGetActiveModuleExports', function() {
-        if (
-            root.__operitActiveModule &&
-            typeof root.__operitActiveModule === 'object' &&
-            root.__operitActiveModule.exports
-        ) {
-            return root.__operitActiveModule.exports;
-        }
-        var exportsRef = root.__operitActiveModuleExports;
-        return exportsRef && typeof exportsRef === 'object' ? exportsRef : exportsRef || null;
+        return root.__operitActiveModule ? root.__operitActiveModule.exports : null;
     });
 })();

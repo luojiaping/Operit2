@@ -464,6 +464,14 @@ void main() {
                   )
                   .args
               as Map;
+      final render = bridge.calls.firstWhere(
+        (call) => call.methodName == 'render',
+      );
+      final runtimeOptions = (render.args as Map)['runtimeOptions'] as Map;
+      expect(
+        runtimeOptions['moduleSpec'],
+        containsPair('screenExport', 'Translation'),
+      );
       expect(invocation['chatId'], 'translation-chat');
       expect(invocation['messageIndex'], 3);
       expect((invocation['message'] as Map)['content'], 'Selected message');
@@ -2613,6 +2621,7 @@ core_proxy.ToolPkgContainerRuntime _pluginRuntime() {
     chatInputHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     chatViewHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     chatMessageHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
+    chatResponseHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     chatMessageMenuItems: <core_proxy.ToolPkgChatMessageMenuItemRuntime>[],
     chatRuntimeHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     hostEventHooks: <core_proxy.ToolPkgHostEventHookRuntime>[],
@@ -2686,6 +2695,7 @@ core_proxy.ToolPkgContainerRuntime _moduleOnlyPluginRuntime() {
     chatInputHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     chatViewHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     chatMessageHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
+    chatResponseHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     chatMessageMenuItems: <core_proxy.ToolPkgChatMessageMenuItemRuntime>[],
     chatRuntimeHooks: <core_proxy.ToolPkgFunctionHookRuntime>[],
     hostEventHooks: <core_proxy.ToolPkgHostEventHookRuntime>[],
@@ -2791,6 +2801,7 @@ class _ToolPkgDslTestBridge extends OperitRuntimeBridge {
             order: 20,
             dialog: core_proxy.ToolPkgChatMessageMenuDialog(
               screen: 'ui/translate.js',
+              screenExport: 'Translation',
               title: 'Translation dialog',
             ),
           ).toJson(),
