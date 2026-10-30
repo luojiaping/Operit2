@@ -301,6 +301,33 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get messageLocatorSearchMessages => '搜索消息';
+
+  @override
+  String get messageLocatorViewFavorites => '查看收藏';
+
+  @override
+  String get messageLocatorAll => '全部';
+
+  @override
+  String get messageLocatorFavorites => '收藏';
+
+  @override
+  String get messageLocatorNoFavorites => '还没有收藏的消息';
+
+  @override
+  String get messageLocatorLoadFailed => '暂时无法加载消息，请重试';
+
+  @override
+  String get messageLocatorFavoriteFailed => '收藏更新失败，请重试';
+
+  @override
+  String get messageLocatorAddFavorite => '收藏消息';
+
+  @override
+  String get messageLocatorRemoveFavorite => '取消收藏';
+
+  @override
   String get messageLocatorNoMatches => '没有匹配的消息';
 
   @override
@@ -3720,13 +3747,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsPeerPortModeHelp =>
-      '固定模式使用填写的 IP 和端口，适用于内网穿透和端口映射。固定端口被占用时会报错，不会改变监听地址。';
+      '默认由系统分配可用端口，并通过局域网发现公布。固定模式使用填写的监听地址和端口，端口被占用时会报错。';
 
   @override
   String get settingsPeerPortMode => '端口分配方式';
 
   @override
-  String get settingsPeerPortModeFixed => '固定 IP 和端口';
+  String get settingsPeerPortModeFixed => '固定监听地址和端口';
 
   @override
   String get settingsPeerPortModeAutomatic => '自动分配端口';
@@ -3745,7 +3772,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsPeerTransportHelp =>
-      '暴露方式（可多选）。HTTP 和 WebSocket 可共用端口；TCP 暂不能与它们共用端口。蓝牙需要平台支持。关闭发现并取消全部选择可停止监听。修改设置会中断现有连接；仅关闭发现不会关闭直接连接。';
+      '暴露方式（可多选）。HTTP、WebSocket 和 TCP 共用同一个监听端口，可自由组合。蓝牙需要平台支持。关闭发现并取消全部选择可停止监听。修改设置会中断现有连接；仅关闭发现不会关闭直接连接。';
 
   @override
   String get settingsPeerBindAddress => '监听 IP 地址';
@@ -3760,14 +3787,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPeerBindPortHelp => '固定模式使用此端口监听。';
 
   @override
-  String get settingsPeerBindPortAutomaticHelp => '自动模式会从此端口开始选择空闲端口。';
+  String get settingsPeerBindPortAutomaticHelp => '由系统分配可用端口；启动后显示实际端口。';
 
   @override
   String get settingsPeerDiscoveryNeedsTransport => '开启允许被搜索前，请至少选择一种暴露方式。';
-
-  @override
-  String get settingsPeerPortConflict =>
-      '当前 TCP 不能与 HTTP/WebSocket 共用监听端口，请选择 TCP 或 HTTP/WebSocket。';
 
   @override
   String get settingsPeerAddressRequired => '请输入监听 IP 地址。';
@@ -3915,7 +3938,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deviceSpaceUpdateEndpointLabel => '直连地址';
 
   @override
-  String get deviceSpaceUpdateEndpointHint => '例如 ws://192.168.1.20:37195/link';
+  String get deviceSpaceUpdateEndpointHint =>
+      '例如 ws://主机:端口/link 或 主机:端口 —— 填对方当前的监听端口';
 
   @override
   String get deviceSpaceUpdateEndpointSaved => '直连地址已更新';
@@ -3939,6 +3963,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get devicePickerNearby => '附近设备';
+
+  @override
+  String devicePickerDiscoveryFailed(String error) {
+    return '附近设备发现失败：$error';
+  }
 
   @override
   String get devicePickerEmpty => '暂未发现附近设备';
@@ -4191,6 +4220,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deviceSpaceSyncRecords => '正在交换数据记录';
 
   @override
+  String deviceSpaceSyncRecordProgress(int completed, int total, int percent) {
+    return '$completed / $total 条 · $percent%';
+  }
+
+  @override
+  String deviceSpaceSyncPendingCount(int count) {
+    return '待应用 $count 条';
+  }
+
+  @override
+  String deviceSpaceSyncCounting(int count) {
+    return '正在统计总量 · 已处理 $count 条';
+  }
+
+  @override
   String get deviceSpaceSyncFiles => '正在传输并校验文件';
 
   @override
@@ -4229,4 +4273,101 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get runtimeActivityLoadingPackages => '加载扩展';
+
+  @override
+  String get peerQrTitle => '二维码连接';
+
+  @override
+  String get peerQrScan => '扫码连接';
+
+  @override
+  String get peerQrShow => '出示连接码';
+
+  @override
+  String get peerQrShowHint => '让另一台设备扫描此码，连接到这台设备。';
+
+  @override
+  String get peerQrScanHint => '扫描另一台设备的 Operit 连接码。';
+
+  @override
+  String get peerQrTrustHint => '二维码只提供连接地址。连接仍需对方显示的配对码，加入空间仍需审批。';
+
+  @override
+  String get peerQrListenerRequired => '请先在连接设置中开启接收连接，并连接到可用的网络。';
+
+  @override
+  String get peerQrCopy => '复制连接信息';
+
+  @override
+  String get peerQrCopied => '已复制';
+
+  @override
+  String get peerQrImport => '从图片识别';
+
+  @override
+  String get peerQrPaste => '或粘贴连接信息';
+
+  @override
+  String get peerQrRead => '识别连接信息';
+
+  @override
+  String get peerQrWrongDevice => '此连接码属于其他设备，请扫描当前所选设备的连接码。';
+
+  @override
+  String get peerQrImageInvalid => '未能从图片中识别二维码。请选择清晰的二维码图片（不超过 16 MB）。';
+
+  @override
+  String get peerQrCameraUnavailable => '此设备暂时无法使用相机扫码，你可以导入二维码图片或粘贴连接信息。';
+
+  @override
+  String get peerQrCameraPermission => '需要相机权限才能扫码。请在系统设置中允许相机访问，也可导入图片。';
+
+  @override
+  String get peerQrDevice => '连接设备';
+
+  @override
+  String get peerQrScanAgain => '重新扫码';
+
+  @override
+  String get peerQrMethodsHint => '发现不到设备？也可以使用连接码。';
+
+  @override
+  String get toolParametersLabel => '参数';
+
+  @override
+  String get toolResultLabel => '执行结果';
+
+  @override
+  String toolGroupThinkingCount(int count) {
+    return '$count 次思考';
+  }
+
+  @override
+  String toolGroupCallCount(int count) {
+    return '$count 次调用';
+  }
+
+  @override
+  String toolGroupSearchCount(int count) {
+    return '$count 次搜索';
+  }
+
+  @override
+  String toolEditedFileCount(int count) {
+    return '已编辑 $count 个文件';
+  }
+
+  @override
+  String get toolViewChanges => '查看变更';
+
+  @override
+  String toolViewFileDiff(String fileName) {
+    return '查看 $fileName 的变更';
+  }
+
+  @override
+  String get toolGroupCompleted => '已完成';
+
+  @override
+  String get toolGroupExecuting => '正在执行';
 }

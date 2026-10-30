@@ -3,8 +3,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:operit2/ui/features/chat/viewmodel/ChatMessageLookupRequests.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operit2/core/bridge/OperitRuntimeBridge.dart';
+import 'package:operit2/core/host/AppToastController.dart';
 import 'package:operit2/core/logging/ClientLogger.dart';
 import 'package:operit2/core/link/CoreLinkCodec.dart';
 import 'package:operit2/core/link/CoreLinkProtocol.dart';
@@ -80,6 +82,47 @@ void main() {
       await tester.pump();
     },
   );
+
+  for (final entry in <(String, bool)>[('搜索消息', false), ('查看收藏', true)]) {
+    testWidgets(
+      'sidebar ${entry.$1} activates the selected conversation first',
+      (tester) async {
+        final bridge = _DrawerBridge();
+        await _pumpDrawer(tester, bridge, [
+          _history('lookup', 0),
+        ], currentChatId: 'another-chat');
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(DrawerContent)),
+        )!;
+        final row = find.byType(ConversationDrawerItem);
+        await tester.tap(
+          row,
+          buttons: kSecondaryMouseButton,
+          kind: PointerDeviceKind.mouse,
+        );
+        await _pumpSidebar(tester);
+        await tester.tap(
+          find.text(
+            entry.$2
+                ? l10n.messageLocatorViewFavorites
+                : l10n.messageLocatorSearchMessages,
+          ),
+        );
+        await _pumpSidebar(tester);
+        final calls = bridge.calls.where(
+          (call) => call.methodName == 'switchChat',
+        );
+        expect(calls, hasLength(1));
+        expect((calls.single.args as Map)['chatId'], 'lookup-0');
+        final request = ChatMessageLookupRequests.requests.value!;
+        expect(request.chatId, 'lookup-0');
+        expect(request.favoritesOnly, entry.$2);
+        ChatMessageLookupRequests.consume(request);
+        ChatSelectionTransition.complete('lookup-0');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('brand header fits the narrow drawer beside the tab switch', (
     tester,
@@ -674,6 +717,102 @@ void main() {
     },
   );
 
+  testWidgets(
+    'workspace deletion confirms before deleting the whole workspace',
+    (tester) async {
+      final bridge = _DrawerBridge();
+      await _pumpDrawer(tester, bridge, [_history('A', 0), _history('A', 1)]);
+      final header = find.byKey(const ValueKey('workspace-header:workspace:A'));
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(DrawerContent)),
+      )!;
+      Future<void> openDelete() async {
+        await tester.tap(
+          find.descendant(of: header, matching: find.byTooltip('项目操作')),
+        );
+        await _pumpSidebar(tester);
+        await tester.tap(find.text('删除工作区'));
+        await _pumpSidebar(tester);
+      }
+
+      await openDelete();
+      expect(find.textContaining('共享默认区域及其中的文件将被删除'), findsOneWidget);
+      expect(
+        bridge.calls.where((call) => call.methodName == 'deleteWorkspace'),
+        isEmpty,
+      );
+      await tester.tap(find.widgetWithText(TextButton, l10n.cancel));
+      await _pumpSidebar(tester);
+      expect(
+        bridge.calls.where((call) => call.methodName == 'deleteWorkspace'),
+        isEmpty,
+      );
+      await openDelete();
+      await tester.tap(find.widgetWithText(TextButton, l10n.delete));
+      await _pumpSidebar(tester);
+      final calls = bridge.calls.where(
+        (call) => call.methodName == 'deleteWorkspace',
+      );
+      expect(calls, hasLength(1));
+      expect((calls.single.args as Map)['workspaceId'], 'A');
+      expect(
+        bridge.calls.where((call) => call.methodName == 'deleteChatHistory'),
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'workspace cleanup errors keep the workspace available for retry',
+    (tester) async {
+      addTearDown(AppToastController.instance.reset);
+      final bridge = _DrawerBridge(workspaceDeleteAllowed: false);
+      await _pumpDrawer(tester, bridge, [_history('A', 0)]);
+      final header = find.byKey(const ValueKey('workspace-header:workspace:A'));
+      await tester.tap(
+        find.descendant(of: header, matching: find.byTooltip('项目操作')),
+      );
+      await _pumpSidebar(tester);
+      await tester.tap(find.text('删除工作区'));
+      await _pumpSidebar(tester);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(DrawerContent)),
+      )!;
+      await tester.tap(find.widgetWithText(TextButton, l10n.delete));
+      await _pumpSidebar(tester);
+      expect(header, findsOneWidget);
+      expect(find.textContaining('Workspace cleanup failed'), findsWidgets);
+      expect(
+        bridge.calls.where((call) => call.methodName == 'removePreference'),
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+      AppToastController.instance.reset();
+      await _pumpSidebar(tester);
+    },
+  );
+
+  testWidgets('unbound conversations have no workspace deletion action', (
+    tester,
+  ) async {
+    final bridge = _DrawerBridge();
+    final chat = core.ChatHistoryListItem.fromJson({
+      ..._history('unbound', 0).toJson(),
+      'workspaceId': null,
+      'workspaceName': null,
+    });
+    await _pumpDrawer(tester, bridge, [chat]);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('workspace-header:workspace:unbound')),
+        matching: find.byTooltip('项目操作'),
+      ),
+    );
+    await _pumpSidebar(tester);
+    expect(find.text('删除工作区'), findsNothing);
+  });
+
   testWidgets('top project and group creation keep explicit ownership', (
     tester,
   ) async {
@@ -1022,12 +1161,16 @@ core.ChatHistoryListItem _history(
 );
 
 class _DrawerBridge extends OperitRuntimeBridge {
-  _DrawerBridge({this.deleteAllowed = true});
+  _DrawerBridge({
+    this.deleteAllowed = true,
+    this.workspaceDeleteAllowed = true,
+  });
 
   static const String _userFile = 'user_preferences.preferences.json';
   static const String _dockFile = 'sidebar_dock.preferences.json';
 
   final bool deleteAllowed;
+  final bool workspaceDeleteAllowed;
   final List<CoreCallRequest> calls = <CoreCallRequest>[];
   final Map<String, Map<String, Object?>> _preferences =
       <String, Map<String, Object?>>{
@@ -1060,8 +1203,9 @@ class _DrawerBridge extends OperitRuntimeBridge {
 
   Map<String, Object?> _preferencesFor(String fileName) {
     final values = _preferences[fileName];
-    if (values == null)
+    if (values == null) {
       throw StateError('Unexpected preference file: $fileName');
+    }
     return values;
   }
 
@@ -1149,6 +1293,11 @@ class _DrawerBridge extends OperitRuntimeBridge {
           'moveChatToWorkspace' ||
           'bindChatToWorkspace' ||
           'unbindChatFromWorkspace':
+        return encodeCoreLink(<Object?>[0, null]);
+      case 'deleteWorkspace':
+        if (!workspaceDeleteAllowed) {
+          throw StateError('Workspace cleanup failed');
+        }
         return encodeCoreLink(<Object?>[0, null]);
       case 'deleteChatHistory':
         return encodeCoreLink(<Object?>[0, deleteAllowed]);

@@ -65,9 +65,10 @@ pub const AUTO_READ_PREVIEW_MAX: usize = 48;
 pub fn coreResponseStreamSource(
     stream: SharedAiResponseStream,
     streamKey: String,
+    toolHandler: Option<operit_tools::tools::AIToolHandler::AIToolHandler>,
 ) -> Arc<CoreStreamSource> {
     Arc::new(CoreStreamSource::new(move |request| {
-        openCoreResponseStream(stream.clone(), streamKey.clone(), request)
+        openCoreResponseStream(stream.clone(), streamKey.clone(), request, toolHandler.clone())
     }))
 }
 
@@ -76,6 +77,7 @@ fn openCoreResponseStream(
     stream: SharedAiResponseStream,
     streamKey: String,
     request: CoreWatchRequest,
+    toolHandler: Option<operit_tools::tools::AIToolHandler::AIToolHandler>,
 ) -> Result<CoreEventStream, CoreLinkError> {
     let (sender, receiver) = CoreEventStream::channel();
     AppLogger::trace(
@@ -92,7 +94,7 @@ fn openCoreResponseStream(
         .scheduleHostRuntimeAsyncTask(
             "core-runtime-text-markdown",
             Box::new(move || {
-                Box::pin(collectCoreResponseStream(stream, streamKey, request, sender))
+                Box::pin(collectCoreResponseStream(stream, streamKey, request, sender, toolHandler))
             }),
         )
         .map_err(|error| CoreLinkError::internal(error.to_string()))?;
@@ -105,14 +107,21 @@ async fn collectCoreResponseStream(
     streamKey: String,
     request: CoreWatchRequest,
     sender: tokio::sync::mpsc::UnboundedSender<CoreEvent>,
+    toolHandler: Option<operit_tools::tools::AIToolHandler::AIToolHandler>,
 ) {
     let mut markdownStream = MarkdownRenderEventStream::new(streamKey.clone());
+    for mut event in markdownStream.beginSnapshot("") {
+        if let Some(handler) = &toolHandler { handler.decorateToolDisplayEvent(&mut event); }
+        sendCoreTextEvent(&sender, &request.requestId, request.target.clone(), &request.propertyName,
+            CoreEventKind::Changed, operit_link::toCoreValue(event).expect("MarkdownStreamEvent must serialize"));
+    }
     let mut textRevisions = TextStreamRevisionTracker::new("");
     let mut itemCollector = |item: ResponseStreamItem| match item {
         ResponseStreamItem::Chunk(chunk) => {
             let _ = textRevisions.append(&chunk);
             let events = markdownStream.pushChunk(&chunk);
-            for event in events {
+            for mut event in events {
+                if let Some(handler) = &toolHandler { handler.decorateToolDisplayEvent(&mut event); }
                 sendCoreTextEvent(
                     &sender,
                     &request.requestId,
@@ -182,7 +191,8 @@ async fn collectCoreResponseStream(
             request.requestId.0, streamKey
         ),
     );
-    for event in markdownStream.finish() {
+    for mut event in markdownStream.finish() {
+        if let Some(handler) = &toolHandler { handler.decorateToolDisplayEvent(&mut event); }
         let kind = if event.isRootCompletion() {
             CoreEventKind::Completed
         } else {
@@ -941,6 +951,17 @@ impl MessageProcessingDelegate {
             runtime.activeTurnId == turnId && !runtime.isCancelling
         })
         .unwrap_or(false)
+    }
+
+    /// Ends source execution after its final segment is committed, before route compaction acquires ownership.
+    #[allow(non_snake_case)]
+    pub(crate) fn releaseExecutionForRoute(&self, chatId: &str, turnId: u64) -> bool {
+        self.withExistingRuntime(Some(chatId.to_string()), |runtime| {
+            if runtime.activeTurnId != turnId || runtime.isCancelling { return false; }
+            let Some(lease) = runtime.executionLease.take() else { return false; };
+            lease.release().expect("Route handoff must release source execution");
+            true
+        }).unwrap_or(false)
     }
 
     /// Clears one turn's runtime state without touching a newer turn for the chat.
@@ -2083,7 +2104,7 @@ impl MessageProcessingDelegate {
             })?;
         AIMessageManager::applyConfigurationIdentity(&mut aiMessage, &configuration);
         let streamKey = format!("chat-message-stream:{}:{}", chatId, aiMessage.timestamp);
-        let segmentSource = coreResponseStreamSource(sharedResponseStream.clone(), streamKey);
+        let segmentSource = coreResponseStreamSource(sharedResponseStream.clone(), streamKey, Some(request.enhancedAiService.tool_handler.clone()));
         aiMessage.contentStream = Some(CoreStream::fromSourceWithId(
             format!("chat-message-stream:{}:{}", chatId, aiMessage.timestamp),
             segmentSource,
@@ -2237,9 +2258,8 @@ impl MessageProcessingDelegate {
             snapshotPartStream
                 .resetToSnapshot(content)
                 .expect("streaming assistant snapshot must parse into message parts");
-            streamingMessage.parts = snapshotPartStream
-                .finish()
-                .expect("streaming assistant snapshot must finish into message parts");
+            // A persistence tick does not end the stream or require pending tags to close.
+            streamingMessage.parts = snapshotPartStream.parts().to_vec();
             persistChatHistoryDelegate
                 .lock()
                 .expect("worker chat history mutex poisoned")
@@ -2638,6 +2658,13 @@ impl MessageProcessingDelegate {
                             }
                         });
                         if let Some(routeChange) = pendingRouteChange {
+                            if !completionMessageProcessingDelegate
+                                .lock()
+                                .expect("worker message processing delegate mutex poisoned")
+                                .releaseExecutionForRoute(&completionChatId, completionTurnId)
+                            {
+                                return;
+                            }
                             ChainLogger::verbose_with_level(
                                 SEND_CHAIN,
                                 "send.route_change.request",
@@ -2717,7 +2744,7 @@ impl MessageProcessingDelegate {
                                 return;
                             }
                         }
-                        if tokenLimitExceeded.load(Ordering::Acquire) {
+                        if !hasRouteChange && tokenLimitExceeded.load(Ordering::Acquire) {
                             let mut delegate = completionMessageProcessingDelegate
                                 .lock()
                                 .expect("worker message processing delegate mutex poisoned")
@@ -3170,6 +3197,7 @@ mod tests {
             "response".to_string(),
             request.clone(),
             sender,
+            None,
         );
         tokio::pin!(first);
         assert!(first.as_mut().now_or_never().is_none());
@@ -3185,6 +3213,7 @@ mod tests {
             "response".to_string(),
             request,
             sender,
+            None,
         );
         tokio::pin!(second);
         assert!(second.as_mut().now_or_never().is_none());
@@ -3229,7 +3258,7 @@ mod tests {
             args: CoreValue::emptyMap(),
         };
         let (sender, mut receiver) = CoreEventStream::channel();
-        super::collectCoreResponseStream(producer, "response".to_string(), request, sender).await;
+        super::collectCoreResponseStream(producer, "response".to_string(), request, sender, None).await;
         let mut terminal = 0;
         let mut nested_completed = 0;
         let mut text = String::new();

@@ -26,6 +26,22 @@ pub struct RuntimeFileSyncStore {
     syncOperationStore: SyncOperationStore,
 }
 
+/// The losing side supplies coverage without resending its business contents.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileCoverage {
+    pub owner: crate::Transaction::Owner,
+    pub covered: std::collections::BTreeSet<String>,
+}
+
+/// The winning file plus the losing history coverage it supersedes.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileCorrectionReference {
+    pub source: RuntimeFileSyncReference,
+    pub superseded: Option<RuntimeFileSyncReference>,
+}
+
 impl RuntimeFileSyncStore {
     /// Creates a runtime file synchronization store over one host and operation root.
     pub fn new(storageHost: Arc<dyn RuntimeStorageHost>, syncRootPath: impl Into<String>) -> Self {
@@ -379,7 +395,7 @@ impl RuntimeFileSyncStore {
 
     /// Persists local bytes and returns their verified content identity.
     #[allow(non_snake_case)]
-    fn storeBlob(&self, content: &[u8]) -> Result<RuntimeFileSyncReference, String> {
+    pub fn storeBlob(&self, content: &[u8]) -> Result<RuntimeFileSyncReference, String> {
         let size = i64::try_from(content.len())
             .map_err(|_| "runtime file size does not fit i64".to_string())?;
         let reference = RuntimeFileSyncReference {
@@ -392,7 +408,7 @@ impl RuntimeFileSyncStore {
 
     /// Reads and verifies one complete content-addressed blob.
     #[allow(non_snake_case)]
-    pub(crate) fn readBlob(&self, reference: &RuntimeFileSyncReference) -> Result<Vec<u8>, String> {
+    pub fn readBlob(&self, reference: &RuntimeFileSyncReference) -> Result<Vec<u8>, String> {
         validateBlobReference(reference)?;
         let content = self
             .storageHost
@@ -495,10 +511,15 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct MemoryStorageHost {
+    journalHost: Arc<crate::transaction_test_host::TransactionJournalHost>,
         files: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
     }
 
     impl RuntimeStorageHost for MemoryStorageHost {
+    fn openTransactionDatabase(&self, path: &str) -> operit_host_api::HostResult<Box<dyn operit_host_api::RuntimeSqliteConnection>> {
+        self.journalHost.open(path)
+    }
+
         /// Confirms synchronous in-memory publication without copying or rewriting bytes.
         fn flushFile(&self, path: &str) -> operit_host_api::HostResult<()> {
             if !self.exists(path)? {

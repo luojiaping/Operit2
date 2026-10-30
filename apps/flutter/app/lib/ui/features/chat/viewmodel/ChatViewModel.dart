@@ -351,6 +351,9 @@ class ChatViewModel {
 
     try {
       checkCancellation();
+      if (expectedChatId == null || expectedChatId.trim().isEmpty) {
+        throw StateError('File attachments require a selected chat');
+      }
       uploadId = await transfer.beginAttachmentUpload(
         fileName: file.name,
         expectedByteLength: file.byteLength,
@@ -430,7 +433,7 @@ class ChatViewModel {
     final buffer = StringBuffer('<attachment ');
     const escape = HtmlEscape(HtmlEscapeMode.attribute);
     final normalized = attachment.filePath.replaceAll('\\', '/');
-    const marker = '/chat_attachments/';
+    const marker = '/data/chat_attachments/';
     final markerIndex = normalized.lastIndexOf(marker);
     String? toolPath;
     if (markerIndex >= 0) {
@@ -441,7 +444,7 @@ class ChatViewModel {
               .every(
                 (part) => part.isNotEmpty && part != '.' && part != '..',
               )) {
-        toolPath = '/app/data/chat_attachments/$relative';
+        toolPath = '/app/data/data/chat_attachments/$relative';
       }
     }
     buffer.write('id="${escape.convert(toolPath ?? attachment.filePath)}" ');
@@ -782,11 +785,6 @@ extension ChatMessagePresentation on core_proxy.ChatMessage {
             ..write('>')
             ..write(part.content)
             ..write('</status>');
-        case core_proxy.MessagePartKind.interactiveUi:
-          markup
-            ..write('<openui>')
-            ..write(part.content)
-            ..write('</openui>');
       }
     }
     return markup.toString();
@@ -796,7 +794,7 @@ extension ChatMessagePresentation on core_proxy.ChatMessage {
   String get editableText {
     return switch (sender) {
       'ai' => assistantProtocolMarkup,
-      'user' => displayText,
+      'user' || 'summary' => displayText,
       _ => throw StateError('Message sender cannot be edited: $sender'),
     };
   }

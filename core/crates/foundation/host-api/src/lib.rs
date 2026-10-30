@@ -1594,6 +1594,8 @@ pub enum ManagedRuntimeProgram {
     Python,
     Uv,
     Pnpm,
+    /// Selects a caller-specified executable through the host's command resolver.
+    Command(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1628,6 +1630,11 @@ pub trait ManagedRuntimeProcess: Send {
 }
 
 pub trait ManagedRuntimeHost: Send + Sync {
+    /// Opens a resolved native path using an explicit desktop integration action.
+    fn openPath(&self, path: &str, action: RuntimePathAction) -> HostResult<()> {
+        let _ = (path, action);
+        Err(HostError::new("This host does not expose external path launch actions"))
+    }
     fn runtimeWorkspaceDir(&self) -> HostResult<String>;
     fn resolveRuntimeExecutable(
         &self,
@@ -1640,6 +1647,15 @@ pub trait ManagedRuntimeHost: Send + Sync {
     ) -> HostResult<Box<dyn ManagedRuntimeProcess>>;
     fn runRuntimeCommand(&self, request: RuntimeProcessRequest)
         -> HostResult<RuntimeCommandOutput>;
+}
+
+/// Platform-neutral intent for an external native path action.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuntimePathAction {
+    Reveal,
+    Terminal,
+    /// Passes arguments followed by the resolved path to the named executable.
+    Application { program: String, args: Vec<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1804,6 +1820,18 @@ pub struct RuntimeStorageEntry {
 }
 
 pub trait RuntimeStorageHost: Send + Sync {
+    /// Opens a transaction journal in this storage namespace.
+    fn openTransactionDatabase(&self, _path: &str) -> HostResult<Box<dyn RuntimeSqliteConnection>> {
+        Err(HostError::new("This storage host does not provide a SQL transaction journal"))
+    }
+
+    /// Whether parsed preferences should remain cached. Constrained hosts may
+    /// reload node-local durable bytes on reads and release idle store state.
+    /// Concurrent handles still share a transaction; returned snapshots are immutable.
+    fn retainPreferencesCache(&self) -> bool { true }
+    /// Explicit terminal Space-application retention for bounded endpoint storage.
+    /// Cache eviction alone never authorizes deleting durable application history.
+    fn nodeLocalApplicationHistoryLimit(&self) -> Option<usize> { None }
     /// Returns the physical root used for runtime storage entries.
     fn runtimeRootDir(&self) -> Option<PathBuf>;
     /// Returns the physical root used for workspace storage entries.
@@ -2079,8 +2107,16 @@ impl PartialEq<Value> for HostJavaScriptValue {
 pub type HostJavaScriptCallback =
     Arc<dyn Fn(Vec<HostJavaScriptValue>) -> HostResult<Value> + Send + Sync + 'static>;
 
+/// Returns one binary payload with small structured metadata, without Base64 or byte arrays in JSON.
+pub type HostJavaScriptBinaryCallback = Arc<dyn Fn(Vec<Value>) -> HostResult<(Value, Vec<u8>)> + Send + Sync + 'static>;
+
 /// Owns one concrete JavaScript runtime created by the active platform host.
 pub trait HostJavaScriptRuntime {
+    /// Installs a synchronous binary resource reader returning { metadata, bytes: Uint8Array }.
+    fn registerHostJavaScriptBinaryFunction(&mut self, _name: &str, _callback: HostJavaScriptBinaryCallback) -> HostResult<()> {
+        Err(HostError::new("JavaScript binary resource bindings are unavailable"))
+    }
+
     /// Executes shared trusted bootstrap bytecode in this runtime's independent global scope.
     fn evaluateHostJavaScriptBootstrap(&mut self, source: &'static str) -> HostResult<()>;
 

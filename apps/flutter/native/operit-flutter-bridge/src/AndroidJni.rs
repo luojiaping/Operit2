@@ -11,6 +11,32 @@ use std::sync::Arc;
 #[path = "AndroidJniTaskScheduler.rs"]
 mod task_scheduler;
 
+/// Runs process primitives in the privileged service without creating a Core runtime.
+#[no_mangle]
+pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_privilegedPtyOperation(
+    mut env: JNIEnv,
+    _class: JClass,
+    request: JString,
+) -> jstring {
+    let response = match env.get_string(&request) {
+        Ok(request) => {
+            operit_host_android_native::androidPrivilegedPtyOperation(&String::from(request))
+        }
+        Err(error) => Err(operit_host_api::HostError::new(error.to_string())),
+    };
+    let text = match response {
+        Ok(text) => text,
+        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+    };
+    match env.new_string(text) {
+        Ok(value) => value.into_raw(),
+        Err(error) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", error.to_string());
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Accepts the borrowed pipe descriptors delivered by the Android Binder endpoint.
 #[no_mangle]
 pub unsafe extern "system" fn Java_app_operit_OperitRuntimeNative_acceptPluginSdkPipes(
@@ -387,8 +413,7 @@ pub(crate) fn install_work_presentation(
     }
     let id = operit_runtime::services::WorkActivityService::subscribeWorkUpdates(move |encoded| {
         let delivery = (|| -> Result<(), String> {
-            let mut env = vm
-                .attach_current_thread()
+            let mut env = operit_host_android_native::attachCurrentThread(&vm)
                 .map_err(|error| error.to_string())?;
             let encoded = env.new_string(encoded).map_err(|error| error.to_string())?;
             let result = env.call_method(

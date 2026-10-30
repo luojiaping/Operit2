@@ -350,21 +350,103 @@ fn sql_cannot_reach_private_tables_or_external_functions() {
         "SELECT * FROM _operit_log",
         "SELECT * FROM '_operit_log'",
         "SELECT * FROM main.\"_operit_log\"",
+        "SELECT * FROM [_OPERIT_log]",
+        "SELECT * FROM `_operit_log`",
         "SELECT * FROM pragma_table_info('records')",
         "SELECT readfile('secret')",
         "SELECT * FROM sqlite_master",
-        "PRAGMA journal_mode",
-        "ATTACH DATABASE 'other' AS other",
+        "SELECT 1 IS NOT CASE WHEN 1 THEN readfile('secret') ELSE NULL END",
+        "SELECT 1 IS CASE WHEN 1 THEN (SELECT sequence FROM '_operit_log') END",
+        "WITH hidden AS (SELECT * FROM main.[_operit_log]) SELECT * FROM hidden",
+        "SELECT count(*) FILTER (WHERE eval('secret') IS NOT NULL) OVER ()",
+        "SELECT 1 IN pragma_table_info('records')",
+        "SELECT 1 ORDER BY writefile('secret','data')",
+        "SELECT \"load_extension\"('secret')",
     ] {
-        assert!(
-            f.call(json!({"op":"query","handle":handle,"statement":{"sql":sql,"params":[]}}))
-                .is_err(),
-            "{sql}"
-        );
+        let error = f.call(json!({"op":"query","handle":handle,"statement":{"sql":sql,"params":[]}}))
+            .unwrap_err();
+        assert!(error.contains("protected storage capability"), "{sql}: {error}");
     }
     let rows=f.call(json!({"op":"query","handle":handle,"statement":{"sql":"SELECT '_operit_log' AS literal","params":[]}})).unwrap();
     assert_eq!(rows[0]["values"][0]["value"], "_operit_log");
     f.dispose();
+}
+
+/// Keeps statement count, read/write separation and privileged commands enforced by the new AST.
+#[test]
+fn sql_parser_preserves_storage_statement_restrictions() {
+    let f = Fixture::withScope("first", "device");
+    let handle = f.open("sqlite");
+    for sql in [
+        "",
+        ";",
+        "SELECT 1; SELECT 2",
+        "SELECT 1; SELECT CASE WHEN",
+        "SELECT 1 IS NOT CASE WHEN 1 THEN",
+        "PRAGMA journal_mode",
+        "ATTACH DATABASE 'other' AS other",
+        "EXPLAIN SELECT 1",
+        "EXPLAIN QUERY PLAN SELECT 1",
+        "CREATE TABLE forbidden(id TEXT)",
+        "DELETE FROM _operit_log",
+    ] {
+        assert!(f.call(json!({"op":"query","handle":handle,"statement":{"sql":sql,"params":[]}})).is_err(), "{sql}");
+    }
+    assert!(f.call(json!({"op":"execute","handle":handle,"statement":{"sql":"SELECT 1","params":[]}})).is_err());
+    f.dispose();
+}
+
+/// Executes SQLite binary IS operators with parameters, NULLs and CASE through object-query validation.
+#[test]
+fn memory_embedding_validation_accepts_sqlite_is_not_case() {
+    let f = Fixture::new("first");
+    let handle = f.open("objects");
+    f.call(json!({"op":"commit","handle":handle,"mutations":[
+        put("source", json!({"record":{"content":"source"},"embedding":{"text":"source","space":"model","vector":[1,0]}})),
+        put("document", json!({"record":{"title":"document","content":"body","isDocumentNode":true},"embedding":{"text":"document","space":"model","vector":[0,1]}})),
+        put("stale", json!({"record":{"content":"new"},"embedding":{"text":"old","space":"model","vector":[1,0]}})),
+        put("missing", json!({"record":{"content":"missing"}}))
+    ]})).unwrap();
+    let sql = r#"WITH units AS MATERIALIZED (
+        SELECT value FROM plugin_objects WHERE collection=?1
+    ) SELECT count(*) AS invalid FROM units WHERE
+        json_extract(value,'$.embedding.text') IS NOT CASE
+            WHEN json_extract(value,'$.record.isDocumentNode')=1
+            THEN json_extract(value,'$.record.title') ELSE json_extract(value,'$.record.content') END
+        OR json_extract(value,'$.embedding.space') IS NOT ?2
+        OR json_array_length(value,'$.embedding.vector') IS NOT json_array_length(?3)"#;
+    let rows = f.call(json!({"op":"query","handle":handle,"statement":{"sql":sql,"params":[
+        {"kind":"text","value":"keys"},{"kind":"text","value":"model"},{"kind":"text","value":"[1,0]"}
+    ]}})).unwrap();
+    assert_eq!(rows[0]["values"][0]["value"], "2");
+    let rows = f.call(json!({"op":"query","handle":handle,"statement":{
+        "sql":"SELECT ?1 IS ?2, ?1 IS NOT ?2, NULL IS NULL, NULL IS NOT NULL, 2 IS TRUE, 2 IS (TRUE), 2 IS +TRUE, 1 IS DISTINCT FROM 2, 1 IS NOT DISTINCT FROM 1",
+        "params":[{"kind":"null"},{"kind":"null"}]
+    }})).unwrap();
+    let actual: Vec<_> = rows[0]["values"].as_array().unwrap().iter().map(|value| value["value"].as_str().unwrap()).collect();
+    assert_eq!(actual, ["1", "0", "1", "0", "1", "1", "0", "1", "1"]);
+    f.dispose();
+}
+
+/// Preserves the different schema permissions of synchronized and device-local SQL databases.
+#[test]
+fn sql_parser_preserves_schema_permissions() {
+    for scope in ["space", "device"] {
+        let f = Fixture::withScope("first", scope);
+        let handle = f.open("sqlite");
+        f.call(json!({"op":"define_table","handle":handle,"table":table()})).unwrap();
+        f.call(json!({"op":"execute","handle":handle,"statement":{
+            "sql":"CREATE INDEX counts ON records(count)","params":[]
+        }})).unwrap();
+        for sql in [
+            "CREATE TABLE extra(id TEXT)",
+            "CREATE UNIQUE INDEX identities ON records(id)",
+        ] {
+            let result = f.call(json!({"op":"execute","handle":handle,"statement":{"sql":sql,"params":[]}}));
+            assert_eq!(result.is_ok(), scope == "device", "{scope}: {sql}: {result:?}");
+        }
+        f.dispose();
+    }
 }
 
 /// Rejects adopting an unrelated database and leaves its original schema intact.
@@ -621,6 +703,12 @@ fn bootstrap_excludes_only_preexisting_local_operations() {
     b.replay(&a.export());
     assert_eq!(b.export().len(), 1);
     assert_eq!(b.export()[0].opId, a.export()[0].opId);
+    let (ids, errors) = PluginStorage::operationIdsSince(b.host.clone(), &SyncClock::empty()).unwrap();
+    assert!(errors.is_empty());
+    assert_eq!(ids, std::collections::BTreeSet::from([a.export()[0].opId.clone()]));
+    let mut receipt = operit_store::SyncOperationStore::SyncReceipt::default();
+    receipt.observe(&a.export()[0].originDeviceId, a.export()[0].sequence);
+    assert!(PluginStorage::operationIdsSince(b.host.clone(), &receipt).unwrap().0.is_empty());
     PluginStorage::prepareSpaceJoin(b.host.clone()).unwrap();
     assert_eq!(b.export().len(), 1);
     a.dispose();
@@ -1220,6 +1308,109 @@ fn seed_aliased_owner(fixture: &Fixture, handle: &str, oldId: &str, newId: &str)
     ])).unwrap();
 }
 
+/// Opens the same identity-mapped records in either plugin storage representation.
+fn open_alias_conflict_fixture(fixture: &Fixture, kind: &str, merge: bool) -> String {
+    let mut request = json!({"op":"open","path":fixture.path,"kind":kind});
+    if merge {
+        request["merge"] = json!({"version":3,"maxEntities":1,"maxReferences":1,"entities":[{
+            "collection":"records","identityColumn":"id","nameColumn":null,"ignoredColumns":[],
+            "keyEncoding":"slash_root","matchMode":"identity","childCollections":[],"references":[],
+            "keyReferences":[{"prefix":"","target":{"kind":"preference","path":"runtime/config/preferences/cards.preferences.json"}}]
+        }]});
+    }
+    let handle = fixture.call(request).unwrap()["handle"].as_str().unwrap().to_owned();
+    if kind == "sqlite" {
+        fixture.call(json!({"op":"define_table","handle":handle,"table":{
+            "name":"records","primaryKey":"id","columns":[
+                {"name":"id","affinity":"text","nullable":false},
+                {"name":"content","affinity":"text","nullable":false}
+            ]
+        }})).unwrap();
+    }
+    handle
+}
+
+/// Publishes ordered writes or deletions through the real plugin transaction API.
+fn commit_alias_records(fixture: &Fixture, handle: &str, kind: &str, records: &[(&str, Option<&str>)]) {
+    if kind == "objects" {
+        let mutations = records.iter().map(|(key, content)| match content {
+            Some(content) => put_in("records", key, json!({"id":key,"content":content})),
+            None => json!({"collection":"records","key":key,"value":null,"deleted":true,"checkVersion":false}),
+        }).collect::<Vec<_>>();
+        fixture.call(json!({"op":"commit","handle":handle,"mutations":mutations})).unwrap();
+    } else {
+        let statements = records.iter().map(|(key, content)| match content {
+            Some(content) => json!({"sql":"INSERT INTO records VALUES(?,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content",
+                "params":[{"kind":"text","value":key},{"kind":"text","value":content}]}),
+            None => json!({"sql":"DELETE FROM records WHERE id=?","params":[{"kind":"text","value":key}]}),
+        }).collect::<Vec<_>>();
+        fixture.call(json!({"op":"transaction","handle":handle,"statements":statements})).unwrap();
+    }
+}
+
+/// Resolves same-version alias collisions deterministically while retaining immutable source transactions.
+#[test]
+fn remote_alias_collisions_use_last_mutation_and_keep_original_history() {
+    for kind in ["objects", "sqlite"] {
+        for canonical in ["a", "z"] {
+            for deleted in [false, true] {
+                let source = Fixture::new("alias-source");
+                let sourceHandle = open_alias_conflict_fixture(&source, kind, false);
+                commit_alias_records(&source, &sourceHandle, kind, &[("a", Some("seed-a")), ("z", Some("seed-z"))]);
+                let older = source.export().pop().unwrap();
+                commit_alias_records(&source, &sourceHandle, kind, &[("a", Some("first")), ("z", if deleted { None } else { Some("last") })]);
+                let incoming = source.export().pop().unwrap();
+                assert_eq!(incoming.payload["changes"].as_array().unwrap().len(), 2);
+
+                let target = Fixture::new("alias-target");
+                let targetHandle = open_alias_conflict_fixture(&target, kind, true);
+                let retired = if canonical == "a" { "z" } else { "a" };
+                let aliases = std::collections::BTreeMap::from([(
+                    format!("runtime/config/preferences/cards.preferences.json\u{001f}{retired}"), canonical.to_owned()
+                )]);
+                let mut malformed = incoming.clone();
+                malformed.payload["changes"][1] = malformed.payload["changes"][0].clone();
+                assert!(PluginStorage::applyOperation(target.host.clone(), target.host.clone(), &malformed, &aliases).is_err(),
+                    "duplicate keys in the source transaction must still be rejected before aliasing");
+                malformed.payload["changes"][1]["key"] = json!("");
+                assert!(PluginStorage::applyOperation(target.host.clone(), target.host.clone(), &malformed, &aliases).is_err(),
+                    "invalid source keys must not be hidden by collision resolution");
+                PluginStorage::applyOperation(target.host.clone(), target.host.clone(), &incoming, &aliases).unwrap();
+                PluginStorage::applyOperation(target.host.clone(), target.host.clone(), &older, &aliases).unwrap();
+                PluginStorage::applyOperation(target.host.clone(), target.host.clone(), &incoming, &aliases).unwrap();
+                if kind == "objects" {
+                    let row = target.call(json!({"op":"get","handle":targetHandle,"collection":"records","key":canonical})).unwrap();
+                    if deleted { assert!(row.is_null()); }
+                    else { assert_eq!(row["value"], json!({"id":canonical,"content":"last"})); }
+                    assert!(target.call(json!({"op":"get","handle":targetHandle,"collection":"records","key":retired})).unwrap().is_null());
+                } else {
+                    let rows = target.call(json!({"op":"query","handle":targetHandle,"statement":{"sql":"SELECT id,content FROM records","params":[]}})).unwrap();
+                    assert_eq!(rows.as_array().unwrap().len(), if deleted { 0 } else { 1 });
+                    if !deleted {
+                        assert_eq!(rows[0]["values"], json!([{"kind":"text","value":canonical},{"kind":"text","value":"last"}]));
+                    }
+                }
+                assert_eq!(target.export().into_iter().find(|op| op.opId == incoming.opId).unwrap(), incoming);
+
+                // A newer local write must survive a not-yet-seen older remote transaction.
+                commit_alias_records(&target, &targetHandle, kind, &[(canonical, Some("newer-local"))]);
+                let fresh = Fixture::new("alias-older");
+                let freshHandle = open_alias_conflict_fixture(&fresh, kind, false);
+                commit_alias_records(&fresh, &freshHandle, kind, &[("a", Some("stale-a")), ("z", Some("stale-z"))]);
+                let mut stale = fresh.export().pop().unwrap();
+                stale.createdAt = incoming.createdAt.saturating_sub(1);
+                PluginStorage::applyOperation(target.host.clone(), target.host.clone(), &stale, &aliases).unwrap();
+                if kind == "objects" {
+                    assert_eq!(target.call(json!({"op":"get","handle":targetHandle,"collection":"records","key":canonical})).unwrap()["value"]["content"], "newer-local");
+                } else {
+                    assert_eq!(target.call(json!({"op":"query","handle":targetHandle,"statement":{"sql":"SELECT content FROM records","params":[]}})).unwrap()[0]["values"][0], json!({"kind":"text","value":"newer-local"}));
+                }
+                fresh.dispose(); source.dispose(); target.dispose();
+            }
+        }
+    }
+}
+
 /// Redirects a live writer's pre-merge identities onto the canonical rows so a
 /// background rename can never be undone by the next local commit.
 #[test]
@@ -1479,21 +1670,34 @@ fn preference_references_do_not_block_independent_plugin_transactions() {
     target.dispose();
 }
 
-/// Queries synchronized source envelopes without exposing runtime metadata or accepting writes.
+/// Queries synchronized source envelopes through the same parameterized CTE shape as memory retrieval.
 #[test]
 fn object_queries_rank_vectors_after_sync_replay() {
     let first = Fixture::new("first");
     let handle = first.open("objects");
-    first.call(json!({"op":"commit","handle":handle,"mutations":[put("source", json!({"record":{"content":"source"},"embedding":{"vector":[1.0,0.0]}}))]})).unwrap();
-    let sql = "WITH query_vector AS MATERIALIZED (SELECT CAST(key AS INTEGER) AS dimension,value FROM json_each('[1.0,0.0]')) SELECT key,(SELECT sum(q.value*v.value) FROM json_each(o.value,'$.embedding.vector') v JOIN query_vector q ON q.dimension=v.key) AS score FROM plugin_objects o WHERE collection='keys' ORDER BY score DESC LIMIT 1";
-    let query = json!({"op":"query","handle":handle,"statement":{"sql":sql,"params":[]}});
-    let rows = first.call(query).unwrap();
-    assert_eq!(rows[0]["values"][1]["value"], 1.0);
+    first.call(json!({"op":"commit","handle":handle,"mutations":[
+        put("source", json!({"record":{"content":"source"},"embedding":{"vector":[1.0,0.0]}})),
+        put("other", json!({"record":{"content":"other"},"embedding":{"vector":[0.0,1.0]}}))
+    ]})).unwrap();
+    let sql = "WITH query_vector AS (SELECT CAST(key AS INTEGER) AS dimension,value FROM json_each(?1)) SELECT key,(SELECT sum(q.value*v.value) FROM json_each(o.value,'$.embedding.vector') v JOIN query_vector q ON q.dimension=v.key) AS score FROM plugin_objects o WHERE collection='keys' ORDER BY score DESC LIMIT 1";
     let second = Fixture::new("second");
     second.replay(&first.export());
     let other = second.open("objects");
-    assert_eq!(rows, second.call(json!({"op":"query","handle":other,"statement":{"sql":sql,"params":[]}})).unwrap());
-    for statement in ["SELECT * FROM _operit_log", "DELETE FROM plugin_objects", "SELECT * FROM sqlite_master"] {
+    for (vector, expected) in [("[1.0,0.0]", "source"), ("[0.0,1.0]", "other")] {
+        let params = json!([{"kind":"text","value":vector}]);
+        let rows = first.call(json!({"op":"query","handle":handle,"statement":{"sql":sql,"params":params}})).unwrap();
+        assert_eq!(rows[0]["values"][0]["value"], expected);
+        assert_eq!(rows[0]["values"][1]["value"], 1.0);
+        assert_eq!(rows, second.call(json!({"op":"query","handle":other,"statement":{"sql":sql,"params":params}})).unwrap());
+    }
+    for statement in [
+        "SELECT * FROM _operit_log",
+        "DELETE FROM plugin_objects",
+        "SELECT * FROM sqlite_master",
+        "WITH hidden AS (SELECT * FROM _operit_log) SELECT * FROM hidden",
+        "WITH hidden AS (SELECT * FROM sqlite_master) SELECT * FROM hidden",
+        "WITH keys AS (SELECT key FROM plugin_objects) DELETE FROM plugin_objects WHERE key IN (SELECT key FROM keys)",
+    ] {
         assert!(first.call(json!({"op":"query","handle":handle,"statement":{"sql":statement,"params":[]}})).is_err());
     }
     first.dispose(); second.dispose();
@@ -1513,4 +1717,234 @@ fn object_record_guards_are_checked_before_source_publication() {
     f.call(json!({"op":"commit","handle":handle,"mutations":[put("source",json!({"vector":[1.0]}))],"guards":[{"collection":"keys","key":"owner","expectedVersion":current["version"]}]})).unwrap();
     assert_eq!(f.get(&handle,"owner"),current);
     f.dispose();
+}
+
+/// Changes are snapshot pages shared across handles; rejected transactions publish no identities.
+#[test]
+fn object_change_pages_include_other_handles_deletions_and_rollback() {
+    let f = Fixture::new("first");
+    let reader = f.open("objects");
+    let writer = f.open("objects");
+    let initial = f.call(json!({"op":"changes","handle":reader,"after":null,"limit":2})).unwrap();
+    assert_eq!(initial["changes"], json!([]));
+    f.call(json!({"op":"commit","handle":writer,"mutations":[put("a",json!({"vector":[1,0]})),put("b",json!(null))]})).unwrap();
+    let mut cursor = initial["cursor"].clone();
+    let mut found = std::collections::BTreeMap::new();
+    loop {
+        let page = f.call(json!({"op":"changes","handle":reader,"after":cursor,"limit":2})).unwrap();
+        assert_eq!(page["reset"], false);
+        for change in page["changes"].as_array().unwrap() { found.insert(change["key"].as_str().unwrap().to_string(), change["entry"].clone()); }
+        cursor = page["cursor"].clone();
+        if page["hasMore"] == false { break; }
+    }
+    assert_eq!(found["a"]["value"], json!({"vector":[1,0]}));
+    assert!(found["b"].is_object());
+    assert!(found["b"]["value"].is_null());
+    assert!(f.call(json!({"op":"commit","handle":writer,"mutations":[put("rolled-back",json!(1)),{"collection":"keys","key":"a","value":2,"deleted":false,"checkVersion":true,"expectedVersion":"obsolete"}]})).is_err());
+    assert_eq!(f.call(json!({"op":"changes","handle":reader,"after":cursor,"limit":10})).unwrap()["changes"],json!([]));
+    f.call(json!({"op":"commit","handle":writer,"mutations":[{"collection":"keys","key":"a","value":null,"deleted":true,"checkVersion":false}]})).unwrap();
+    let deleted = f.call(json!({"op":"changes","handle":reader,"after":cursor,"limit":10})).unwrap();
+    assert_eq!(deleted["changes"],json!([{"collection":"keys","key":"a","entry":null}]));
+    assert!(f.call(json!({"op":"changes","handle":reader,"after":null,"limit":0})).is_err());
+    assert!(f.call(json!({"op":"changes","handle":reader,"after":"broken","limit":10})).is_err());
+    f.dispose();
+}
+
+/// An already-open reader sees synchronized transactions and synthetic merge writes.
+#[test]
+fn object_change_pages_include_sync_and_merged_identities() {
+    let first = Fixture::new("first");
+    let source = open_object_merge_fixture(&first);
+    seed_object_card(&first, &source, "card-a", "same", "identical");
+    let second = Fixture::new("second");
+    let reader = open_object_merge_fixture(&second);
+    seed_object_card(&second, &reader, "card-z", "same", "identical");
+    let before = second.call(json!({"op":"changes","handle":reader,"after":null,"limit":1000})).unwrap();
+    second.replay(&first.export());
+    let page = second.call(json!({"op":"changes","handle":reader,"after":before["cursor"],"limit":1000})).unwrap();
+    assert_eq!(page["reset"],false);
+    let changes = page["changes"].as_array().unwrap();
+    assert!(changes.iter().any(|change| change["key"] == "card-a" && change["entry"].is_object()));
+    assert!(changes.iter().any(|change| change["key"] == "card-z" && change["entry"].is_null()));
+    first.dispose(); second.dispose();
+}
+
+/// A recreated database and a consumer falling behind bounded retention require a fresh snapshot.
+#[test]
+fn object_change_pages_reset_for_foreign_and_trimmed_cursors() {
+    use operit_host_api::RuntimeSqliteHost;
+    let f = Fixture::new("first");
+    let handle = f.open("objects");
+    let initial = f.call(json!({"op":"changes","handle":handle,"after":null,"limit":10})).unwrap();
+    let foreign = f.call(json!({"op":"changes","handle":handle,"after":"foreign#0","limit":10})).unwrap();
+    assert_eq!(foreign["reset"],true);
+    // Feed a real transaction through the production triggers without 66k bridge round trips.
+    let mut connection = f.host.openSqliteDatabase(&f.path).unwrap();
+    connection.executeBatch("BEGIN; WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<66560) INSERT INTO _operit_changes(collection,key) SELECT 'keys',CAST(i AS TEXT) FROM n; COMMIT;").unwrap();
+    drop(connection);
+    let page = f.call(json!({"op":"changes","handle":handle,"after":initial["cursor"],"limit":10})).unwrap();
+    assert_eq!(page["reset"],true);
+    assert_eq!(page["changes"],json!([]));
+    f.dispose();
+}
+
+/// A correction carries per-record versions: an older independent row remains applicable after restart.
+#[test]
+fn snapshot_correction_preserves_plugin_scope_versions_and_uncovered_late_rows() {
+    let author = Fixture::new("author");
+    let handle = author.open("objects");
+    author.call(json!({"op":"commit","handle":handle,"mutations":[put("x",json!("new"))]})).unwrap();
+    let mut initial = author.export();
+    for operation in &mut initial { operation.createdAt = 50; }
+    let source = Fixture::new("source");
+    source.replay(&initial);
+    let target = Fixture::new("target");
+    let target_handle = target.open("objects");
+    let authoritative = PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap();
+    let capture = PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap();
+    assert!(PluginStorage::repairSyncedSnapshot(target.host.clone(), &capture.token().unwrap(), &authoritative, target.device).unwrap());
+    assert_eq!(PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().data, authoritative.data);
+    target.call(json!({"op":"close","handle":target_handle})).unwrap();
+
+    let delayed = Fixture::new("delayed");
+    let delayed_handle = delayed.open("objects");
+    delayed.call(json!({"op":"commit","handle":delayed_handle,"mutations":[put("x",json!("old")),put("y",json!("independent"))]})).unwrap();
+    let mut late = delayed.export();
+    for operation in &mut late { operation.createdAt = 40; }
+    let reopened = Arc::new(NativeRuntimeStorageHost::new(target.root.join("runtime"), target.root.join("workspaces")));
+    for operation in &late {
+        PluginStorage::applyOperation(reopened.clone(), reopened.clone(), operation, &Default::default()).unwrap();
+        PluginStorage::applyOperation(reopened.clone(), reopened.clone(), operation, &Default::default()).unwrap();
+    }
+    let target_handle = target.open("objects");
+    assert_eq!(target.get(&target_handle,"x")["value"], "new");
+    assert_eq!(target.get(&target_handle,"y")["value"], "independent");
+    source.replay(&late);
+    assert_eq!(PluginStorage::syncSnapshot(reopened, &target.path, target.device).unwrap().data,
+        PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap().data);
+    author.dispose();source.dispose();target.dispose();delayed.dispose();
+}
+
+#[test]
+fn same_author_sql_changes_follow_sequence_when_its_clock_moves_backwards() {
+    let source = Fixture::new("author");
+    let handle = source.open("objects");
+    for value in ["first","second"] {
+        source.call(json!({"op":"commit","handle":handle,"mutations":[put("x",json!(value))]})).unwrap();
+    }
+    let mut operations = source.export();
+    assert_eq!(operations.len(),2);
+    operations[0].createdAt = 50;
+    operations[1].createdAt = 10;
+    for reverse in [false,true] {
+        let target = Fixture::new("target");
+        let handle = target.open("objects");
+        if reverse { target.replay(&operations.iter().rev().cloned().collect::<Vec<_>>()); }
+        else { target.replay(&operations); }
+        assert_eq!(target.get(&handle,"x")["value"],"second");
+        target.dispose();
+    }
+    source.dispose();
+}
+
+#[test]
+fn complete_file_correction_provisions_missing_plugin_databases_without_business_history() {
+    for kind in ["objects", "sqlite"] {
+        let source = Fixture::new("source");
+        source.open(kind);
+        assert!(source.export().is_empty());
+        let target = Fixture::new("target");
+        assert!(PluginStorage::syncDatasetPaths(target.host.clone()).unwrap().is_empty());
+        let file = PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap();
+        let definition = PluginStorage::snapshotDefinition(source.host.clone(), &source.path).unwrap();
+        PluginStorage::installSnapshotDefinition(target.host.clone(), target.host.clone(), &target.path, definition).unwrap();
+        assert!(PluginStorage::repairSyncedSnapshot(target.host.clone(), "", &file, target.device).unwrap());
+        assert!(!PluginStorage::repairSyncedSnapshot(target.host.clone(), "", &file, target.device).unwrap());
+        assert_eq!(PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().data, file.data);
+        assert_eq!(PluginStorage::syncDatasetPaths(target.host.clone()).unwrap(), vec![target.path.clone()]);
+        assert!(target.export().is_empty());
+        let handle = target.open(kind);
+        if kind == "objects" {
+            target.call(json!({"op":"commit","handle":handle,"mutations":[put("new",json!("after baseline"))]})).unwrap();
+            source.replay(&target.export());
+            let handle = source.open(kind);
+            assert_eq!(source.get(&handle,"new")["value"], "after baseline");
+        } else {
+            target.call(json!({"op":"define_table","handle":handle,"table":table()})).unwrap();
+            target.call(json!({"op":"execute","handle":handle,"statement":{"sql":"INSERT INTO records VALUES('new',7,NULL)","params":[]}})).unwrap();
+            source.replay(&target.export());
+            assert_eq!(PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap().data,
+                PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().data);
+        }
+        source.dispose(); target.dispose();
+    }
+}
+
+#[test]
+fn file_correction_copies_sql_schema_rows_and_versions_into_a_missing_database() {
+    let source = Fixture::new("source");
+    let handle = source.open("sqlite");
+    source.call(json!({"op":"define_table","handle":handle,"table":table()})).unwrap();
+    source.call(json!({"op":"execute","handle":handle,"statement":{"sql":"INSERT INTO records VALUES('one',9,X'00ff')","params":[]}})).unwrap();
+    let file = PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap();
+    let definition = PluginStorage::snapshotDefinition(source.host.clone(), &source.path).unwrap();
+    let target = Fixture::new("target");
+    PluginStorage::installSnapshotDefinition(target.host.clone(), target.host.clone(), &target.path, definition).unwrap();
+    assert!(PluginStorage::repairSyncedSnapshot(target.host.clone(), "", &file, target.device).unwrap());
+    // Resending all archived originals cannot reapply them over the copied baseline.
+    target.replay(&source.export());
+    assert_eq!(PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().data, file.data);
+    source.dispose(); target.dispose();
+}
+
+#[test]
+fn covered_character_history_cannot_rekey_the_copied_file_through_merge_rules() {
+    let old = Fixture::new("old");
+    let handle = open_object_merge_fixture(&old);
+    seed_object_card(&old, &handle, "a", "Persona", "same content");
+    let covered = old.export();
+    let source = Fixture::new("source");
+    let handle = open_object_merge_fixture(&source);
+    seed_object_card(&source, &handle, "z", "Persona", "same content");
+    let mut file = PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap();
+    file.covered.extend(covered.iter().map(|op|op.opId.clone()));
+    let target = Fixture::new("target");
+    PluginStorage::installSnapshotDefinition(target.host.clone(), target.host.clone(), &target.path,
+        PluginStorage::snapshotDefinition(source.host.clone(), &source.path).unwrap()).unwrap();
+    let capture = PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap();
+    assert!(PluginStorage::repairSyncedSnapshot(target.host.clone(), &capture.token().unwrap(), &file, target.device).unwrap());
+    target.replay(&covered);
+    assert_eq!(PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().data, file.data);
+    old.dispose(); source.dispose(); target.dispose();
+}
+
+/// Receiving an unchanged identity records a local self mapping, not a changed business file.
+#[test]
+fn incremental_object_merge_bookkeeping_does_not_require_a_full_snapshot() {
+    let source = Fixture::new("digest-source");
+    let handle = open_object_merge_fixture(&source);
+    seed_object_card(&source, &handle, "same-card", "Card", "same content");
+    let target = Fixture::new("digest-target");
+    target.replay(&source.export());
+    let a = PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap();
+    let b = PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap();
+    assert_eq!(a.data.revision, b.data.revision);
+    assert_ne!(a.data.values["_operit_merge_map"], b.data.values["_operit_merge_map"]);
+    assert_eq!(PluginStorage::snapshotContentDigest(&a).unwrap(), PluginStorage::snapshotContentDigest(&b).unwrap());
+    let mut local_cas = b.clone();
+    let values = local_cas.data.values.get_mut("_operit_values").unwrap();
+    let version = values["columns"].as_array().unwrap().iter().position(|column| column == "version").unwrap();
+    values["rows"][0][version] = json!({"Text":"another-local-cas-token"});
+    assert_eq!(PluginStorage::snapshotContentDigest(&a).unwrap(), PluginStorage::snapshotContentDigest(&local_cas).unwrap());
+    assert_ne!(b.token().unwrap(), local_cas.token().unwrap());
+    let map = local_cas.data.values.get_mut("_operit_merge_map").unwrap();
+    let canonical = map["columns"].as_array().unwrap().iter().position(|column| column == "canonical_key").unwrap();
+    map["rows"][0][canonical] = json!({"Text":"different-canonical-card"});
+    assert_ne!(PluginStorage::snapshotContentDigest(&a).unwrap(), PluginStorage::snapshotContentDigest(&local_cas).unwrap());
+    let mut changed = b.clone();
+    let values = changed.data.values.get_mut("_operit_values").unwrap();
+    let value = values["columns"].as_array().unwrap().iter().position(|column| column == "value").unwrap();
+    values["rows"][0][value] = json!({"Text":"changed business content"});
+    assert_ne!(PluginStorage::snapshotContentDigest(&a).unwrap(), PluginStorage::snapshotContentDigest(&changed).unwrap());
+    source.dispose(); target.dispose();
 }

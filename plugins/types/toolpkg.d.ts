@@ -2757,7 +2757,7 @@ export namespace ToolPkg {
   /**
    * Enumerates supported navigation surface values.
    */
-  export type NavigationSurface = "toolbox" | "main_sidebar_plugins" | "app_bar" | "chat_attachments" | "chat_sidebar_tabs" | "chat_input_menu" | "chat_input_menu_sections";
+  export type NavigationSurface = "toolbox" | "main_sidebar_plugins" | "app_bar" | "chat_attachments" | "chat_sidebar_tabs" | "chat_input_menu" | "chat_input_menu_sections" | "chat_message_after" | "workspace" | "workspace_home";
 
   /**
    * Describes a plugin action exposed through a host navigation surface.
@@ -2768,8 +2768,8 @@ export namespace ToolPkg {
      */
     id: string;
     /**
-     * Provides this package's registered UI route; required for chat_attachments, chat_sidebar_tabs, chat_input_menu and chat_input_menu_sections.
-     * Embedded sidebar and input-menu surfaces require one owned Compose DSL route registered before the navigation entry.
+     * Provides this package's registered UI route; required for attachment and embedded UI surfaces.
+     * Embedded surfaces require one owned Compose DSL route registered before the navigation entry.
      */
     route?: string;
     /**
@@ -2781,7 +2781,7 @@ export namespace ToolPkg {
      */
     surface: NavigationSurface;
     /**
-     * Supplies navigation callbacks on other surfaces; action is unsupported for chat_attachments, chat_sidebar_tabs, chat_input_menu and chat_input_menu_sections.
+     * Supplies navigation callbacks on other surfaces; attachment and embedded UI surfaces require routes instead.
      */
     action?: NavigationEntryActionHookHandler;
     /**
@@ -3910,11 +3910,49 @@ export namespace ToolPkg {
   }
 
   /**
+   * Owns a persistent WASM instance in the current JavaScript realm.
+   */
+  export interface WasmInstance {
+    /**
+     * Calls a declared export without crossing the host bridge; i64 results use decimal strings.
+     */
+    call(exportName: string, args?: WasmArg[]): WasmScalarValue;
+    /**
+     * Returns a live byte view; obtain a fresh view after growing WASM memory.
+     */
+    memory(memoryName?: string): Uint8Array;
+    /**
+     * Copies a bounded memory range into an independent byte array.
+     */
+    readMemory(offset: number, length: number, memoryName?: string): Uint8Array;
+    /**
+     * Copies a byte batch into bounded linear memory.
+     */
+    writeMemory(offset: number, bytes: Uint8Array, memoryName?: string): void;
+    /**
+     * Releases this handle; later calls fail explicitly.
+     */
+    close(): void;
+  }
+
+  /**
    * Represents the WASM API exposed on a ToolPkg registry.
    */
   export interface WasmApi {
     /**
-     * Calls one WASM export and resolves with its scalar result.
+     * Reads declared module bytes for a library's own WASM loader.
+     */
+    read(moduleId: string): Promise<Uint8Array>;
+    /**
+     * Creates an independent instance using a realm-cached compiled module and optional JS imports.
+     */
+    open(moduleId: string, imports?: object): Promise<WasmInstance>;
+    /**
+     * Evicts module bytes and the default scalar instance; explicit instances remain owned by their callers.
+     */
+    unload(moduleId: string): void;
+    /**
+     * Calls a declared export on the module's persistent default instance.
      */
     call(moduleId: string, exportName: string, args?: WasmArg[]): Promise<WasmScalarValue>;
   }

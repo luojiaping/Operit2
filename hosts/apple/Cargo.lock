@@ -1381,6 +1381,8 @@ name = "operit-host-native-common"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "flume",
+ "if-addrs",
  "mdns-sd",
  "operit-host-api",
  "operit-host-native-http",
@@ -1397,11 +1399,14 @@ dependencies = [
  "axum",
  "futures-util",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "operit-host-api",
  "operit-host-native-scheduler",
  "reqwest",
  "tokio",
  "tokio-tungstenite",
+ "tower",
 ]
 
 [[package]]

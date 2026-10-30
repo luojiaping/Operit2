@@ -19,6 +19,10 @@ pub mod NetworkControlStore;
 #[cfg(feature = "full")]
 #[path = "PluginStorage.rs"]
 pub mod PluginStorage;
+#[path = "Transaction.rs"]
+pub mod Transaction;
+#[path = "PreferenceLayout.rs"]
+pub mod PreferenceLayout;
 #[path = "PreferenceMerge.rs"]
 pub mod PreferenceMerge;
 #[path = "PreferencesDataStore.rs"]
@@ -40,10 +44,8 @@ pub mod RuntimeStorePaths;
 #[cfg(feature = "full")]
 #[path = "SqliteStore.rs"]
 pub mod SqliteStore;
-#[path = "SyncReceiveJournal.rs"]
-mod SyncReceiveJournal;
-#[path = "SyncOperationJournal.rs"]
-mod SyncOperationJournal;
+#[path = "LegacyTransactionImport.rs"]
+mod LegacyTransactionImport;
 #[path = "SyncOperationStore.rs"]
 pub mod SyncOperationStore;
 
@@ -73,3 +75,7 @@ pub(crate) mod PluginExtensions;
 pub mod ChatExecutionLease;
 
 pub mod DevicePreferencesStore;
+
+#[cfg(test)]
+#[path = "tests/TransactionJournalHost.rs"]
+pub(crate) mod transaction_test_host;

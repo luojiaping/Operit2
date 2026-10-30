@@ -1,6 +1,8 @@
 package app.operit
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -34,9 +36,25 @@ class AndroidRuntimeHost(context: Context) {
     private var runtimeStartupMessage = "正在准备本地运行时"
 
     private val documentFileSystem by lazy { AndroidDocumentFileSystem(applicationContext) }
+    private val terminalPrivileges by lazy { AndroidTerminalPrivileges(applicationContext) }
+
+    /** Serves native terminal privilege probes and remote PTY lifecycle operations. */
+    fun terminalPrivilegeOperation(request: String): String = terminalPrivileges.execute(request)
 
     /** JNI worker entry point for capability-backed filesystem resources. */
     fun fileSystemResourceOperation(request: String): String = documentFileSystem.execute(request)
+
+    /** Keeps Wi-Fi multicast reception enabled for the native discovery daemon's lifetime. */
+    fun acquireDiscoveryMulticastLock(): WifiManager.MulticastLock? {
+        if (!applicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI)) {
+            return null
+        }
+        val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        return manager.createMulticastLock("operit-service-discovery").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
 
     /** Installs storage roots and accepts repeated identical configuration. */
     fun setStorageRoots(runtimePath: String?, workspacePath: String?) {
@@ -248,21 +266,14 @@ class AndroidRuntimeHost(context: Context) {
     fun defaultStoragePathsMap(): Map<String, String> {
         val base = applicationContext.filesDir
         return mapOf(
-            "runtimeRoot" to File(base, "runtime").canonicalFile.absolutePath,
-            "workspaceRoot" to File(base, "workspaces").canonicalFile.absolutePath,
+            "runtimeRoot" to File(base, "runtime").absolutePath,
+            "workspaceRoot" to File(base, "workspaces").absolutePath,
         )
     }
 
-    /**
-     * Returns the platform default Runtime root used to locate client bootstrap state.
-     *
-     * `filesDir` is reported under the per-user alias (`/data/user/0/...`), whose
-     * ancestors include the system symlink `/data/user/0 -> /data/data`. The native
-     * rescue boundary rejects symlinked ancestors, so the host hands the resolved
-     * physical path to the Rust ABI instead of the aliased form.
-     */
+    /** Returns the platform default Runtime root used to locate client bootstrap state. */
     fun defaultRuntimeRootPath(): String {
-        return File(applicationContext.filesDir, "runtime").canonicalFile.absolutePath
+        return File(applicationContext.filesDir, "runtime").absolutePath
     }
 
     /** Returns normalized storage paths without creating the runtime. */

@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 
-import '../workspace/WorkspaceDiffContent.dart';
+import '../workspace/WorkspaceFileIcon.dart';
 import '../workspace/WorkspaceInlineDiff.dart';
 import 'ToolDisplayComponents.dart' show cleanToolPath;
 
@@ -196,13 +196,6 @@ class FileDiffDisplay extends StatelessWidget {
     normalized.substring(slash + 1),
     normalized.substring(0, slash),
   );
-}
-
-bool isFileDiffTool(String toolName) {
-  return toolName == 'apply_file' ||
-      toolName == 'create_file' ||
-      toolName == 'edit_file' ||
-      toolName == 'write_file';
 }
 
 List<FileDiff> extractFileDiffs(String resultContent) {

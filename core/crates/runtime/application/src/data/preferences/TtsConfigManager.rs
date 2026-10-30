@@ -1,5 +1,4 @@
-use operit_host_api::PluginStorage::{StoragePreferencesMergeCatalog, StoragePreferencesMergeDescriptor, StoragePreferencesMergeKey, StoragePreferencesMergeReference};
-use operit_store::PreferenceMerge::PreferenceMergeStore;
+
 use operit_store::PreferencesDataStore::{
     stringPreferencesKey, Flow, Preferences, PreferencesDataStore, PreferencesDataStoreError,
 };
@@ -31,46 +30,7 @@ impl TtsConfigManager {
         path: impl Into<String>,
     ) -> PreferencesDataStore {
         PreferencesDataStore::newEncryptedWithStorage(storage, path)
-            .withSchema(Self::PREFERENCES_VERSION, Self::migratePreferences)
-    }
-
-    /// Decodes historical record encodings without running new-store initialization.
-    fn decodeSyncedEntry(entry: &mut operit_store::PreferencesDataStore::PreferencesSyncedEntry) -> Result<(), PreferencesDataStoreError> {
-        entry.decodeHistoricalValues(|version, values| {
-            if version > Self::PREFERENCES_VERSION {
-                return Err(PreferencesDataStoreError::SchemaVersionTooNew { actual: version, expected: Self::PREFERENCES_VERSION });
-            }
-            for version in version.max(1)..Self::PREFERENCES_VERSION { Self::migratePreferences(version, values)?; }
-            Ok(())
-        })
-    }
-
-    /// Declares this owner's catalog and references using the shared merge contract.
-    pub(crate) fn spaceMergeStore() -> PreferenceMergeStore {
-        let path = operit_util::RuntimeStorageLayout::TTS_CONFIGS_PREFERENCES_PATH;
-        PreferenceMergeStore {
-            path: path.to_string(),
-            encrypted: true,
-            storageVersion: Some(3),
-            decode: Some(Self::decodeSyncedEntry),
-            merge: StoragePreferencesMergeDescriptor {
-                version: 1,
-                catalog: Some(StoragePreferencesMergeCatalog {
-                    key_prefix: "tts_config_".to_string(),
-                    key_suffix: "_json".to_string(),
-                    identity_field: "id".to_string(),
-                    name_field: "name".to_string(),
-                    ignored_fields: vec!["createdAt".to_string(), "updatedAt".to_string()],
-                    retired_keys: vec!["tts_config_list".to_string()],
-                }),
-                references: vec![StoragePreferencesMergeReference {
-                    key: StoragePreferencesMergeKey::Exact { key: "current_tts_config_id".to_string() },
-                    path: vec![],
-                    target: path.to_string(),
-                }],
-                projection: None,
-            },
-        }
+            .withMigration(Self::PREFERENCES_VERSION, Self::migration)
     }
 
     const PREFERENCES_VERSION: u32 = 3;
@@ -448,11 +408,18 @@ impl TtsConfigManager {
     }
 
     /// Migrates legacy TTS preferences and creates the default system profile once.
-    fn migratePreferences(
-        version: u32,
-        preferences: &mut Preferences,
+    fn migration(
+        from: u32,
+        context: &mut operit_store::Transaction::migration::Context,
     ) -> Result<(), PreferencesDataStoreError> {
-        match version {
+        if from == 1 {
+            operit_store::Transaction::Rule::DropKey {
+                key: "tts_config_list".into(),
+            }
+            .apply(context)
+            .map_err(PreferencesDataStoreError::Message)?;
+        }
+        context.map_preferences(from, &|version, preferences| match version {
             0 => {
                 let hasCurrentConfig = preferences
                     .getTyped::<String>(&TtsConfigManager::CURRENT_TTS_CONFIG_ID())?
@@ -500,7 +467,6 @@ impl TtsConfigManager {
                     }
                     preferences.set(&stringPreferencesKey(&key), record);
                 }
-                preferences.remove(&Self::TTS_CONFIG_LIST());
                 Ok(())
             }
             2 => {
@@ -517,7 +483,7 @@ impl TtsConfigManager {
                 Ok(())
             }
             from => Err(PreferencesDataStoreError::MissingMigration { from, to: from + 1 }),
-        }
+        })
     }
 }
 

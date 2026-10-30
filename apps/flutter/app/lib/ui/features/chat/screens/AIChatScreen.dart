@@ -28,11 +28,14 @@ import '../../../main/TopBarController.dart';
 import '../../../main/components/TopBarTitleText.dart';
 import '../PendingChatDraftHandler.dart';
 import '../components/ChatScreenContent.dart';
+import '../components/ChatScrollNavigator.dart'
+    show ChatMessageNavigationController;
+import '../components/ChatMessageLocatorHost.dart';
 import '../components/ChatRuntimeScope.dart';
 import '../components/MessageEditorDialog.dart';
 import '../components/WorkspaceChangeConfirmDialog.dart';
 import '../components/WorkspaceShell.dart';
-import '../components/part/TurnDiffSummary.dart';
+import '../components/ChatMessageSlotHost.dart';
 import '../components/style/input/common/MentionSuggestionPanel.dart';
 import '../components/style/input/common/MentionTokenUtils.dart';
 import '../components/style/input/common/PendingQueueMessageItem.dart';
@@ -285,6 +288,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
   TextEditingValue _previousMessageInputValue = TextEditingValue.empty;
   final FocusNode _inputFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  final _messageNavigation = ChatMessageNavigationController();
   final LocalSpeechRecorder _speechRecorder = LocalSpeechRecorder();
   late final Map<String?, TextEditingValue> _inputDraftsByChatId;
   final List<ChatUiMessage> _messages = <ChatUiMessage>[];
@@ -371,14 +375,15 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
     }
     _watchChatFlows();
     _watchToastEvent();
-    _workspacesSubscription = _viewModel.clients
+    _workspacesSubscription = _viewModel
+        .clients
         .repositoryWorkspacePreferenceStore
         .allWorkspacesFlow()
         .listen((workspaces) {
-      if (!mounted) return;
-      _workspaces = List<core_proxy.Workspace>.unmodifiable(workspaces);
-      _updateTopBarTitle();
-    });
+          if (!mounted) return;
+          _workspaces = List<core_proxy.Workspace>.unmodifiable(workspaces);
+          _updateTopBarTitle();
+        });
     _chatUiCatalogSubscription = ToolPkgCatalogChangeBus.listen(
       _requestChatUiContextRefresh,
     );
@@ -431,6 +436,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
     _messageController.dispose();
     _inputFocusNode.dispose();
     _scrollController.dispose();
+    _messageNavigation.dispose();
     _chatContentDataNotifier.dispose();
     _autoScrollToBottomNotifier.dispose();
     _toastMessageNotifier.dispose();
@@ -1637,7 +1643,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
           _clearChatFlowError();
           _loading = false;
           _messages.clear();
-          WorkspaceShell.session.latestDiffReview = null;
+          WorkspaceShell.session.pluginHostState = const {};
           _currentChatId = null;
           _inputProcessingState = core_proxy.InputProcessingState.idle();
         });
@@ -1707,10 +1713,10 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
     _messages
       ..clear()
       ..addAll(messages);
-    final latestReview =
-        latestReviewInMessages(messages) ?? reviewForMessages(messages);
-    WorkspaceShell.session.latestDiffReview =
-        latestReview.files.isNotEmpty ? latestReview : null;
+    WorkspaceShell.session.pluginHostState = {
+      'chatId': _currentChatId,
+      'messages': [for (final message in messages) pluginMessageState(message)],
+    };
     if (_selectedMessageTimestamps.isNotEmpty) {
       final selectableTimestamps = messages
           .where((message) {
@@ -1768,6 +1774,10 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
     if (chatChanged) {
       _saveCurrentInputDraft();
       _currentChatId = state.currentChatId;
+      WorkspaceShell.session.pluginHostState = {
+        'chatId': state.currentChatId,
+        'messages': const <Object?>[],
+      };
       _isMultiSelectMode = false;
       _selectedMessageTimestamps = const <int>{};
       _restoreInputDraftForChat(state.currentChatId);
@@ -1960,8 +1970,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
       }
       if (decision.action == chatInputActionBlock ||
           decision.action == chatInputActionConsume) {
-        if (decision.action == chatInputActionConsume &&
-            decision.clearInput) {
+        if (decision.action == chatInputActionConsume && decision.clearInput) {
           _clearMentionSuggestionState();
           _messageController.clear();
           await _viewModel.clearAttachments();
@@ -2545,8 +2554,10 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
       }
     }
     final normalized = path.replaceAll('\\', '/');
-    final segments =
-        normalized.split('/').where((s) => s.trim().isNotEmpty).toList();
+    final segments = normalized
+        .split('/')
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
     if (segments.isNotEmpty) {
       return segments.last.trim();
     }
@@ -2740,7 +2751,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
           chatId: data.currentChatId,
           chatSelectionGeneration: _chatSelectionGeneration,
         );
-        return ChatScreenContent(
+        final content = ChatScreenContent(
           showInput: widget.showInput,
           messages: data.messages,
           loading: data.loading,
@@ -2761,6 +2772,7 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
           hasOlderDisplayHistory: data.hasOlderDisplayHistory,
           hasNewerDisplayHistory: data.hasNewerDisplayHistory,
           isLoadingDisplayWindow: data.isLoadingDisplayWindow,
+          messageNavigation: _messageNavigation,
           loadLocatorEntries: _loadMessageLocatorEntries,
           onRevealMessageForLocator: _viewModel.revealMessageForCurrentChat,
           onAutoScrollToBottomChanged: _setAutoScrollToBottom,
@@ -2873,6 +2885,14 @@ class _AIChatSurfaceState extends State<_AIChatSurface> {
           onInsertAttachment: _insertAttachmentReference,
           toastMessageListenable: _toastMessageNotifier,
           onDismissToast: _dismissToast,
+        );
+        return ChatMessageLocatorHost(
+          currentChatId: data.currentChatId,
+          navigation: _messageNavigation,
+          loadEntries: _loadMessageLocatorEntries,
+          onToggleFavorite: _setMessageFavorite,
+          acceptsSidebarRequests: !widget.embedded && _isCurrentMainScreen,
+          child: content,
         );
       },
     );

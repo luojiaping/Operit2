@@ -14,7 +14,7 @@ use crate::services::core::MessageProcessingDelegate::{
     SendUserMessageProcessingRequest,
 };
 use crate::services::core::TokenStatisticsDelegate::TokenStatisticsDelegate;
-use crate::services::ProviderRuntimeSupportService::ChatConfigurationApi;
+use crate::services::ProviderRuntimeSupportService::{ChatConfigurationApi, MODEL_CONFIGURATION_OWNER};
 use operit_host_api::HostManager::defaultHostRuntimeTaskSchedulerHost;
 use operit_host_api::HostRuntimeTaskSchedulerHost;
 use operit_host_api::TimeUtils::currentTimeMillis;
@@ -119,7 +119,10 @@ impl MessageCoordinationDelegate {
         messageTimestamp: i64,
         variantIndex: i32,
     ) -> Result<String, String> {
-        let api = ChatConfigurationApi::ready(&service.tool_handler).await?;
+        let api = ChatConfigurationApi::ready(&service.tool_handler).await;
+        if api.extensionOwner() == MODEL_CONFIGURATION_OWNER {
+            return Ok("model:chat".into());
+        }
         let extensions = self
             .chatHistoryDelegate
             .chatHistoryManager
@@ -130,7 +133,8 @@ impl MessageCoordinationDelegate {
             })
             .map_err(|error| error.to_string())?;
         extensions
-            .get(api.extensionOwner())
+            .get(MODEL_CONFIGURATION_OWNER)
+            .or_else(|| extensions.get(api.extensionOwner()))
             .and_then(|identity| identity.get("participantId"))
             .and_then(serde_json::Value::as_str)
             .filter(|id| !id.trim().is_empty())
@@ -169,7 +173,7 @@ impl MessageCoordinationDelegate {
             .chatConfigurationRequestForOptions(&runtimeOptions)
             .map_err(|error| error.to_string())?;
         let configurations = ChatConfigurationApi::ready(&service.tool_handler)
-            .await?
+            .await
             .resolveContextParticipants(request)
             .await?;
         let mut windows = Vec::with_capacity(configurations.len());
@@ -492,8 +496,9 @@ impl MessageCoordinationDelegate {
         context: operit_tools::runtime_support::CoreRouteResumeContext,
     ) -> Result<(), String> {
         configuration.validate()?;
-        if configuration.extensionOwner != context.extensionOwner
-            || configuration.profile.id != context.participantId
+        if configuration.extensionOwner != MODEL_CONFIGURATION_OWNER
+            && (configuration.extensionOwner != context.extensionOwner
+                || configuration.profile.id != context.participantId)
         {
             return Err(
                 "Routed configuration does not match its execution snapshot identity".to_string(),

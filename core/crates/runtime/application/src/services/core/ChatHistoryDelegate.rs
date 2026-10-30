@@ -1236,7 +1236,16 @@ impl ChatHistoryDelegate {
                 .currentChatIdFlow()
                 .map_err(|error| error.to_string())?;
             if let Some(chatId) = selected {
-                self.openChatHistory(chatId, false)?;
+                let exists = self.chatHistoryManager.chatExists(chatId.clone())
+                    .map_err(|error| error.to_string())?;
+                if !exists && self.chatHistoryManager.chatIsDeleted(&chatId)
+                    .map_err(|error| error.to_string())?
+                {
+                    self.chatHistoryManager.clearCurrentChatId()
+                        .map_err(|error| error.to_string())?;
+                } else {
+                    self.openChatHistory(chatId, false)?;
+                }
             }
         }
         self.isInitialized = true;
@@ -1435,7 +1444,7 @@ impl ChatHistoryDelegate {
             .chatHistoryManager
             .newChatDraft(title, BTreeMap::new(), workspaceId, parentChatId.clone())
             .map_err(|error| error.to_string())?;
-        let api = ChatConfigurationApi::ready(&service.tool_handler).await?;
+        let mut api = ChatConfigurationApi::ready(&service.tool_handler).await;
         let hooks = ToolPkgChatLifecycleHookBridge::snapshot().await?;
         let hookDraft = ToolPkgChatCreationDraft {
             creationKind,
@@ -1679,15 +1688,14 @@ impl ChatHistoryDelegate {
         service: &EnhancedAIService,
         chatId: String,
     ) -> Result<bool, String> {
-        self.requireChatExists(&chatId)?;
         let canDelete = self
             .chatHistoryManager
             .canDeleteChatHistory(chatId.clone())
             .map_err(|error| error.to_string())?;
         if !canDelete {
-            return Err(format!("Chat is locked: {chatId}"));
+            return Err(format!("Chat is locked or does not exist: {chatId}"));
         }
-        let api = ChatConfigurationApi::ready(&service.tool_handler).await?;
+        let api = ChatConfigurationApi::ready(&service.tool_handler).await;
         self.prepareChatForDestructiveMutation(chatId.clone());
         api.deleteConfiguration(&chatId).await?;
         let deleted = self
@@ -1696,6 +1704,19 @@ impl ChatHistoryDelegate {
             .map_err(|error| error.to_string())?;
         if !deleted {
             return Err(format!("Core conversation deletion failed: {chatId}"));
+        }
+        self.clearDeletedChatState(chatId)?;
+        Ok(true)
+    }
+
+    /// Clears local projections of a committed deletion without invoking configuration owners again.
+    pub(crate) fn clearDeletedChatState(&mut self, chatId: String) -> Result<(), String> {
+        if self.chatHistoryManager.currentChatIdFlow()
+            .map_err(|error| error.to_string())?
+            .as_ref() == Some(&chatId)
+        {
+            self.chatHistoryManager.clearCurrentChatId()
+                .map_err(|error| error.to_string())?;
         }
         if self.currentChatIdFlow.value().as_ref() == Some(&chatId) {
             self.currentChatIdFlow.set_value(None);
@@ -1706,7 +1727,7 @@ impl ChatHistoryDelegate {
         });
         self.clearChatFlow(&chatId);
         self.finishDestructiveHistoryMutation(chatId);
-        Ok(true)
+        Ok(())
     }
 
     #[allow(non_snake_case)]

@@ -650,6 +650,60 @@ abstract class AppLocalizations {
   /// **'{count} results'**
   String messageLocatorResultCount(int count);
 
+  /// No description provided for @messageLocatorSearchMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Search messages'**
+  String get messageLocatorSearchMessages;
+
+  /// No description provided for @messageLocatorViewFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'View favorites'**
+  String get messageLocatorViewFavorites;
+
+  /// No description provided for @messageLocatorAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get messageLocatorAll;
+
+  /// No description provided for @messageLocatorFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get messageLocatorFavorites;
+
+  /// No description provided for @messageLocatorNoFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'No favorite messages yet'**
+  String get messageLocatorNoFavorites;
+
+  /// No description provided for @messageLocatorLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load messages. Please try again.'**
+  String get messageLocatorLoadFailed;
+
+  /// No description provided for @messageLocatorFavoriteFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update favorite. Please try again.'**
+  String get messageLocatorFavoriteFailed;
+
+  /// No description provided for @messageLocatorAddFavorite.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite message'**
+  String get messageLocatorAddFavorite;
+
+  /// No description provided for @messageLocatorRemoveFavorite.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove favorite'**
+  String get messageLocatorRemoveFavorite;
+
   /// No description provided for @messageLocatorNoMatches.
   ///
   /// In en, this message translates to:
@@ -6893,7 +6947,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsPeerPortModeHelp.
   ///
   /// In en, this message translates to:
-  /// **'Fixed mode keeps the entered IP and port for tunnels and port forwarding. A busy fixed port reports an error without changing the address.'**
+  /// **'By default, the system assigns an available port and LAN discovery advertises it. Fixed mode uses the entered listen address and port and reports an error if the port is busy.'**
   String get settingsPeerPortModeHelp;
 
   /// No description provided for @settingsPeerPortMode.
@@ -6905,7 +6959,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsPeerPortModeFixed.
   ///
   /// In en, this message translates to:
-  /// **'Fixed address and port'**
+  /// **'Fixed listen address and port'**
   String get settingsPeerPortModeFixed;
 
   /// No description provided for @settingsPeerPortModeAutomatic.
@@ -6935,7 +6989,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsPeerTransportHelp.
   ///
   /// In en, this message translates to:
-  /// **'Listener transports (multiple selections). HTTP and WebSocket can share a port; TCP cannot share that port with them. Bluetooth requires platform support. Clear all selections and disable discovery to stop listening. Changing settings interrupts existing connections. Disabling discovery alone does not stop direct connections.'**
+  /// **'Listener transports (multiple selections). HTTP, WebSocket and TCP share one listening port and can be combined freely. Bluetooth requires platform support. Clear all selections and disable discovery to stop listening. Changing settings interrupts existing connections. Disabling discovery alone does not stop direct connections.'**
   String get settingsPeerTransportHelp;
 
   /// No description provided for @settingsPeerBindAddress.
@@ -6965,7 +7019,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsPeerBindPortAutomaticHelp.
   ///
   /// In en, this message translates to:
-  /// **'Automatic mode selects a free port starting from this value.'**
+  /// **'The system assigns an available port. The actual port appears after startup.'**
   String get settingsPeerBindPortAutomaticHelp;
 
   /// No description provided for @settingsPeerDiscoveryNeedsTransport.
@@ -6973,12 +7027,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Select at least one transport before enabling discovery.'**
   String get settingsPeerDiscoveryNeedsTransport;
-
-  /// No description provided for @settingsPeerPortConflict.
-  ///
-  /// In en, this message translates to:
-  /// **'TCP cannot currently share a listen port with HTTP/WebSocket. Select TCP or HTTP/WebSocket.'**
-  String get settingsPeerPortConflict;
 
   /// No description provided for @settingsPeerAddressRequired.
   ///
@@ -7253,7 +7301,7 @@ abstract class AppLocalizations {
   /// No description provided for @deviceSpaceUpdateEndpointHint.
   ///
   /// In en, this message translates to:
-  /// **'For example ws://192.168.1.20:37195/link'**
+  /// **'e.g. ws://host:port/link or host:port — use the peer\'s current listen port'**
   String get deviceSpaceUpdateEndpointHint;
 
   /// No description provided for @deviceSpaceUpdateEndpointSaved.
@@ -7297,6 +7345,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Nearby devices'**
   String get devicePickerNearby;
+
+  /// No description provided for @devicePickerDiscoveryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nearby device discovery failed: {error}'**
+  String devicePickerDiscoveryFailed(String error);
 
   /// No description provided for @devicePickerEmpty.
   ///
@@ -7760,6 +7814,24 @@ abstract class AppLocalizations {
   /// **'Exchanging records'**
   String get deviceSpaceSyncRecords;
 
+  /// No description provided for @deviceSpaceSyncRecordProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} / {total} records · {percent}%'**
+  String deviceSpaceSyncRecordProgress(int completed, int total, int percent);
+
+  /// No description provided for @deviceSpaceSyncPendingCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} records pending application'**
+  String deviceSpaceSyncPendingCount(int count);
+
+  /// No description provided for @deviceSpaceSyncCounting.
+  ///
+  /// In en, this message translates to:
+  /// **'Counting total · {count} records processed'**
+  String deviceSpaceSyncCounting(int count);
+
   /// No description provided for @deviceSpaceSyncFiles.
   ///
   /// In en, this message translates to:
@@ -7831,6 +7903,180 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Loading extensions'**
   String get runtimeActivityLoadingPackages;
+
+  /// No description provided for @peerQrTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'QR connection'**
+  String get peerQrTitle;
+
+  /// No description provided for @peerQrScan.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan code'**
+  String get peerQrScan;
+
+  /// No description provided for @peerQrShow.
+  ///
+  /// In en, this message translates to:
+  /// **'My code'**
+  String get peerQrShow;
+
+  /// No description provided for @peerQrShowHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan this code on another device to connect to this device.'**
+  String get peerQrShowHint;
+
+  /// No description provided for @peerQrScanHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan the Operit connection code on the other device.'**
+  String get peerQrScanHint;
+
+  /// No description provided for @peerQrTrustHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The code shares connection addresses only. Pairing still requires the code shown on the other device; joining a space still requires approval.'**
+  String get peerQrTrustHint;
+
+  /// No description provided for @peerQrListenerRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable receiving connections in connection settings and connect to a network first.'**
+  String get peerQrListenerRequired;
+
+  /// No description provided for @peerQrCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy connection info'**
+  String get peerQrCopy;
+
+  /// No description provided for @peerQrCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get peerQrCopied;
+
+  /// No description provided for @peerQrImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Import QR image'**
+  String get peerQrImport;
+
+  /// No description provided for @peerQrPaste.
+  ///
+  /// In en, this message translates to:
+  /// **'Or paste connection info'**
+  String get peerQrPaste;
+
+  /// No description provided for @peerQrRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Read connection info'**
+  String get peerQrRead;
+
+  /// No description provided for @peerQrWrongDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'This code belongs to a different device. Scan the code for the selected device.'**
+  String get peerQrWrongDevice;
+
+  /// No description provided for @peerQrImageInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'No QR code could be read. Choose a clear QR image smaller than 16 MB.'**
+  String get peerQrImageInvalid;
+
+  /// No description provided for @peerQrCameraUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera scanning is unavailable. Import a QR image or paste connection info instead.'**
+  String get peerQrCameraUnavailable;
+
+  /// No description provided for @peerQrCameraPermission.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera access is required. Allow it in system settings, or import a QR image.'**
+  String get peerQrCameraPermission;
+
+  /// No description provided for @peerQrDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect device'**
+  String get peerQrDevice;
+
+  /// No description provided for @peerQrScanAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan another code'**
+  String get peerQrScanAgain;
+
+  /// No description provided for @peerQrMethodsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Can’t find the device? Connect with a QR code.'**
+  String get peerQrMethodsHint;
+
+  /// No description provided for @toolParametersLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Parameters'**
+  String get toolParametersLabel;
+
+  /// No description provided for @toolResultLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Result'**
+  String get toolResultLabel;
+
+  /// No description provided for @toolGroupThinkingCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} thinking'**
+  String toolGroupThinkingCount(int count);
+
+  /// No description provided for @toolGroupCallCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{{count} call} other{{count} calls}}'**
+  String toolGroupCallCount(int count);
+
+  /// No description provided for @toolGroupSearchCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} search'**
+  String toolGroupSearchCount(int count);
+
+  /// No description provided for @toolEditedFileCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{Edited {count} file} other{Edited {count} files}}'**
+  String toolEditedFileCount(int count);
+
+  /// No description provided for @toolViewChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'View changes'**
+  String get toolViewChanges;
+
+  /// No description provided for @toolViewFileDiff.
+  ///
+  /// In en, this message translates to:
+  /// **'View diff for {fileName}'**
+  String toolViewFileDiff(String fileName);
+
+  /// No description provided for @toolGroupCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get toolGroupCompleted;
+
+  /// No description provided for @toolGroupExecuting.
+  ///
+  /// In en, this message translates to:
+  /// **'Executing'**
+  String get toolGroupExecuting;
 }
 
 class _AppLocalizationsDelegate

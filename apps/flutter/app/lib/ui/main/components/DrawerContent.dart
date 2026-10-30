@@ -14,6 +14,7 @@ import '../../../core/proxy/generated/CoreProxyModels.g.dart' as core_proxy;
 import '../../../l10n/generated/app_localizations.dart';
 import '../../common/contributions/ChatSidebarTabHost.dart';
 import '../../features/chat/viewmodel/ChatSelectionTransition.dart';
+import '../../features/chat/viewmodel/ChatMessageLookupRequests.dart';
 import '../../features/chat/components/NewChatIntro.dart';
 import '../../features/chat/components/workspace/WorkspaceUnbindDialog.dart';
 import '../navigation/AppNavigationModels.dart';
@@ -29,6 +30,7 @@ import '../../common/components/M3LoadingIndicator.dart';
 import 'DrawerContentDialogs.dart';
 import 'NavigationDrawerAppearance.dart';
 import 'SidebarMoreMenu.dart';
+import 'SidebarChatCreation.dart';
 
 part 'DrawerContentGroups.dart';
 
@@ -299,13 +301,23 @@ class _DrawerContentState extends State<DrawerContent> {
     }
   }
 
-  /// Creates through the generic hook using the displayed chat as the nullable source.
-  Future<void> _createConversation({String? workspaceId}) async {
+  /// Creates in an explicit workspace or inherits the native tab's selected binding.
+  Future<void> _createConversation({
+    String? workspaceId,
+    bool inheritWorkspace = false,
+  }) async {
     final chatCore = _chatCoreProxy;
     final onActivated = widget.onConversationActivated;
     newChatIntroArmed.value = true;
     if (mounted) setState(() => _errorMessage = null);
     try {
+      if (inheritWorkspace) {
+        workspaceId = await sidebarNewChatWorkspaceId(
+          clients: _clients,
+          histories: widget.histories,
+          currentChatId: widget.currentChatId,
+        );
+      }
       await chatCore.createNewChat(
         setAsCurrentChat: true,
         sourceChatId: null,
@@ -408,6 +420,10 @@ class _DrawerContentState extends State<DrawerContent> {
       return;
     }
     switch (action) {
+      case ConversationAction.searchMessages:
+        await _openMessageLookup(history);
+      case ConversationAction.viewFavorites:
+        await _openMessageLookup(history, favoritesOnly: true);
       case ConversationAction.openInWindow:
         await _openConversationInWindow(history);
       case ConversationAction.rename:
@@ -431,6 +447,19 @@ class _DrawerContentState extends State<DrawerContent> {
     }
   }
 
+  Future<void> _openMessageLookup(
+    core_proxy.ChatHistoryListItem history, {
+    bool favoritesOnly = false,
+  }) async {
+    try {
+      await _activateChat(history.id);
+    } catch (_) {
+      // Activation already exposes its failure in the sidebar.
+      return;
+    }
+    ChatMessageLookupRequests.open(history.id, favoritesOnly: favoritesOnly);
+  }
+
   Future<void> _showMoveConversationToWorkspaceDialog(
     core_proxy.ChatHistoryListItem history,
   ) async {
@@ -449,6 +478,30 @@ class _DrawerContentState extends State<DrawerContent> {
         workspaceId: workspaceId,
       ),
     );
+  }
+
+  Future<void> _deleteWorkspace(_WorkspaceSection section) async {
+    final workspaceId = section.workspaceId;
+    if (workspaceId == null || _groupMutationPending) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => DeleteWorkspaceDialog(name: section.label),
+    );
+    if (!mounted || confirmed != true) return;
+    await _runGroupMutation(() async {
+      await _chatCoreProxy.deleteWorkspace(workspaceId: workspaceId);
+      await _directoryPreferences.setDirectoryPinned(
+        SidebarDirectory.workspace(workspaceId),
+        false,
+      );
+      if (!mounted) return;
+      setState(() {
+        _collapsedWorkspaces.remove(section.key);
+        _rememberedCollapsedWorkspaces.remove(section.key);
+        _expandedWorkspaces.remove(section.key);
+      });
+      await _loadWorkspaces();
+    });
   }
 
   /// Lets a conversation detach an exact workspace binding even when its record is missing.
@@ -786,6 +839,9 @@ class _DrawerContentState extends State<DrawerContent> {
         nested: true,
         workspaceStyle: true,
         onClick: () => unawaited(_switchConversation(history)),
+        onSearchMessages: () => unawaited(_openMessageLookup(history)),
+        onViewFavorites: () =>
+            unawaited(_openMessageLookup(history, favoritesOnly: true)),
         onRename: () => unawaited(_showRenameConversationDialog(history)),
         onBindWorkspace: () => unawaited(_showBindWorkspaceDialog(history)),
         onTogglePinned: () => unawaited(_updateConversationPinned(history)),
@@ -814,8 +870,10 @@ class _DrawerContentState extends State<DrawerContent> {
 
   Widget _sidebarHeader(Widget tabs) {
     final onCollapse = widget.onCollapseSidebar;
-    return Padding(
-      padding: const EdgeInsets.only(top: 26, right: 12),
+    final desktopHeader = useTabletLayoutForContext(context);
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final header = Padding(
+      padding: EdgeInsets.only(top: desktopHeader ? topPadding : 26, right: 12),
       child: Row(
         children: <Widget>[
           Expanded(
@@ -843,6 +901,12 @@ class _DrawerContentState extends State<DrawerContent> {
         ],
       ),
     );
+    return desktopHeader
+        ? SizedBox(
+            height: topPadding + ThemeTopBarChrome.toolbarHeight,
+            child: header,
+          )
+        : header;
   }
 
   /// Adds plugin navigation to the native workspace's existing scrolling surface.
@@ -879,6 +943,7 @@ class _DrawerContentState extends State<DrawerContent> {
     final groups = _nativeGroups(section);
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final group in groups) ...<Widget>[
           _GroupSectionHeader(
@@ -964,8 +1029,9 @@ class _DrawerContentState extends State<DrawerContent> {
                     children: <Widget>[
                       Expanded(
                         child: _WorkspaceCreateBar(
-                          onCreateConversation: () =>
-                              unawaited(_createConversation()),
+                          onCreateConversation: () => unawaited(
+                            _createConversation(inheritWorkspace: true),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -1021,6 +1087,9 @@ class _DrawerContentState extends State<DrawerContent> {
                   expanded: !_collapsedWorkspaces.contains(section.key),
                   appearance: widget.appearance,
                   canCreate: section.canCreate,
+                  onDelete: section.workspaceId != null && section.canCreate
+                      ? () => unawaited(_deleteWorkspace(section))
+                      : null,
                   onToggleExpanded: () => _toggleWorkspace(section.key),
                   onCreateConversation: () => unawaited(
                     _createConversation(workspaceId: section.workspaceId),
@@ -1216,7 +1285,7 @@ class _WorkspaceSection {
       <core_proxy.ChatHistoryListItem>[];
 }
 
-enum _WorkspaceQuickAction { createChat, createGroup, togglePinned }
+enum _WorkspaceQuickAction { createChat, createGroup, togglePinned, delete }
 
 class _WorkspaceHeader extends StatelessWidget {
   const _WorkspaceHeader({
@@ -1231,6 +1300,7 @@ class _WorkspaceHeader extends StatelessWidget {
     required this.onCreateConversation,
     required this.onCreateGroup,
     required this.onTogglePinned,
+    this.onDelete,
   });
 
   final String label;
@@ -1243,6 +1313,7 @@ class _WorkspaceHeader extends StatelessWidget {
   final VoidCallback onCreateConversation;
   final VoidCallback onCreateGroup;
   final VoidCallback onTogglePinned;
+  final VoidCallback? onDelete;
 
   void _select(_WorkspaceQuickAction action) {
     switch (action) {
@@ -1252,6 +1323,8 @@ class _WorkspaceHeader extends StatelessWidget {
         onCreateGroup();
       case _WorkspaceQuickAction.togglePinned:
         onTogglePinned();
+      case _WorkspaceQuickAction.delete:
+        onDelete?.call();
     }
   }
 
@@ -1346,6 +1419,14 @@ class _WorkspaceHeader extends StatelessWidget {
                       : Icons.push_pin_rounded,
                   label: pinned ? '取消置顶' : '置顶',
                 ),
+                if (onDelete != null)
+                  const SidebarMenuAction(
+                    value: _WorkspaceQuickAction.delete,
+                    icon: Icons.delete_outline_rounded,
+                    label: '删除工作区',
+                    dividerBefore: true,
+                    danger: true,
+                  ),
               ],
             ),
             const SizedBox(width: 4),
@@ -1429,7 +1510,7 @@ class _HistoryLimitButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsetsDirectional.only(
-        start: workspaceStyle ? 51 : 56,
+        start: workspaceStyle ? 50 : 56,
         end: 12,
         top: 2,
       ),
@@ -1442,6 +1523,7 @@ class _HistoryLimitButton extends StatelessWidget {
         ),
         label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
         style: TextButton.styleFrom(
+          padding: EdgeInsets.zero,
           alignment: Alignment.centerLeft,
           foregroundColor: appearance.itemColor.withValues(alpha: 0.72),
           textStyle: Theme.of(

@@ -88,7 +88,7 @@ fn aliasOperation(path: &str, source: &str, target: &str) -> SyncOperation {
         domain: "preferences".into(), entityType: "entry".into(),
         entityId: serde_json::to_string(&(path, &key)).unwrap(), operation: "alias".into(),
         semantics: operit_store::SyncOperationStore::SyncOperationSemantics::Transaction,
-        payload: json!({"storagePath":path,"key":key,"value":format!("card_{target}"),"encrypted":false,"formatVersion":2}),
+        payload: json!({"storagePath":path,"key":key,"value":format!("card_{target}"),"encrypted":false,"formatVersion":2,"schemaVersion":0}),
         createdAt: operit_host_api::TimeUtils::tryCurrentTimeMillis().unwrap(), schemaVersion: 1,
     }
 }
@@ -209,7 +209,7 @@ fn descriptor(path: &str) -> Value {
 
 /// Executes plugin-declared content/name merging and array references on a peer without loading the plugin.
 #[test]
-fn declarations_preserve_stable_ids_and_local_storage_version_boundaries() {
+fn declared_content_identity_coalesces_ids_and_rewrites_selection_without_changing_originals() {
     let first=Fixture::new("space");let second=Fixture::new("space");let receiver=Fixture::new("space");
     let open=json!({"op":"open_preferences","path":first.path,"merge":descriptor(&first.path)});
     let left=first.call(open.clone()).unwrap()["handle"].as_str().unwrap().to_owned();
@@ -219,19 +219,21 @@ fn declarations_preserve_stable_ids_and_local_storage_version_boundaries() {
     first.finish(&left,&token,json!([set(&format!("card_{small}"),json!({"id":small,"name":"Same","text":"identical","updatedAt":1})),set("selection",json!([small]))]),2).unwrap();
     let token=second.begin(&right);
     second.finish(&right,&token,json!([set(&format!("card_{large}"),json!({"id":large,"name":"Same","text":"identical","updatedAt":2})),set("selection",json!([large]))]),2).unwrap();
-    let leftHistory=first.history();let rightHistory=second.history();
+    PreferencesDataStore::newWithStorage(receiver.host.clone(), &receiver.path)
+        .withSchema(2, |_, _| Ok(())).data().unwrap();
+    let leftOriginal=first.history();let rightOriginal=second.history();
+    let leftHistory=leftOriginal.iter().filter(|op| op.payload["schemaVersion"] == 2).cloned().collect::<Vec<_>>();
+    let rightHistory=rightOriginal.iter().filter(|op| op.payload["schemaVersion"] == 2).cloned().collect::<Vec<_>>();
     let schema=PreferenceMergeSchema::default();
     let refs=PreferenceMerge::applyOperations(receiver.host.clone(),&schema,&leftHistory,&rightHistory,|_,_|true).unwrap();
-    assert!(refs.is_empty());
+    assert_eq!(refs.get(&format!("{}\u{001f}{large}",receiver.path)), Some(&small.to_owned()));
     let handle=receiver.open();let snapshot=receiver.data(&handle);
-    assert_eq!(snapshot["schemaVersion"],0);
+    assert_eq!(snapshot["schemaVersion"],2);
     assert!(snapshot["values"].get(format!("card_{small}")).is_some());
-    assert!(snapshot["values"].get(format!("card_{large}")).is_some());
-    let order = operit_store::SyncOperationStore::SyncOperationOrder::fromOperation;
-    let selected = if order(leftHistory.last().unwrap()) < order(rightHistory.last().unwrap()) { large } else { small };
-    assert_eq!(snapshot["values"]["selection"],json!([selected]));
+    assert!(snapshot["values"].get(format!("card_{large}")).is_none());
+    assert_eq!(snapshot["values"]["selection"],json!([small]));
     assert!(snapshot["values"].get("__operit_preferences_merge").is_none());
-    assert_eq!(first.history(),leftHistory);assert_eq!(second.history(),rightHistory);
+    assert_eq!(first.history(),leftOriginal);assert_eq!(second.history(),rightOriginal);
     let mut changed=descriptor(&receiver.path);changed["catalog"]["nameField"]=json!("title");
     assert!(receiver.call(json!({"op":"open_preferences","path":receiver.path,"merge":changed})).is_err());
     first.dispose();second.dispose();receiver.dispose();
@@ -255,7 +257,10 @@ fn aliases_retire_existing_catalog_sources_on_every_peer() {
     let schema = PreferenceMergeSchema::default();
     PreferenceMerge::applyOperations(receiver.host.clone(), &schema, &[], &history, |_, _| true).unwrap();
     let received = receiver.open();
-    assert!(receiver.data(&received)["values"].get("card_old").is_some());
+    let initial = receiver.data(&received)["values"].clone();
+    assert!(initial.get("card_old").is_none());
+    assert_eq!(initial["card_current"]["id"], "current");
+    assert_eq!(initial["selection"], json!(["current"]));
     let alias = aliasOperation(&source.path, "old", "current");
     for _ in 0..2 {
         PreferenceMerge::applyOperations(receiver.host.clone(), &schema, &history, &[alias.clone()], |_, _| true).unwrap();
@@ -451,8 +456,7 @@ fn rust_owner_and_plugin_declarations_share_catalog_aliases() {
     native["references"] = json!([]);
     let schema = PreferenceMergeSchema { stores: vec![PreferenceMergeStore {
         path: native_path.to_string(), encrypted: false,
-            storageVersion: None,
-            decode: None,
+            open: |storage, path| PreferencesDataStore::newWithStorage(storage, path),
         merge: serde_json::from_value(native).unwrap(),
     }] };
     let mut plugin = descriptor(&first.path);
@@ -490,8 +494,7 @@ fn shared_declaration_validation_precedes_storage_publication() {
         invalid["references"][0]["path"] = path;
         let schema = PreferenceMergeSchema { stores: vec![PreferenceMergeStore {
             path: fixture.path.clone(), encrypted: false,
-            storageVersion: None,
-            decode: None,
+            open: |storage, path| PreferencesDataStore::newWithStorage(storage, path),
             merge: serde_json::from_value(invalid.clone()).unwrap(),
         }] };
         assert!(PreferenceMerge::applyOperations(fixture.host.clone(), &schema, &[], &[], |_, _| true).is_err());
@@ -500,4 +503,51 @@ fn shared_declaration_validation_precedes_storage_publication() {
         assert!(fixture.history().is_empty());
     }
     fixture.dispose();
+}
+
+
+#[test]
+fn file_correction_provisions_an_empty_preference_owner_without_a_transaction() {
+    let source = Fixture::new("space");
+    let store = PreferencesDataStore::newWithStorage(source.host.clone(), &source.path);
+    store.prepareSync().unwrap();
+    let snapshot = store.syncSnapshot().unwrap();
+    let file = operit_store::Transaction::preference::file_snapshot(&store,&snapshot.token().unwrap()).unwrap();
+    assert!(source.history().is_empty());
+    let target = Fixture::new("space");
+    let mut schema = PreferenceMergeSchema::default();
+    let registry = PreferenceMerge::registry(target.host.clone(),&schema,[],|_,_|true).unwrap();
+    assert!(!registry.owners.contains_key(&target.path));
+    drop(registry);
+    schema.stores.push(schema.owner(&target.path).unwrap().unwrap());
+    let registry = PreferenceMerge::registry(target.host.clone(),&schema,[],|_,_|true).unwrap();
+    assert!(registry.repair_file(&snapshot.data.owner,"",&snapshot,Some(&file)).unwrap());
+    assert!(!registry.repair_file(&snapshot.data.owner,"",&snapshot,Some(&file)).unwrap());
+    assert_eq!(target.host.readBytes(&target.path).unwrap(),file.as_bytes());
+    assert!(target.history().is_empty());
+    drop(registry);
+    let schema = PreferenceMergeSchema::default();
+    let registry = PreferenceMerge::registry(target.host.clone(),&schema,[],|_,_|true).unwrap();
+    assert_eq!(registry.snapshot(&snapshot.data.owner).unwrap().data,snapshot.data);
+    source.dispose(); target.dispose();
+}
+
+#[test]
+fn a_file_created_after_inventory_capture_is_preserved_and_discovered() {
+    let source = Fixture::new("space");
+    let source_store = PreferencesDataStore::newWithStorage(source.host.clone(), &source.path);
+    source_store.prepareSync().unwrap();
+    let snapshot = source_store.syncSnapshot().unwrap();
+    let target = Fixture::new("space");
+    let mut schema = PreferenceMergeSchema::default();
+    schema.stores.push(schema.owner(&target.path).unwrap().unwrap());
+    let registry = PreferenceMerge::registry(target.host.clone(),&schema,[],|_,_|true).unwrap();
+    // A local edit lands after the peer captured absence, before file installation.
+    let store = PreferencesDataStore::newWithStorage(target.host.clone(), &target.path);
+    store.edit(|values|values.set(&stringPreferencesKey("local"),"keep")).unwrap();
+    let bytes = target.host.readBytes(&target.path).unwrap();
+    assert!(!registry.repair_file(&snapshot.data.owner,"",&snapshot,None).unwrap());
+    assert_eq!(target.host.readBytes(&target.path).unwrap(),bytes);
+    assert_eq!(store.data().unwrap().get(&stringPreferencesKey("local")),Some(&json!("keep")));
+    source.dispose(); target.dispose();
 }

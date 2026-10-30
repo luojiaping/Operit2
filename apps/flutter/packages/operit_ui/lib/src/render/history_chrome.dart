@@ -84,28 +84,24 @@ class ThemeConversationStatusHandle extends StatelessWidget {
     final activeColor = appearance.statusAvailableColor;
     return Tooltip(
       message: isRunning ? '正在运行' : '拖动对话',
-      child: SizedBox(
-        key: isRunning
-            ? const ValueKey<String>('conversation-running-indicator')
-            : null,
-        width: width,
-        height: height,
-        child: isRunning && animation != null
-            ? AnimatedBuilder(
-                animation: animation!,
-                builder: (context, _) => CustomPaint(
-                  size: Size(width, height),
-                  painter: _ThemeMarqueeDotsPainter(
-                    progress: animation!.value,
+      child: RepaintBoundary(
+        child: SizedBox(
+          key: isRunning
+              ? const ValueKey<String>('conversation-running-indicator')
+              : null,
+          width: width,
+          height: height,
+          child: CustomPaint(
+            size: Size(width, height),
+            painter: isRunning && animation != null
+                ? _ThemeMarqueeDotsPainter(
+                    animation: animation!,
                     activeColor: activeColor,
                     dimColor: restingColor.withValues(alpha: 0.18),
-                  ),
-                ),
-              )
-            : CustomPaint(
-                size: Size(width, height),
-                painter: _ThemeStaticDotsPainter(color: restingColor),
-              ),
+                  )
+                : _ThemeStaticDotsPainter(color: restingColor),
+          ),
+        ),
       ),
     );
   }
@@ -454,6 +450,7 @@ class ThemeConversationRow extends StatelessWidget {
         borderRadius: itemShape,
         onTap: onTap,
         onLongPress: onLongPress,
+        onSecondaryTap: onLongPress,
         child: Padding(
           padding: EdgeInsetsDirectional.fromSTEB(
             workspaceStyle ? 4.0 : 6.0,
@@ -623,12 +620,12 @@ class _ThemeHistoryCountBadge extends StatelessWidget {
 
 class _ThemeMarqueeDotsPainter extends CustomPainter {
   const _ThemeMarqueeDotsPainter({
-    required this.progress,
+    required this.animation,
     required this.activeColor,
     required this.dimColor,
-  });
+  }) : super(repaint: animation);
 
-  final double progress;
+  final Animation<double> animation;
   final Color activeColor;
   final Color dimColor;
 
@@ -643,7 +640,7 @@ class _ThemeMarqueeDotsPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final activePos = progress * 6.0;
+    final activePos = animation.value * 6.0;
     final baseDotRadius = size.width * 0.115;
     for (var i = 0; i < 6; i++) {
       var distance = (activePos - i) % 6.0;
@@ -669,9 +666,13 @@ class _ThemeMarqueeDotsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ThemeMarqueeDotsPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
+      oldDelegate.animation != animation ||
       oldDelegate.activeColor != activeColor ||
       oldDelegate.dimColor != dimColor;
+
+  @override
+  bool shouldRebuildSemantics(covariant _ThemeMarqueeDotsPainter oldDelegate) =>
+      false;
 }
 
 class _ThemeStaticDotsPainter extends CustomPainter {
@@ -704,4 +705,8 @@ class _ThemeStaticDotsPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ThemeStaticDotsPainter oldDelegate) =>
       oldDelegate.color != color;
+
+  @override
+  bool shouldRebuildSemantics(covariant _ThemeStaticDotsPainter oldDelegate) =>
+      false;
 }

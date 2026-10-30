@@ -711,6 +711,9 @@ fn render_object_constructor(object: &SourceObject, mode: DispatchMode) -> Strin
         ObjectAccess::CoreNodeLocalRuntimeConstruct => {
             render_core_node_local_runtime_constructor("object", &object.full_type)
         }
+        ObjectAccess::ResultCoreNodeLocalRuntimeConstruct => {
+            format!("            let mut object = {}::new(proxy.coreNodeLocalRuntime()).map_err(|error| operit_link::CoreLinkError::internal(error.to_string()))?;\n", object.full_type)
+        }
         ObjectAccess::StorePathsConstruct => {
             format!(
                 "            let mut object = {}::new(operit_store::RuntimeStorePaths::RuntimeStorePaths::default());\n",
@@ -867,6 +870,9 @@ fn render_object_constructor_for_access(
         ObjectAccess::CoreNodeLocalRuntimeConstruct => {
             render_core_node_local_runtime_constructor(variable_name, full_type)
         }
+        ObjectAccess::ResultCoreNodeLocalRuntimeConstruct => {
+            format!("            let mut {variable_name} = {full_type}::new(proxy.coreNodeLocalRuntime()).map_err(|error| operit_link::CoreLinkError::internal(error.to_string()))?;\n")
+        }
         ObjectAccess::StorePathsConstruct => {
             format!(
                 "            let mut {variable_name} = {full_type}::new(operit_store::RuntimeStorePaths::RuntimeStorePaths::default());\n"
@@ -907,7 +913,7 @@ fn resolved_holder_metadata(access: &ObjectAccess) -> Option<(&str, &str)> {
 /// Detached chat windows bind the same generated object schema as the main
 /// window, so their slot identity is carried in `__core_instance_id` rather
 /// than in the generated target.
-fn render_resolved_holder_lookup(
+pub(super) fn render_resolved_holder_lookup(
     object: &SourceObject,
     resolver_method: &str,
     object_id: &str,

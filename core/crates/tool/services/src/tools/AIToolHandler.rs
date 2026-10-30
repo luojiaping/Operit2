@@ -630,6 +630,68 @@ impl AIToolHandler {
         self.publishToolExecutor(name, RegisteredToolExecutor::Shared(executor), visibility);
     }
 
+    /// Reads presentation only from the exact built-in or effective package declaration.
+    pub fn toolDisplayDeclaration(
+        &self,
+        name: &str,
+    ) -> Option<operit_plugin_sdk::js_sdk::tool_display::ToolDisplayDeclaration> {
+        if let Some(tool) = BuiltinToolName::from_name(name) {
+            return tool.display();
+        }
+        let (package, method) = name.split_once(':')?;
+        self.getOrCreatePackageManager()
+            .lock()
+            .ok()?
+            .selectPackageTool(package, method)
+            .ok()?
+            .display
+    }
+
+    /// Adds authoritative declaration metadata to a chat-owned Markdown projection.
+    pub fn decorateToolDisplayEvent(
+        &self,
+        event: &mut operit_util::MarkdownRenderStream::MarkdownStreamEvent,
+    ) {
+        let Some(xml) = event.xml.as_mut() else {
+            return;
+        };
+        if operit_util::ChatMarkupRegex::ChatMarkupRegex::normalize_tool_like_tag_name(
+            xml.tagName.as_deref(),
+        ) != Some("tool".to_string())
+        {
+            return;
+        }
+        let Some(attributes) = xml.attributes.as_mut() else {
+            return;
+        };
+        let name = attributes.get("name").map(String::as_str);
+        let target = if matches!(name, Some("proxy" | "package_proxy")) {
+            xml.children
+                .iter()
+                .find(|child| {
+                    child.tagName.as_deref() == Some("param")
+                        && child
+                            .attributes
+                            .as_ref()
+                            .and_then(|attrs| attrs.get("name"))
+                            .map(String::as_str)
+                            == Some("tool_name")
+                })
+                .and_then(|child| child.bodyChunk.as_deref())
+                .map(str::trim)
+        } else {
+            name
+        };
+        let declaration = target.and_then(|name| self.toolDisplayDeclaration(name));
+        attributes.remove("display");
+        if let Some(declaration) = declaration {
+            attributes.insert(
+                "display".into(),
+                serde_json::to_string(&declaration).expect("tool display serializes"),
+            );
+        }
+    }
+
     /// Returns the configured visibility for one tool.
     #[allow(non_snake_case)]
     pub fn getToolVisibility(&self, toolName: &str) -> Option<ToolRegistrationVisibility> {
@@ -1468,6 +1530,12 @@ impl JsExecutionHost for AIToolHandler {
         crate::tools::ToolJsRuntime::materializeToolPkgResource(self, request)
     }
 
+    /// Loads a module once; compilation and instance lifetime belong to the JavaScript realm.
+    fn load_toolpkg_wasm(&self, target: &str, module_id: &str) -> Result<operit_plugin_sdk::javascript::JsToolPkgWasmModule, String> {
+        self.getOrCreatePackageManager().lock().expect("package manager mutex poisoned")
+            .loadToolPkgWasmModule(target, module_id)
+    }
+
     /// Calls one ToolPkg WASM export through the active package manager.
     fn call_toolpkg_wasm(
         &self,
@@ -2098,13 +2166,33 @@ mod tests {
         }
     }
 
+    /// Native projections replace model attributes and resolve only exact declarations.
+    #[test]
+    fn display_events_use_authoritative_declarations_and_explicit_proxy_targets() {
+        use operit_util::MarkdownRenderStream::MarkdownRenderEventStream;
+        let fixture = PipelineFixture::new();
+        for (markup, expected) in [
+            (r#"<tool name="read_file" display="forged"><param name="path">/remote/a</param></tool>"#, BuiltinToolName::ReadFile.display()),
+            (r#"<tool name="proxy"><param name="tool_name">read_file</param><param name="params">{}</param></tool>"#, BuiltinToolName::ReadFile.display()),
+            (r#"<tool name="custom_read_file" display="forged"></tool>"#, None),
+        ] {
+            let mut events = MarkdownRenderEventStream::fromContent(markup.to_string());
+            for event in &mut events { fixture.handler.decorateToolDisplayEvent(event); }
+            let xml = events.iter().filter_map(|event| event.xml.as_ref())
+                .find(|xml| xml.tagName.as_deref() == Some("tool") && xml.isClosed == Some(true)).unwrap();
+            let display = xml.attributes.as_ref().unwrap().get("display")
+                .map(|value| serde_json::from_str::<operit_plugin_sdk::js_sdk::tool_display::ToolDisplayDeclaration>(value).unwrap());
+            assert_eq!(display, expected, "{markup}");
+        }
+    }
+
     /// Package discovery must work without interactive approval in both restricted AI modes.
     #[tokio::test(flavor = "current_thread")]
     async fn package_activation_does_not_require_write_approval() {
         static ASSETS: &[RuntimePluginAsset] = &[RuntimePluginAsset {
             name: "clock_probe.js", sha256: "", bytes: br#"/* METADATA
             {"name":"clock_probe","description":"Clock query tools","enabledByDefault":true,
-             "tools":[{"name":"get_current_date","description":"Get the current date and time","parameters":[]}]}
+             "tools":[{"name":"get_current_date","description":"Get the current date and time","parameters":[],"display":{"label":{"en":"Clock","fr":"Horloge"},"icon":"time"}}]}
             */"#,
         }];
         operit_host_api::HostManager::setDefaultHostJavaScriptRuntimeHost(Arc::new(
@@ -2149,7 +2237,91 @@ mod tests {
             assert!(manager.lock().unwrap().isPackageActivated("clock_probe"));
             assert_eq!(manager.lock().unwrap().getEnabledPackageNames(), enabled);
             assert!(fixture.handler.hasToolExecutor("clock_probe:get_current_date"));
+            assert_eq!(fixture.handler.toolDisplayDeclaration("clock_probe:get_current_date").unwrap().label["fr"], "Horloge");
             assert_eq!(fixture.handler.getToolVisibility("clock_probe:get_current_date"), Some(ToolRegistrationVisibility::PUBLIC));
+        }
+    }
+
+    /// Exercises the real public API engine: plugin exceptions and runaway scripts are bounded, and later calls recover.
+    #[tokio::test(flavor = "current_thread")]
+    async fn configuration_public_api_deadline_isolates_broken_scripts() {
+        use std::io::{Cursor, Write};
+        use crate::tools::packTool::RuntimePackageManager::RuntimePackageManager;
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, content) in [
+            ("manifest.json", r#"{"schema_version":1,"toolpkg_id":"configuration_probe","api_version":"2.0.0","main":"main.js","public_api":"api.ts","enabled_by_default":true}"#),
+            ("api.ts", "export {};"),
+            ("main.js", r#"
+                exports.resolve = function(event) {
+                    if (event.payload.mode === 'error') throw new Error('missing provider');
+                    if (event.payload.mode === 'loop') { while (true) {} }
+                    return { ready: true };
+                };
+                exports.registerToolPkg = function() {
+                    ToolPkg.registerApi({ name: 'chat.configuration.resolve', function: exports.resolve });
+                };
+            "#),
+        ] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(content.as_bytes()).unwrap();
+        }
+        let assets = Box::leak(vec![RuntimePluginAsset {
+            name: "configuration_probe.toolpkg", sha256: "",
+            bytes: Box::leak(zip.finish().unwrap().into_inner().into_boxed_slice()),
+        }].into_boxed_slice());
+        operit_host_api::HostManager::setDefaultHostJavaScriptRuntimeHost(Arc::new(
+            operit_host_native_scheduler::NativeHostJavaScriptRuntimeHost::new(),
+        ));
+        struct LanguageHost;
+        impl operit_host_api::SystemOperationHost for LanguageHost {
+            fn getSystemLanguageCode(&self) -> operit_host_api::HostResult<String> { Ok("en".into()) }
+            fn sendNotification(&self, request: &operit_host_api::SystemNotificationRequest) -> operit_host_api::HostResult<()> { panic!("Unexpected host call: sendNotification") }
+            fn modifySystemSetting(&self, namespace: &str, setting: &str, value: &str,) -> operit_host_api::HostResult<operit_host_api::SystemSettingData> { panic!("Unexpected host call: modifySystemSetting") }
+            fn getSystemSetting(&self, namespace: &str, setting: &str) -> operit_host_api::HostResult<operit_host_api::SystemSettingData> { panic!("Unexpected host call: getSystemSetting") }
+            fn installApp(&self, path: &str) -> operit_host_api::HostResult<operit_host_api::AppOperationData> { panic!("Unexpected host call: installApp") }
+            fn uninstallApp(&self, packageName: &str) -> operit_host_api::HostResult<operit_host_api::AppOperationData> { panic!("Unexpected host call: uninstallApp") }
+            fn listInstalledApps(&self, includeSystemApps: bool) -> operit_host_api::HostResult<operit_host_api::AppListData> { panic!("Unexpected host call: listInstalledApps") }
+            fn startApp(&self, packageName: &str) -> operit_host_api::HostResult<operit_host_api::AppOperationData> { panic!("Unexpected host call: startApp") }
+            fn stopApp(&self, packageName: &str) -> operit_host_api::HostResult<operit_host_api::AppOperationData> { panic!("Unexpected host call: stopApp") }
+            fn getNotifications(&self, limit: i32, includeOngoing: bool) -> operit_host_api::HostResult<operit_host_api::NotificationData> { panic!("Unexpected host call: getNotifications") }
+            fn getAppUsageTime(&self, packageName: &str, sinceHours: i32, limit: i32, includeSystemApps: bool,) -> operit_host_api::HostResult<operit_host_api::AppUsageTimeResultData> { panic!("Unexpected host call: getAppUsageTime") }
+            fn getDeviceLocation(&self, timeout: i32, highAccuracy: bool, includeAddress: bool,) -> operit_host_api::HostResult<operit_host_api::LocationData> { panic!("Unexpected host call: getDeviceLocation") }
+            fn getDeviceInfo(&self) -> operit_host_api::HostResult<operit_host_api::DeviceInfoData> { panic!("Unexpected host call: getDeviceInfo") }
+            fn captureScreenshot(&self) -> operit_host_api::HostResult<String> { panic!("Unexpected host call: captureScreenshot") }
+            fn recognizeText(&self, imagePath: &str, language: operit_host_api::OCRLanguage, quality: operit_host_api::OCRQuality,) -> operit_host_api::HostResult<String> { panic!("Unexpected host call: recognizeText") }
+        }
+        let mut fixture = PipelineFixture::with_package_assets(Some(assets));
+        fixture.handler.authenticatedExtensionOwner = None;
+        fixture.handler.inner.lock().unwrap().context.systemOperationHost = Some(Arc::new(LanguageHost));
+        operit_util::RuntimeStoreRoot::setDefaultRuntimeStoreRootConfig(
+            operit_util::RuntimeStoreRoot::RuntimeStoreRootConfig::new(
+                fixture.root.join("runtime"), fixture.root.join("workspaces"),
+            ),
+        );
+        let context = fixture.handler.getContext();
+        operit_store::RuntimeStorageHost::setDefaultRuntimeStorageHost(context.runtimeStorageHost.unwrap());
+        operit_store::RuntimeStorageHost::setDefaultRuntimeSqliteHost(context.runtimeSqliteHost.unwrap());
+        let shared = fixture.handler.getOrCreatePackageManager();
+        {
+            let mut manager = shared.lock().unwrap();
+            assert!(manager.claimInitialPackageRegistryLoad().unwrap());
+            manager.loadAvailablePackages();
+        }
+        let manager = RuntimePackageManager::readySnapshot(shared).await.unwrap();
+        assert!(manager.getToolPkgLoadIssues().is_empty(), "{:?}", manager.getToolPkgLoadIssues());
+        for (mode, expected_error) in [("ready", None), ("error", Some("missing provider")), ("loop", Some("timed out")), ("ready", None)] {
+            let started = std::time::Instant::now();
+            let result = manager.invokeToolPkgPublicApiWithTimeoutMillis(
+                "configuration_probe", "chat.configuration.resolve", serde_json::json!({"mode":mode}),
+                if mode == "loop" { 100 } else { 1_000 },
+            ).await;
+            if let Some(expected) = expected_error {
+                let error = result.unwrap_err();
+                assert!(error.contains(expected), "{mode}: {error}");
+            } else {
+                assert_eq!(result.unwrap(), serde_json::json!({"ready":true}));
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
         }
     }
 

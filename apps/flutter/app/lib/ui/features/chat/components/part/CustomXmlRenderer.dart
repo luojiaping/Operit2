@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:xml/xml.dart' as xml;
 
@@ -19,9 +20,12 @@ import '../../../../common/markdown/XmlRenderPluginRegistry.dart';
 import '../../../../../util/ChatMarkupRegex.dart';
 import '../../../packages/screens/ToolPkgUiLauncherScreen.dart';
 import '../ChatRuntimeScope.dart';
+import 'ChatActivityDisclosure.dart';
+import 'ChatActivityRowStyle.dart';
 import 'DetailsTagRenderer.dart';
 import 'DialogComponents.dart';
 import 'FontTagRenderer.dart';
+import 'ThinkingPreviewBuffer.dart';
 import 'ToolDisplayComponents.dart';
 import 'XmlCanvasBlockComponents.dart';
 
@@ -32,6 +36,7 @@ class CustomXmlRenderer extends StatelessWidget {
     required this.isStreaming,
     required this.textColor,
     this.xmlStream,
+    this.xmlAttributes,
     this.xmlMarkdownEventStream,
     this.showThinkingProcess = true,
     this.initialThinkingExpanded = false,
@@ -43,6 +48,7 @@ class CustomXmlRenderer extends StatelessWidget {
   final bool isStreaming;
   final Color textColor;
   final Stream<String>? xmlStream;
+  final Map<String, String>? xmlAttributes;
   final Stream<Object>? xmlMarkdownEventStream;
   final bool showThinkingProcess;
   final bool initialThinkingExpanded;
@@ -52,7 +58,7 @@ class CustomXmlRenderer extends StatelessWidget {
   /// Builds the rendered XML message content.
   @override
   Widget build(BuildContext context) {
-    final parsed = _ParsedXml.from(xmlContent);
+    final parsed = _ParsedXml.from(xmlContent, attributes: xmlAttributes);
     if (_shouldHideGeminiThoughtSignatureMeta(xmlContent, parsed.tagName)) {
       return const SizedBox.shrink();
     }
@@ -142,6 +148,8 @@ class CustomXmlRenderer extends StatelessWidget {
             result.toolName,
             result.resultContent,
             isSuccess: result.isSuccess,
+            display: toolDisplayFromAttributes(parsed.attributes),
+            resultData: decodeToolMetadata(parsed.attributes['result_data']),
           ),
           isStreaming: isStreaming,
         );
@@ -477,44 +485,21 @@ class _ToolRequestRenderer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rawToolName = parsed.attr('name') ?? 'Unknown tool';
-    final params = _extractParamsFromTool(xmlContent);
     final paramText = _extractContentFromXml(
       xmlContent,
       tagName: 'tool',
     ).trim();
-    final displayToolName = _resolveToolDisplayNameForRender(
-      rawToolName,
-      params,
-    );
     final isClosed = _isXmlFullyClosed(xmlContent);
     final initialTokenEstimate = _estimateTokenCount(paramText);
 
     Widget renderWithEstimate(int paramTokenEstimate) {
-      if (displayToolName == 'apply_file' ||
-          displayToolName == 'create_file' ||
-          displayToolName == 'edit_file') {
-        if (isClosed) {
-          return CompactToolDisplay(
-            toolName: rawToolName,
-            params: paramText,
-            textColor: textColor,
-            isStreaming: isStreaming,
-          );
-        }
-        return DetailedToolDisplay(
-          toolName: rawToolName,
-          params: paramText,
-          textColor: textColor,
-          isStreaming: isStreaming,
-        );
-      }
-
       if (!isClosed && paramTokenEstimate > _toolParamTokenThreshold) {
         return DetailedToolDisplay(
           toolName: rawToolName,
           params: paramText,
           textColor: textColor,
           isStreaming: isStreaming,
+          display: toolDisplayFromAttributes(parsed.attributes),
         );
       }
 
@@ -523,6 +508,7 @@ class _ToolRequestRenderer extends StatelessWidget {
         params: paramText,
         textColor: textColor,
         isStreaming: isStreaming,
+        display: toolDisplayFromAttributes(parsed.attributes),
       );
     }
 
@@ -586,6 +572,7 @@ class _ThinkPanelState extends State<_ThinkPanel> {
   bool _userHasInteractedWithScroll = false;
   bool _isProgrammaticScroll = false;
   int _expandSession = 0;
+  final ThinkingPreviewBuffer _previewBuffer = ThinkingPreviewBuffer();
 
   /// Initializes expansion, height, and scroll state.
   @override
@@ -714,7 +701,7 @@ class _ThinkPanelState extends State<_ThinkPanel> {
     }
     final l10n = AppLocalizations.of(context)!;
     final thinkingTitle = l10n.thinkingProcess;
-    final previewText = _cleanThinkingPreview(contentText);
+    final previewText = _expanded ? '' : _previewBuffer.update(contentText);
     final hasStreamingMarkdown =
         widget.isStreaming && widget.markdownEventStream != null;
     final shouldRenderBody =
@@ -727,14 +714,11 @@ class _ThinkPanelState extends State<_ThinkPanel> {
     final bodyScrollPhysics = renderFullHeight
         ? const NeverScrollableScrollPhysics()
         : null;
-    const switchDuration = Duration(milliseconds: 220);
     return SelectionContainer.disabled(
       child: Semantics(
-      label: contentText.isEmpty
-          ? thinkingTitle
-          : '$thinkingTitle\n$contentText',
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 2),
+        label: contentText.isEmpty
+            ? thinkingTitle
+            : '$thinkingTitle\n$contentText',
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -745,20 +729,20 @@ class _ThinkPanelState extends State<_ThinkPanel> {
                   onTap: _handleHeaderTap,
                   borderRadius: BorderRadius.circular(4),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    padding: ChatActivityRowStyle.headerPadding,
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: <Widget>[
                         Icon(
                           Icons.psychology_outlined,
-                          size: 16,
+                          size: ChatActivityRowStyle.iconSize,
                           color: widget.isStreaming
                               ? theme.colorScheme.primary
                               : theme.colorScheme.onSurfaceVariant.withValues(
-                                alpha: 0.8,
-                              ),
+                                  alpha: 0.8,
+                                ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: ChatActivityRowStyle.iconGap),
                         _ThinkingTitle(
                           text: thinkingTitle,
                           color: widget.isStreaming
@@ -771,16 +755,16 @@ class _ThinkPanelState extends State<_ThinkPanel> {
                             padding: const EdgeInsets.symmetric(horizontal: 6),
                             child: Text(
                               '·',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.outlineVariant,
-                              ),
+                              style: ChatActivityRowStyle.textStyle(context)
+                                  .copyWith(
+                                    color: theme.colorScheme.outlineVariant,
+                                  ),
                             ),
                           ),
                           Expanded(
                             child: _ThinkingPreviewTicker(
                               text: previewText,
+                              textOffset: _previewBuffer.textOffset,
                               isStreaming: widget.isStreaming,
                               textColor: theme.colorScheme.onSurfaceVariant
                                   .withValues(alpha: 0.7),
@@ -793,18 +777,7 @@ class _ThinkPanelState extends State<_ThinkPanel> {
                 ),
               ),
             ),
-            AnimatedSwitcher(
-              duration: switchDuration,
-              reverseDuration: switchDuration,
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeOutCubic,
-              transitionBuilder: (child, animation) {
-                return SizeTransition(
-                  sizeFactor: animation,
-                  axisAlignment: -1.0,
-                  child: FadeTransition(opacity: animation, child: child),
-                );
-              },
+            ChatActivityDisclosure(
               child: shouldRenderBody
                   ? Padding(
                       key: ValueKey<int>(_expandSession),
@@ -825,7 +798,7 @@ class _ThinkPanelState extends State<_ThinkPanel> {
                           ),
                           Padding(
                             padding: const EdgeInsetsDirectional.only(
-                              start: 24,
+                              start: ChatActivityRowStyle.contentInset,
                             ),
                             child: MessagePressShieldRegion(
                               child: GestureDetector(
@@ -872,11 +845,10 @@ class _ThinkPanelState extends State<_ThinkPanel> {
                         ],
                       ),
                     )
-                  : const SizedBox.shrink(key: ValueKey<String>('empty')),
+                  : null,
             ),
           ],
         ),
-      ),
       ),
     );
   }
@@ -990,15 +962,14 @@ class _ThinkingTitleState extends State<_ThinkingTitle>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final style = theme.textTheme.bodySmall?.copyWith(
-      color: widget.color,
-      fontWeight: FontWeight.w500,
-    );
+    final style = ChatActivityRowStyle.textStyle(
+      context,
+    ).copyWith(color: widget.color);
     final text = Text(widget.text, style: style);
     if (!widget.streaming) {
       return text;
     }
-    final highlightStyle = style?.copyWith(color: Colors.white);
+    final highlightStyle = style.copyWith(color: Colors.white);
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
@@ -1037,29 +1008,16 @@ class _ThinkingTitleState extends State<_ThinkingTitle>
   }
 }
 
-String _cleanThinkingPreview(String text) {
-  if (text.isEmpty) return '';
-  final cleaned = text
-      .replaceAll(RegExp(r'```[\s\S]*?```'), ' [代码] ')
-      .replaceAll(RegExp(r'<[^>]+>'), ' ')
-      .replaceAll(RegExp(r'^[#*>\-\d.]+\s+', multiLine: true), '')
-      .replaceAll(RegExp(r'\r?\n'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (cleaned.length > 1000) {
-    return cleaned.substring(cleaned.length - 1000);
-  }
-  return cleaned;
-}
-
 class _ThinkingPreviewTicker extends StatefulWidget {
   const _ThinkingPreviewTicker({
     required this.text,
+    required this.textOffset,
     required this.isStreaming,
     required this.textColor,
   });
 
   final String text;
+  final int textOffset;
   final bool isStreaming;
   final Color textColor;
 
@@ -1069,6 +1027,9 @@ class _ThinkingPreviewTicker extends StatefulWidget {
 
 class _ThinkingPreviewTickerState extends State<_ThinkingPreviewTicker> {
   late final ScrollController _controller;
+  final GlobalKey _textKey = GlobalKey();
+  bool _scrollScheduled = false;
+  double _pendingScrollCorrection = 0;
 
   @override
   void initState() {
@@ -1082,16 +1043,51 @@ class _ThinkingPreviewTickerState extends State<_ThinkingPreviewTicker> {
   @override
   void didUpdateWidget(covariant _ThinkingPreviewTicker oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.text != widget.text && widget.isStreaming) {
+    if (widget.isStreaming &&
+        (oldWidget.text != widget.text ||
+            oldWidget.textOffset != widget.textOffset)) {
+      final removed = widget.textOffset - oldWidget.textOffset;
+      if (removed > 0 &&
+          removed < oldWidget.text.length &&
+          widget.text.startsWith(oldWidget.text.substring(removed))) {
+        // The retained suffix shifts left when the ring evicts its prefix.
+        // Reuse the previous paragraph's glyph positions to keep the same
+        // content under the viewport before animating towards the new tail.
+        final paragraph = _textKey.currentContext?.findRenderObject();
+        if (paragraph is RenderParagraph && paragraph.hasSize) {
+          final removedWidth =
+              paragraph
+                  .getOffsetForCaret(TextPosition(offset: removed), Rect.zero)
+                  .dx -
+              paragraph
+                  .getOffsetForCaret(const TextPosition(offset: 0), Rect.zero)
+                  .dx;
+          if (removedWidth > 0) _pendingScrollCorrection += removedWidth;
+        }
+      }
       _scrollToEnd();
     }
   }
 
   void _scrollToEnd() {
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollScheduled = false;
+      final correction = _pendingScrollCorrection;
+      _pendingScrollCorrection = 0;
       if (!mounted || !_controller.hasClients) return;
+      final target = _controller.position.maxScrollExtent;
+      if (correction > 0) {
+        _controller.jumpTo(
+          (_controller.offset - correction)
+              .clamp(_controller.position.minScrollExtent, target)
+              .toDouble(),
+        );
+      }
+      if (_controller.offset == target) return;
       _controller.animateTo(
-        _controller.position.maxScrollExtent,
+        target,
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOut,
       );
@@ -1111,11 +1107,7 @@ class _ThinkingPreviewTickerState extends State<_ThinkingPreviewTicker> {
         return LinearGradient(
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
-          colors: const <Color>[
-            Colors.white,
-            Colors.white,
-            Colors.transparent,
-          ],
+          colors: const <Color>[Colors.white, Colors.white, Colors.transparent],
           stops: const <double>[0.0, 0.92, 1.0],
         ).createShader(bounds);
       },
@@ -1129,14 +1121,12 @@ class _ThinkingPreviewTickerState extends State<_ThinkingPreviewTicker> {
           children: <Widget>[
             Text(
               widget.text,
+              key: _textKey,
               maxLines: 1,
               softWrap: false,
-              style: TextStyle(
-                fontSize: 11,
-                fontFamily: 'monospace',
-                color: widget.textColor,
-                letterSpacing: -0.2,
-              ),
+              style: ChatActivityRowStyle.textStyle(
+                context,
+              ).copyWith(color: widget.textColor),
             ),
             if (widget.isStreaming) ...<Widget>[
               const SizedBox(width: 4),
@@ -1894,7 +1884,7 @@ class _ParsedXml {
     required this.body,
   });
 
-  factory _ParsedXml.from(String xml) {
+  factory _ParsedXml.from(String xml, {Map<String, String>? attributes}) {
     xml = sanitizeUtf16(xml);
     final open = RegExp(
       r'^<([a-zA-Z_][\w:-]*)\b([^>]*)>',
@@ -1905,14 +1895,15 @@ class _ParsedXml {
     }
     final rawTagName = open.group(1)!;
     final tagName = ChatMarkupRegex.normalizeToolLikeTagName(rawTagName)!;
-    final attributes = _parseAttributes(open.group(2) ?? '');
+    final parsedAttributes =
+        attributes ?? _parseAttributes(open.group(2) ?? '');
     final closeTag = '</${rawTagName.toLowerCase()}>';
     final lowerXml = xml.toLowerCase();
     final closeIndex = lowerXml.lastIndexOf(closeTag);
     final bodyEnd = closeIndex > open.end ? closeIndex : xml.length;
     return _ParsedXml(
       tagName: tagName,
-      attributes: attributes,
+      attributes: parsedAttributes,
       body: xml.substring(open.end, bodyEnd).trim(),
     );
   }
@@ -2010,31 +2001,6 @@ String _extractContentFromXml(String content, {String? tagName}) {
       ? endIndex
       : content.length;
   return content.substring(openMatch.end, contentEndExclusive).trim();
-}
-
-Map<String, String> _extractParamsFromTool(String content) {
-  final params = <String, String>{};
-  final pattern = RegExp(
-    r'''<param\b[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/param>''',
-    caseSensitive: false,
-  );
-  for (final match in pattern.allMatches(content)) {
-    params[match.group(1)!] = match.group(2)!.trim();
-  }
-  return params;
-}
-
-String _resolveToolDisplayNameForRender(
-  String toolName,
-  Map<String, String> params,
-) {
-  if (toolName != 'package_proxy' && toolName != 'proxy') {
-    return toolName;
-  }
-  final targetToolName = params['tool_name'] == null
-      ? ''
-      : normalizeEscapedTextForDisplay(params['tool_name']!).trim();
-  return targetToolName.isNotEmpty ? targetToolName : toolName;
 }
 
 int _estimateTokenCount(String text) {
@@ -2150,7 +2116,7 @@ _ToolResultRenderState _extractToolResult(
     r'<content\b[^>]*>([\s\S]*?)<\/content>',
     caseSensitive: false,
   ).firstMatch(xmlContent);
-  final resultContent = (contentMatch?.group(1) ?? '').trim();
+  final resultContent = (contentMatch?.group(1) ?? parsed.body).trim();
   final isSuccess = status == 'success';
 
   if (!isSuccess) {
@@ -2165,15 +2131,9 @@ _ToolResultRenderState _extractToolResult(
     );
   }
 
-  final withoutFileDiff = resultContent
-      .replaceAll(
-        RegExp(r'<file-diff[\s\S]*<\/file-diff>', caseSensitive: false),
-        '',
-      )
-      .trim();
   return _ToolResultRenderState(
     toolName: toolName.isEmpty ? 'Unknown tool' : toolName,
     isSuccess: true,
-    resultContent: withoutFileDiff,
+    resultContent: resultContent,
   );
 }

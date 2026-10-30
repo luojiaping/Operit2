@@ -7,6 +7,8 @@ import '../../../l10n/generated/app_localizations.dart';
 import '../../common/components/OperitDialog.dart';
 
 enum ConversationAction {
+  searchMessages,
+  viewFavorites,
   openInWindow,
   rename,
   moveUp,
@@ -94,6 +96,36 @@ class DeleteConversationDialog extends StatelessWidget {
   }
 }
 
+class DeleteWorkspaceDialog extends StatelessWidget {
+  const DeleteWorkspaceDialog({super.key, required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return AlertDialog(
+      title: const Text('删除工作区'),
+      content: Text(
+        '确定删除工作区“$name”？\n\n共享默认区域及其中的文件将被删除，所有会话与该工作区的绑定及目录挂载将解除。会话和挂载目录中的原始文件会保留。',
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.cancel),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+          ),
+          child: Text(l10n.delete),
+        ),
+      ],
+    );
+  }
+}
+
 class ConversationActionDialog extends StatelessWidget {
   const ConversationActionDialog({
     super.key,
@@ -145,6 +177,19 @@ class ConversationActionDialog extends StatelessWidget {
                 ),
               ),
             ),
+            _ConversationActionTile(
+              icon: Icons.search_rounded,
+              label: l10n.messageLocatorSearchMessages,
+              onTap: () =>
+                  Navigator.of(context).pop(ConversationAction.searchMessages),
+            ),
+            _ConversationActionTile(
+              icon: Icons.star_outline_rounded,
+              label: l10n.messageLocatorViewFavorites,
+              onTap: () =>
+                  Navigator.of(context).pop(ConversationAction.viewFavorites),
+            ),
+            const Divider(height: 16),
             if (canOpenInWindow)
               _ConversationActionTile(
                 icon: Icons.open_in_new,
