@@ -193,7 +193,7 @@ pub(crate) fn layout(
         storage,
         operit_util::RuntimeStorageLayout::RUNTIME_SYNC_PREFERENCE_LAYOUT_PATH,
     )
-    .withSchema(2, |from, migration| match from {
+    .withSchema(3, |from, migration| match from {
         0 => {
             let extensions =
                 operit_store::ExtensionStore::ExtensionStore::new(migration.storage.clone());
@@ -218,6 +218,10 @@ pub(crate) fn layout(
             migration.retireFile(CURRENT_CHAT_ID_PREFERENCES_PATH);
             Ok(())
         }
+        2 => {
+            migration.retireFile("runtime/config/preferences/application_zoom.preferences.json");
+            Ok(())
+        }
         from => Err(PreferencesDataStoreError::MissingMigration { from, to: from + 1 }),
     })
 }
@@ -235,44 +239,7 @@ pub(crate) fn prepare(storage: Arc<dyn RuntimeStorageHost>) -> Vec<String> {
     if let Err(error) = prepareLayout(storage.clone()) {
         errors.push(format!("preference layout: {error}"));
     }
-    let journal = operit_store::SyncOperationStore::SyncOperationStore::new(storage.clone(), operit_util::RuntimeStorageLayout::RUNTIME_SYNC_DIR_PATH);
-    let mut schema = schema();
-    match journal.preferenceDatasets() {
-        Ok(paths) => for path in paths.keys() {
-            if schema.stores.iter().any(|owner| &owner.path == path) { continue; }
-            match schema.owner(path) {
-                Ok(Some(owner)) => schema.stores.push(owner),
-                Ok(None) => {},
-                Err(error) => errors.push(error),
-            }
-        },
-        Err(error) => errors.push(error.to_string()),
-    }
-    schema.stores.retain(|owner| {
-        let required = operit_link::isolation::sync(
-            &format!("preference preparation path={}", owner.path),
-            || {
-                if !storage
-                    .exists(&owner.path)
-                    .map_err(|error| operit_link::CoreLinkError::internal(error.to_string()))?
-                {
-                    return Ok(false);
-                }
-                let store = (owner.open)(storage.clone(), &owner.path);
-                store
-                    .isSyncPrepared()
-                    .map(|ready| !ready)
-                    .map_err(|error| operit_link::CoreLinkError::internal(error.to_string()))
-            },
-        );
-        match required {
-            Ok(required) => required,
-            Err(error) => {
-                errors.push(format!("preference migration path={}: {error}", owner.path));
-                false
-            }
-        }
-    });
+    let schema = schema();
     for outcome in applyIndependentOperations(storage, &schema, &[], &[], |_, _| true) {
         if let Err(error) = outcome.result {
             errors.push(format!(
@@ -358,7 +325,7 @@ mod tests {
             let report = registry.receive(&[]).unwrap();
             assert!(report.errors.is_empty(), "{:?}", report.errors);
             assert!(report.pending.is_empty());
-            assert_eq!(report.retired, 1);
+            assert_eq!(report.skipped, 1);
             assert!(prepare(device.host.clone()).is_empty());
             assert_eq!(device.host.readBytes(path).unwrap(), saved);
             assert_eq!(selection.data().unwrap().get(&key), Some(&json!(format!("local-{index}"))));
@@ -485,7 +452,9 @@ mod tests {
                     .syncSnapshot()
                     .unwrap();
                 assert_eq!(replayed.data, migrated.data, "{path}");
-                assert_eq!(replayed.covered, migrated.covered, "{path}");
+                let business_ids = |snapshot: &operit_store::Transaction::Snapshot| snapshot.covered.iter()
+                    .filter(|id| !id.starts_with("~init:")).cloned().collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(business_ids(&replayed), business_ids(&migrated), "{path}");
                 assert_eq!(replayed.data.values.get(key), Some(&record));
                 assert!(!replayed.data.values.contains_key(index));
             }
@@ -1101,7 +1070,7 @@ mod tests {
         let report = registry.receive(&[]).unwrap();
         assert!(report.errors.is_empty(), "{:?}", report.errors);
         assert!(report.pending.is_empty());
-        assert_eq!(report.retired, 16);
+        assert_eq!(report.skipped, 16);
         assert_eq!(extensions.record("package", "demo").unwrap().settings["order"], 9);
         assert_eq!(journal.preferenceHistory().unwrap().len(), 16);
     }
@@ -1183,8 +1152,14 @@ mod tests {
             assert_eq!(source_store.syncSnapshot().unwrap().data,target_store.syncSnapshot().unwrap().data);
         }
         assert_eq!(authority.data.revision,checkpoint.data.revision);
-        assert_eq!(authority.covered,checkpoint.covered);
+        assert!(checkpoint.covered.is_subset(&authority.covered));
+        assert_eq!(authority.covered.difference(&checkpoint.covered).count(), 1);
+        assert!(authority.covered.difference(&checkpoint.covered).all(|id| id.starts_with("~init:")));
         assert!(Transaction::compare(&source_store.syncSnapshot().unwrap(),&target_store.syncSnapshot().unwrap()).unwrap().is_none());
     }
 
 }
+
+#[cfg(test)]
+#[path = "PreferenceMigrationTests.rs"]
+mod preference_migration_tests;

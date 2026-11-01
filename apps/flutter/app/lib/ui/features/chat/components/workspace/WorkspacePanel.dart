@@ -18,7 +18,6 @@ import '../../../../common/components/RetainedPage.dart';
 import '../../../../common/contributions/ToolPkgChatUiCatalog.dart';
 import '../../../../common/contributions/EmbeddedPluginSurfaceCatalog.dart';
 import '../../../../common/contributions/EmbeddedPluginSurfaceHost.dart';
-import '../../../../common/contributions/PluginWorkspacePresentation.dart';
 import '../../../../main/layout/SidebarDockController.dart';
 import '../../../../main/navigation/ToolPkgCatalogChangeBus.dart';
 
@@ -402,6 +401,7 @@ class _WorkspacePanelState extends State<WorkspacePanel> {
           selectedIndex: selectedIndex,
           onSelected: (index) => _selectTab(index, paneIndex: paneIndex),
           onClosed: (index) => _closeTab(index, paneIndex: paneIndex),
+          onCloseTabs: _closeTabs,
         ),
         Expanded(
           child: IndexedStack(
@@ -1129,40 +1129,6 @@ class _WorkspacePanelState extends State<WorkspacePanel> {
     return 'visit_web';
   }
 
-  /// Resolves workspace surface actions only under their live authenticated owner.
-  Future<void> _handleEmbeddedAction(
-    EmbeddedPluginSurfaceEntry entry,
-    Object? value,
-  ) async {
-    final workspace = widget.workspacePath;
-    final chatId = widget.currentChatId;
-    if (!_embeddedContributions.entries.any(
-      (item) => item.mountIdentity == entry.mountIdentity,
-    ))
-      return;
-    try {
-      final request = PluginWorkspaceRequest.fromActionResult(value);
-      if (request == null) return;
-      final presentation = await PluginWorkspacePresentation.resolve(
-        clients: _coreClients,
-        sourceOwnerPackageName: entry.route.containerPackageName,
-        request: request,
-        language: Localizations.localeOf(context).languageCode,
-        hostState: {..._session.pluginHostState, 'workspacePath': workspace},
-      );
-      if (mounted &&
-          widget.workspacePath == workspace &&
-          widget.currentChatId == chatId) {
-        _session.openPluginPage(presentation);
-      }
-    } catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
-    }
-  }
-
   /// Builds one tab's content with callbacks bound to its physical pane.
   Widget _buildTabContent(WorkspaceTab tab, {int paneIndex = 0}) {
     return WorkspaceTabContent(
@@ -1200,8 +1166,6 @@ class _WorkspacePanelState extends State<WorkspacePanel> {
           'workspacePath': widget.workspacePath,
         },
         entryPadding: const EdgeInsets.only(bottom: 12),
-        onActionResult: (entry, value) =>
-            unawaited(_handleEmbeddedAction(entry, value)),
       ),
       onFinishWebVisit: (tab, response) =>
           _finishWebVisitTab(tab, response, paneIndex: paneIndex),
@@ -1902,6 +1866,18 @@ class _WorkspacePanelState extends State<WorkspacePanel> {
         }
         final pluginId = tab.pluginEntryId ?? tab.pluginUiModuleId;
         return 'plugin-${pluginId != null && pluginId.isNotEmpty ? pluginId : tab.identityToken}';
+    }
+  }
+
+  /// Closes a snapshot sequentially, stopping when a save prompt is cancelled.
+  Future<void> _closeTabs(List<WorkspaceTab> targets) async {
+    for (final tab in targets) {
+      if (!mounted) return;
+      final paneIndex = _session.secondaryTabs.contains(tab) ? 1 : 0;
+      final index = _tabsForPane(paneIndex).indexOf(tab);
+      if (index < 0 || !tab.closable) continue;
+      await _closeTab(index, paneIndex: paneIndex);
+      if (!mounted || _containsWorkspaceTab(tab)) return;
     }
   }
 

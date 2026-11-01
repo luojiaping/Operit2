@@ -4049,3 +4049,19 @@ mod guidance_tests {
         assert!(registered.guidanceInbox.as_ref().unwrap().hasPending());
     }
 }
+
+#[cfg(test)]
+mod package_proxy_json_tests {
+    use super::buildPackageProxyToolPrompt;
+
+    #[test]
+    fn package_proxy_advertises_json_objects_in_both_schema_representations() {
+        let prompt = buildPackageProxyToolPrompt();
+        let schema: serde_json::Value = serde_json::from_str(&prompt.parameters).unwrap();
+        assert_eq!(schema["properties"]["params"]["type"], "object");
+        let parameter = prompt.parametersStructured.unwrap().into_iter().find(|p| p.name == "params").unwrap();
+        assert_eq!(parameter.r#type, "object");
+        assert!(parameter.description.contains("JSON"));
+        assert!(!parameter.description.contains("YAML"));
+    }
+}

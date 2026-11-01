@@ -16,6 +16,26 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
 // src/ui/summary.ui.ts
 var summary_ui_exports = {};
@@ -58,7 +78,7 @@ function envelopeDiffs(text) {
 function reviewForMessage(message) {
   const files = /* @__PURE__ */ new Map();
   for (const part of message.parts) {
-    if (part.kind !== "tool_result") continue;
+    if (part.kind !== "tool_result" || part.attributes.status === "error") continue;
     const display = metadata(part.attributes.display);
     if (display === null || display.resultRenderer !== "fileDiff" || display.label === null || typeof display.label !== "object" || Array.isArray(display.label) || Object.values(display.label).some((value) => typeof value !== "string")) continue;
     let changes;
@@ -106,18 +126,14 @@ function Summary(ctx) {
   if (message === null || message.sender !== "ai" || streaming || files.length === 0) return UI.Spacer({ width: 0, height: 0 });
   const totals = files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
   function open(file) {
-    return {
-      type: "toolpkg.ui.open",
-      placement: "workspace",
-      routeId: ROUTE,
-      instanceKey: "change-review",
-      input: {
+    return __async(this, null, function* () {
+      yield ctx.navigate(ROUTE, {
         chatId,
         messageTimestamp: message.timestamp,
         variantIndex: message.variantIndex,
         files: file === void 0 ? files : [file, ...files.filter((item) => item.path !== file.path)]
-      }
-    };
+      });
+    });
   }
   function count(value, added) {
     return UI.Text({

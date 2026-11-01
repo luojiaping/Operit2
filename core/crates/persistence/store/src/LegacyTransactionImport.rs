@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 
 use crate::PreferenceMerge::PLUGIN_MERGE_DECLARATION_KEY;
 use crate::SyncOperationStore::{
-    SyncOperation, SyncOperationOrder, SyncOperationSemantics,
+    SyncOperationOrder, SyncOperationSemantics,
     SyncOperationStoreError,
 };
 
@@ -102,8 +102,6 @@ impl<'a> JournalLines<'a> {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct PayloadRoute {
     pub(crate) encrypted: bool,
-    #[serde(skip)]
-    pub(crate) resolved: bool,
     pub(crate) storage_path: Option<String>,
     pub(crate) merge_metadata: bool,
     contract_version: Option<u64>,
@@ -243,7 +241,7 @@ impl<'de> DeserializeSeed<'de> for MergeEntries {
                     let fields =
                         serde_json::from_str::<RouteFields<'_>>(raw.get()).unwrap_or_default();
                     found |=
-                        string_field(fields.key).as_deref() == Some(PLUGIN_MERGE_DECLARATION_KEY);
+                        string_field(fields.key).as_deref().is_some_and(|key| [PLUGIN_MERGE_DECLARATION_KEY,crate::PluginPreferenceSchema::KEY].contains(&key));
                 }
                 Ok(found)
             }
@@ -263,10 +261,8 @@ impl PayloadRoute {
         });
         Self {
             encrypted,
-            resolved: !encrypted,
             storage_path: string_field(fields.storage_path),
-            merge_metadata: string_field(fields.key).as_deref()
-                == Some(PLUGIN_MERGE_DECLARATION_KEY)
+            merge_metadata: string_field(fields.key).as_deref().is_some_and(|key| [PLUGIN_MERGE_DECLARATION_KEY,crate::PluginPreferenceSchema::KEY].contains(&key))
                 || merge_entries,
             contract_version: fields
                 .contract_version
@@ -278,27 +274,6 @@ impl PayloadRoute {
         }
     }
 
-    fn from_operation(operation: &SyncOperation, encrypted: bool) -> Self {
-        Self {
-            encrypted,
-            resolved: operation.payload.get("format").and_then(|value| value.as_str()) != Some(ENCRYPTED_FORMAT),
-            storage_path: operation
-                .payload
-                .get("storagePath")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned),
-            merge_metadata: crate::PreferenceMerge::isMergeMetadata(operation),
-            contract_version: operation
-                .payload
-                .get("contractVersion")
-                .and_then(|v| v.as_u64()),
-            logical_time: operation
-                .payload
-                .get("logicalTime")
-                .and_then(|v| v.as_i64()),
-            initial: operation.payload.get("initial").and_then(|v| v.as_bool()) == Some(true),
-        }
-    }
 }
 
 #[derive(Deserialize)]
@@ -338,10 +313,6 @@ pub(crate) struct JournalRecord {
 }
 
 impl JournalRecord {
-    /// Resolves encrypted routing once while retaining no decrypted business values.
-    pub(crate) fn resolve_route(&mut self, operation: &SyncOperation) {
-        self.route = PayloadRoute::from_operation(operation, self.route.encrypted);
-    }
 
     pub(crate) fn parse(bytes: &[u8], offset: u64) -> Result<Self, serde_json::Error> {
         let fields: RecordFields<'_> = serde_json::from_slice(bytes)?;
@@ -382,8 +353,4 @@ impl JournalRecord {
         })
     }
 
-    pub(crate) fn is_merge_candidate(&self) -> bool {
-        self.domain == "preferences"
-            && ((self.route.encrypted && !self.route.resolved) || self.operation == "alias" || self.route.merge_metadata)
-    }
 }

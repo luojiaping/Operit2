@@ -1400,7 +1400,9 @@ fn normalize_tool_display_for_strict_proxy(
     let display_params = if raw_proxied_params.is_empty() {
         params.to_vec()
     } else {
-        parse_proxy_json_params(normalize_escaped_text_for_display(raw_proxied_params).trim())
+        // Decode JSON before display normalization can rewrite escaped quotes in scripts.
+        parse_proxy_json_params(raw_proxied_params)
+            .or_else(|| parse_proxy_json_params(normalize_escaped_text_for_display(raw_proxied_params).trim()))
             .unwrap_or_else(|| params.to_vec())
     };
 
@@ -1887,6 +1889,22 @@ mod tests {
     use super::*;
     use crate::tui::fold::TranscriptFoldState;
     use operit_util::streamnative::NativeMarkdownStreamOperators::NativeMarkdownStreamOperators;
+
+    /// JSON scripts preserve quotes, backslashes, entities, and final newlines in both proxies.
+    #[test]
+    fn proxy_json_parameters_preserve_script_text() {
+        let content = "print(\"&lt;tag&gt; \\\"quoted\\\"\")  \n\n";
+        let payload = serde_json::json!({"path": "/tmp/demo.py", "content": content}).to_string();
+        for name in ["package_proxy", "proxy"] {
+            let escaped = payload.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+            let markup = format!("<param name=\"tool_name\">files:write</param><param name=\"params\">{escaped}</param>");
+            let (target, params) = normalize_tool_display_for_strict_proxy(name, &extract_param_pairs(&markup));
+            assert_eq!(target, "files:write");
+            let params = params.into_iter().collect::<std::collections::BTreeMap<_, _>>();
+            assert_eq!(params["path"], "/tmp/demo.py");
+            assert_eq!(params["content"], content);
+        }
+    }
 
     /// Verifies that a generated switch_core tool card renders successfully.
     #[test]

@@ -990,7 +990,16 @@ impl StructuredToolCallBridge {
                     .unwrap_or_default()
                     .trim()
                     .to_string();
-                params.insert(paramName, json!(paramValue));
+                // Rebuild the object schema when replaying proxy calls from stored XML.
+                let value = if matches!(toolMatch.name.as_str(), PACKAGE_PROXY_TOOL_NAME | CLI_PROXY_TOOL_NAME)
+                    && paramName == "params" {
+                    serde_json::from_str::<Map<String, Value>>(&paramValue)
+                        .map(Value::Object)
+                        .unwrap_or_else(|_| json!(paramValue))
+                } else {
+                    json!(paramValue)
+                };
+                params.insert(paramName, value);
             }
             let toolNamePart = Self::sanitizeToolCallId(&toolMatch.name);
             let hashPart = Self::stableIdHashPart(&format!(
@@ -1318,6 +1327,33 @@ mod tests {
                 .and_then(Value::as_str),
             Some("package_proxy")
         );
+    }
+
+    /// Script text and nested parameter types survive native calls and stored history.
+    #[test]
+    fn proxy_json_objects_round_trip_through_history() {
+        let parameters = serde_json::json!({
+            "command": "python3 - <<'PY'\nimport json\nprint(\"<tag>&\\path\")\nPY\n\n",
+            "enabled": true,
+            "nested": {"items": [1, null, "0012"]},
+        });
+        for name in ["package_proxy", "proxy"] {
+            let calls = vec![serde_json::json!({"function": {
+                "name": name,
+                "arguments": serde_json::json!({"tool_name": "files:write", "params": parameters}).to_string(),
+            }})];
+            let markup = StructuredToolCallBridge::convertToolCallsToXml(&calls);
+            let history = vec![PromptTurn::new(PromptTurnKind::TOOL_CALL, markup)];
+            let messages = StructuredToolCallBridge::buildMessagesValueForProvider(&history, true, true);
+            let arguments: Value = serde_json::from_str(messages[0]["tool_calls"][0]["function"]["arguments"].as_str().unwrap()).unwrap();
+            assert_eq!(arguments["params"], parameters);
+        }
+        let calls = vec![serde_json::json!({"function": {
+            "name": "files:write", "arguments": parameters.to_string(),
+        }})];
+        let wrapped = StructuredToolCallBridge::wrapPackageToolCallsWithProxy(&calls);
+        let arguments: Value = serde_json::from_str(wrapped[0]["function"]["arguments"].as_str().unwrap()).unwrap();
+        assert_eq!(arguments["params"], parameters);
     }
 
     /// Verifies package proxy results match the proxied executable tool name.

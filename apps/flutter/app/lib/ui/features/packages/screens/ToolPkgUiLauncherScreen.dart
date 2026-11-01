@@ -22,6 +22,8 @@ import '../../../../core/theme/PluginThemeSnapshot.dart';
 import '../../../../core/proxy/generated/CoreProxyClients.g.dart';
 import '../../../../core/proxy/generated/CoreProxyModels.g.dart' as core_proxy;
 import '../../../common/components/AdaptiveSidePanel.dart';
+import '../../../common/contributions/PluginWorkspacePresentation.dart';
+import '../../chat/components/WorkspaceShell.dart';
 import '../../../theme/OperitGlassSurface.dart';
 import '../../../common/components/M3LoadingIndicator.dart';
 import '../../../common/icons/MaterialIconNameResolver.dart';
@@ -70,6 +72,14 @@ part 'compose_dsl/image.dart';
 part 'compose_dsl/pager.dart';
 part 'compose_dsl/presentation_nodes.dart';
 
+/// Allows a secondary surface to drain its session before destroying its engine.
+class ToolPkgUiSessionController {
+  Future<void> Function()? _close;
+  Future<void> close() async {
+    await _close?.call();
+  }
+}
+
 class ToolPkgUiLauncherScreen extends StatefulWidget {
   /// Creates a routable or embedded screen using the existing Compose host.
   const ToolPkgUiLauncherScreen({
@@ -77,6 +87,7 @@ class ToolPkgUiLauncherScreen extends StatefulWidget {
     required this.clients,
     required this.plugin,
     this.initialRouteId,
+    this.sessionController,
     this.embeddedScreenPath,
     this.showLauncherChrome = true,
     this.showLoadingIndicator = true,
@@ -96,6 +107,7 @@ class ToolPkgUiLauncherScreen extends StatefulWidget {
   final String? embeddedScreenPath;
   final bool showLauncherChrome;
   final bool showLoadingIndicator;
+  final ToolPkgUiSessionController? sessionController;
 
   /// Places session-owned content into the embedding surface.
   final ToolPkgUiContentBuilder contentBuilder;
@@ -191,6 +203,7 @@ class _ToolPkgUiLauncherScreenState extends State<ToolPkgUiLauncherScreen> {
   final _actionScheduler = ComposeDslActionScheduler();
   Future<void>? _renderTail;
   Future<void> _reloadTail = Future<void>.value();
+  Future<void> _navigationTail = Future<void>.value();
   int _reloadGeneration = 0;
   bool _reloading = false;
   final _ComposeProgramStore _programStore = _ComposeProgramStore();
@@ -217,6 +230,7 @@ class _ToolPkgUiLauncherScreenState extends State<ToolPkgUiLauncherScreen> {
     if (const bool.fromEnvironment('OPERIT_PROFILE_PLUGIN_UI')) {
       _firstTreeWatch.start();
     }
+    widget.sessionController?._close = _closeSession;
     ComposeDslWebViewHostRegistry.ensureHostInteractionRegistered();
     PluginHotReload.revision.addListener(_reloadDevelopmentPackage);
   }
@@ -848,9 +862,23 @@ class _ToolPkgUiLauncherScreenState extends State<ToolPkgUiLauncherScreen> {
     }
   }
 
+  /// Stops new render ownership and awaits stream/engine release before host teardown.
+  Future<void> _closeSession() async {
+    _reloading = true;
+    _routeLoadGeneration++;
+    _actionOwnerGeneration++;
+    await _renderTail;
+    final executionContext = _activeExecutionContext;
+    _activeExecutionContext = null;
+    if (executionContext != null) {
+      await _releaseExecutionContext(executionContext);
+    }
+  }
+
   /// Releases the active ToolPkg context when this page leaves the widget tree.
   @override
   void dispose() {
+    widget.sessionController?._close = null;
     PluginHotReload.revision.removeListener(_reloadDevelopmentPackage);
     _programStore.dispose();
     _routeLoadGeneration += 1;
@@ -1094,12 +1122,49 @@ class _ToolPkgUiLauncherScreenState extends State<ToolPkgUiLauncherScreen> {
   void _navigateCommands(
     List<({String routeId, Map<String, Object?> args})> commands,
   ) {
-    for (final command in commands) {
-      AppRouterGateway.navigate(
-        routeId: command.routeId,
-        args: command.args,
-        source: RouteEntrySource.script,
-      );
+    if (commands.isEmpty) return;
+    final generation = _actionOwnerGeneration;
+    _navigationTail = _navigationTail.then(
+      (_) => _applyNavigationCommands(commands, generation),
+    );
+  }
+
+  /// Routes through the declared surface without requiring a special action return value.
+  Future<void> _applyNavigationCommands(
+    List<({String routeId, Map<String, Object?> args})> commands,
+    int generation,
+  ) async {
+    try {
+      for (final command in commands) {
+        if (!_isCurrentActionOwner(generation)) return;
+        final hostState = Map<String, Object?>.of(widget.initialState)
+          ..remove('input');
+        final presentation = await PluginWorkspacePresentation.fromNavigation(
+          clients: widget.clients,
+          sourceOwnerPackageName: widget.plugin.packageName,
+          routeId: command.routeId,
+          args: command.args,
+          language: Localizations.localeOf(context).languageCode,
+          hostState: hostState,
+        );
+        if (!_isCurrentActionOwner(generation)) return;
+        if (presentation != null) {
+          WorkspaceShell.session.openPluginPage(presentation);
+        } else {
+          AppRouterGateway.navigate(
+            routeId: command.routeId,
+            args: command.args,
+            source: RouteEntrySource.script,
+          );
+        }
+      }
+    } catch (error, stackTrace) {
+      if (_isCurrentActionOwner(generation)) {
+        _printComposeError('navigate', error, stackTrace);
+        setState(() {
+          _error = error.toString();
+        });
+      }
     }
   }
 

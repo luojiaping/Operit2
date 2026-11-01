@@ -2699,23 +2699,21 @@ impl PreferencesSyncedEntry {
         })
     }
 
-    /// Reads a validated dataset identity without requiring business payload decoding.
-    pub(crate) fn operationPath(
-        operation: &SyncOperation,
-    ) -> Result<&str, PreferencesDataStoreError> {
+    /// Recover routing from a known entry identity without modifying the immutable payload.
+    pub fn operationPath(operation: &SyncOperation) -> Result<String, PreferencesDataStoreError> {
         if operation.domain != "preferences" {
-            return Err(PreferencesDataStoreError::Message(
-                "Not a preference operation".into(),
-            ));
+            return Err(PreferencesDataStoreError::Message("Not a preference operation".into()));
         }
-        let path = operation
-            .payload
-            .get("storagePath")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                PreferencesDataStoreError::Message("Preference dataset path is missing".into())
-            })?;
-        validatePluginPreferenceSyncPath(path)?;
+        let path = operation.payload["storagePath"].as_str().filter(|path| !path.is_empty()).map(str::to_owned).or_else(|| {
+            let (path, key) = serde_json::from_str::<(String, String)>(&operation.entityId).ok()?;
+            (operation.payload["key"].as_str() == Some(key.as_str())).then_some(path)
+        }).or_else(|| {
+            // Blob transport replaces large initialization payloads with a reference
+            // that carries no path; the dataset identity is the operation's entity id.
+            (operation.entityType == "initialization" && operation.operation == "initialize")
+                .then_some(operation.entityId.clone())
+        }).ok_or_else(|| PreferencesDataStoreError::Message("Preference dataset path is missing".into()))?;
+        validatePluginPreferenceSyncPath(&path)?;
         Ok(path)
     }
 
@@ -2737,12 +2735,8 @@ impl PreferencesSyncedEntry {
     /// Rejects a different preference representation before any values or receipts are committed.
     pub(crate) fn requireSchemaVersion(&self, local: u32) -> Result<(), PreferencesDataStoreError> {
         let remote = self.schemaVersion();
-        if remote.unwrap_or(0) > local {
-            let remote = remote.map(|version| version.to_string()).unwrap_or_else(|| "missing".into());
-            return Err(PreferencesDataStoreError::Message(format!(
-                "preference schema version mismatch: path={} local={local} remote={remote}; synchronization skipped",
-                self.storagePath
-            )));
+        if let Some(actual) = remote.filter(|version| *version > local) {
+            return Err(PreferencesDataStoreError::SchemaVersionTooNew { actual, expected: local });
         }
         Ok(())
     }
@@ -3929,13 +3923,23 @@ impl PreferencesSyncedEntry {
         Ok(Self { storagePath: owner.path, encrypted, schemaVersion: Some(owner.format), mutation: PreferencesSyncedMutation::Transaction(mutations), id: transaction.id, revision: transaction.revision })
     }
 
-    pub(crate) fn replay(entries: &[Self], preferences: &mut Preferences) -> Result<(), PreferencesDataStoreError> {
+    pub(crate) fn replay(entries: &[Self], preferences: &mut Preferences, compact: bool) -> Result<BTreeSet<String>, PreferencesDataStoreError> {
+        let transactions = entries.iter().map(Self::transaction).collect::<Result<Vec<_>, _>>()?;
+        // Declarations carry an immutable, append-only contract even when their effective value was normalized.
+        let retired = if compact {
+            crate::Transaction::compaction::superseded(transactions.iter().filter(|transaction|
+                !transaction.id.starts_with("~import:") && transaction.edits.iter().all(|edit|
+                    !crate::PluginPreferenceSchema::reserved(edit.key()) && edit.key() != crate::PreferenceMerge::PLUGIN_MERGE_DECLARATION_KEY)))
+                .map_err(PreferencesDataStoreError::Message)?
+        } else { BTreeSet::new() };
         let mut data = preferences.view.clone().ok_or_else(|| PreferencesDataStoreError::Message("Owner replay context is missing".into()))?;
-        for entry in entries { data.apply(&entry.transaction()?).map_err(PreferencesDataStoreError::Message)?; }
+        for transaction in transactions.iter().filter(|transaction| !retired.contains(&transaction.id)) {
+            data.apply(transaction).map_err(PreferencesDataStoreError::Message)?;
+        }
         preferences.values = Arc::new(data.values.iter().map(|(k,v)| (k.clone(),v.clone())).collect());
         preferences.set(&PreferencesDataStore::schemaVersionKey(), data.owner.format);
         preferences.view = Some(data);
-        Ok(())
+        Ok(retired)
     }
 }
 
@@ -3946,7 +3950,7 @@ impl PreferencesDataStore {
         let mut values = self.loadedPreferences().expect("loaded file");
         crate::Transaction::preference::recover(self, &mut values)
     }
-    pub(crate) fn migrateSyncedEntries(&self, version: u32, entries: &mut Vec<PreferencesSyncedEntry>) -> Result<(), PreferencesDataStoreError> {
-        crate::Transaction::preference::migrate_entries(self,version,entries)
+    pub(crate) fn migrateSyncedEntries(&self, version: u32, baseline: &Preferences, entries: &mut Vec<PreferencesSyncedEntry>) -> Result<(), PreferencesDataStoreError> {
+        crate::Transaction::preference::migrate_entries(self,version,baseline,entries)
     }
 }

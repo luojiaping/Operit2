@@ -492,7 +492,7 @@ fn key_sync_resolves_conflicts_and_forwards_original_transactions() {
         .unwrap();
     a.replay(&b.export());
     assert_eq!(a.get(&ah, "key")["value"], json!({"latest":true}));
-    assert_eq!(a.export().len(), 3);
+    assert_eq!(a.export().len(), 1);
     let mut conflict = first[0].clone();
     conflict.payload["changes"][0]["value"] = json!("forged");
     assert!(
@@ -845,13 +845,18 @@ fn preference_aliases_reconcile_existing_rows_without_rewriting_history() {
     let references = std::collections::BTreeMap::from([
         ("models\u{001f}old-provider".to_string(),"retained-provider".to_string()),
         ("voices\u{001f}old-voice".to_string(),"retained-voice".to_string())]);
-    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(),&references).unwrap();
-    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(),&references).unwrap();
+    let other_path = format!("{}.independent.sqlite", fixture.path);
+    let other = fixture.call(json!({"op":"open","path":other_path,"kind":"sqlite","merge":descriptor})).unwrap()["handle"].as_str().unwrap().to_owned();
+    fixture.call(json!({"op":"define_table","handle":other,"table":schema})).unwrap();
+    fixture.call(json!({"op":"execute","handle":other,"statement":{"sql":"INSERT INTO records VALUES('same','old-provider','old-voice')","params":[]}})).unwrap();
+    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &fixture.path,&references).unwrap();
+    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &fixture.path,&references).unwrap();
     let rows = fixture.call(json!({"op":"query","handle":handle,"statement":{
         "sql":"SELECT provider,voice FROM records WHERE id='same'","params":[]}})).unwrap();
     assert_eq!(rows[0]["values"][0],json!({"kind":"text","value":"retained-provider"}));
     assert_eq!(rows[0]["values"][1],json!({"kind":"text","value":"retained-voice"}));
-    assert_eq!(fixture.export().iter().map(|op|serde_json::to_value(op).unwrap()).collect::<Vec<_>>(),original);
+    assert_eq!(fixture.call(json!({"op":"query","handle":other,"statement":{"sql":"SELECT provider FROM records","params":[]}})).unwrap()[0]["values"][0],json!({"kind":"text","value":"old-provider"}));
+    assert_eq!(fixture.export().iter().filter(|op|PluginStorage::syncDatasetPath(op).unwrap()==fixture.path).map(|op|serde_json::to_value(op).unwrap()).collect::<Vec<_>>(),original);
     fixture.dispose();
 }
 
@@ -1179,7 +1184,7 @@ fn object_preference_aliases_rewrite_nested_json_without_new_operations() {
     seed_object_card(&fixture, &handle, id, "Role", "Complete original JSON");
     let history = serde_json::to_value(fixture.export()).unwrap();
     let references = std::collections::BTreeMap::from([("models\u{001f}remote-provider".to_string(), "canonical-provider".to_string())]);
-    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &references).unwrap();
+    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &fixture.path, &references).unwrap();
     let result = fixture.call(json!({"op":"get","handle":handle,"collection":"cards","key":id})).unwrap();
     assert_eq!(result["value"]["id"], id);
     assert_eq!(result["value"]["providerId"], "canonical-provider");
@@ -1208,7 +1213,7 @@ fn character_memory_contract_uses_native_preference_owner_aliases() {
     let references = std::collections::BTreeMap::from([(
         format!("runtime/plugin_data/space/com.operit.character_cards/cards.preferences.json\u{001f}{old}"), canonical.to_owned()
     )]);
-    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &references).unwrap();
+    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &fixture.path, &references).unwrap();
     let owners = fixture.call(json!({"op":"list","handle":handle,"collection":"owners","limit":100})).unwrap();
     assert_eq!(owners.as_array().unwrap().len(), 1);
     assert_eq!(owners[0]["key"], format!("character:{canonical}"));
@@ -1303,7 +1308,7 @@ fn seed_aliased_owner(fixture: &Fixture, handle: &str, oldId: &str, newId: &str)
         put_in("owners", &oldKey, json!({"ownerKey": oldKey, "document": format!("owners/character%3A{oldId}/USER.md")})),
         put_in("memories", &format!("{oldKey}/m1"), json!({"owner": oldKey, "title": "kept"}))
     ]})).unwrap();
-    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &std::collections::BTreeMap::from([
+    PluginStorage::reconcilePreferenceReferences(fixture.host.clone(), &fixture.path, &std::collections::BTreeMap::from([
         (format!("runtime/config/preferences/cards.preferences.json\u{001f}{oldId}"), newId.to_string()),
     ])).unwrap();
 }
@@ -1801,8 +1806,10 @@ fn snapshot_correction_preserves_plugin_scope_versions_and_uncovered_late_rows()
     let target = Fixture::new("target");
     let target_handle = target.open("objects");
     let authoritative = PluginStorage::syncSnapshot(source.host.clone(), &source.path, source.device).unwrap();
+    assert_eq!(PluginStorage::syncCoverage(source.host.clone(), &source.path).unwrap(), authoritative.covered);
     let capture = PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap();
     assert!(PluginStorage::repairSyncedSnapshot(target.host.clone(), &capture.token().unwrap(), &authoritative, target.device).unwrap());
+    assert_eq!(PluginStorage::syncCoverage(target.host.clone(), &target.path).unwrap(), PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().covered);
     assert_eq!(PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().data, authoritative.data);
     target.call(json!({"op":"close","handle":target_handle})).unwrap();
 
@@ -1829,10 +1836,11 @@ fn snapshot_correction_preserves_plugin_scope_versions_and_uncovered_late_rows()
 fn same_author_sql_changes_follow_sequence_when_its_clock_moves_backwards() {
     let source = Fixture::new("author");
     let handle = source.open("objects");
+    let mut operations = Vec::new();
     for value in ["first","second"] {
         source.call(json!({"op":"commit","handle":handle,"mutations":[put("x",json!(value))]})).unwrap();
+        operations.push(source.export().pop().unwrap());
     }
-    let mut operations = source.export();
     assert_eq!(operations.len(),2);
     operations[0].createdAt = 50;
     operations[1].createdAt = 10;
@@ -1862,7 +1870,9 @@ fn complete_file_correction_provisions_missing_plugin_databases_without_business
         assert!(!PluginStorage::repairSyncedSnapshot(target.host.clone(), "", &file, target.device).unwrap());
         assert_eq!(PluginStorage::syncSnapshot(target.host.clone(), &target.path, target.device).unwrap().data, file.data);
         assert_eq!(PluginStorage::syncDatasetPaths(target.host.clone()).unwrap(), vec![target.path.clone()]);
-        assert!(target.export().is_empty());
+        let initialized = target.export();
+        assert_eq!(initialized.len(),1);
+        assert!(operit_store::Transaction::compaction::Initialization::decode(&initialized[0]).unwrap().is_some());
         let handle = target.open(kind);
         if kind == "objects" {
             target.call(json!({"op":"commit","handle":handle,"mutations":[put("new",json!("after baseline"))]})).unwrap();
@@ -1947,4 +1957,96 @@ fn incremental_object_merge_bookkeeping_does_not_require_a_full_snapshot() {
     values["rows"][0][value] = json!({"Text":"changed business content"});
     assert_ne!(PluginStorage::snapshotContentDigest(&a).unwrap(), PluginStorage::snapshotContentDigest(&changed).unwrap());
     source.dispose(); target.dispose();
+}
+
+#[test]
+fn corrected_plugin_logs_collapse_on_both_peers_and_initialize_an_offline_peer() {
+    let source = Fixture::new("compaction-source");
+    let target = Fixture::new("compaction-target");
+    let sh = source.open("objects"); let th = target.open("objects");
+    for i in 0..40 {
+        source.call(json!({"op":"commit","handle":sh,"mutations":[put("x",json!(i))]})).unwrap();
+    }
+    let original = source.export();
+    assert_eq!(original.len(),1);
+    target.replay(&original);
+    target.call(json!({"op":"commit","handle":th,"mutations":[put("corrupt",json!(true))]})).unwrap();
+    let a = PluginStorage::syncSnapshot(source.host.clone(),&source.path,source.device).unwrap();
+    let b = PluginStorage::syncSnapshot(target.host.clone(),&target.path,target.device).unwrap();
+    let mut authority = a.clone(); authority.covered.extend(b.covered.iter().cloned());
+    for (f,snapshot) in [(&source,&a),(&target,&b)] {
+        assert!(PluginStorage::repairSyncedSnapshot(f.host.clone(),&snapshot.token().unwrap(),&authority,f.device).unwrap());
+        let retained = f.export();
+        assert_eq!(retained.len(),1);
+        assert!(operit_store::Transaction::compaction::Initialization::decode(&retained[0]).unwrap().is_some());
+        let store = SqliteStore::openWithHost(f.host.clone(),&f.path).unwrap();
+        use operit_store::SqliteRowGet;
+        assert_eq!(store.queryOne("SELECT count(*) FROM _operit_log",vec![]).unwrap().unwrap().get::<_,i64>(0).unwrap(),0);
+    }
+    assert_eq!(source.export(),target.export());
+    let offline = Fixture::new("compaction-offline");
+    offline.replay(&original);
+    let oh = offline.open("objects");
+    offline.call(json!({"op":"commit","handle":oh,"mutations":[put("offline",json!(true))]})).unwrap();
+    offline.replay(&source.export());
+    assert_eq!(offline.get(&oh,"x")["value"],json!(39));
+    assert_eq!(offline.get(&oh,"offline")["value"],json!(true));
+    let empty = Fixture::new("compaction-empty"); empty.replay(&source.export());
+    assert_eq!(PluginStorage::syncSnapshot(empty.host.clone(),&empty.path,empty.device).unwrap().data,authority.data);
+    let (receipt,errors) = PluginStorage::receipt(source.host.clone()).unwrap(); assert!(errors.is_empty());
+    assert!(PluginStorage::operationsSince(source.host.clone(),&receipt,&[],100).unwrap().is_empty());
+    source.dispose(); target.dispose(); offline.dispose(); empty.dispose();
+}
+
+#[test]
+fn forced_plugin_recovery_rolls_back_as_one_transaction_and_can_discard_a_damaged_log() {
+    use operit_store::SqliteRowGet;
+    let source = Fixture::new("fault-authority"); let sh = source.open("objects");
+    source.call(json!({"op":"commit","handle":sh,"mutations":[put("x",json!("authority"))]})).unwrap();
+    let target = Fixture::new("fault-target"); let th = target.open("objects");
+    target.call(json!({"op":"commit","handle":th,"mutations":[put("x",json!("damaged"))]})).unwrap();
+    let original = PluginStorage::syncSnapshot(target.host.clone(),&target.path,target.device).unwrap();
+    let mut authority = PluginStorage::syncSnapshot(source.host.clone(),&source.path,source.device).unwrap();
+    authority.covered.extend(original.covered.iter().cloned());
+    let store = SqliteStore::openWithHost(target.host.clone(),&target.path).unwrap();
+    store.executeBatch("CREATE TRIGGER stop_retirement BEFORE UPDATE OF retired ON _operit_compacted BEGIN SELECT RAISE(ABORT,'injected retirement failure'); END").unwrap();
+    assert!(PluginStorage::repairSyncedSnapshot(target.host.clone(),&original.token().unwrap(),&authority,target.device).is_err());
+    assert_eq!(PluginStorage::syncSnapshot(target.host.clone(),&target.path,target.device).unwrap(),original);
+    assert_eq!(target.export().len(),1);
+    store.executeBatch("DROP TRIGGER stop_retirement; UPDATE _operit_log SET payload='{invalid'").unwrap();
+    assert!(PluginStorage::repairSyncedSnapshot(target.host.clone(),&original.token().unwrap(),&authority,target.device).unwrap());
+    assert_eq!(PluginStorage::syncSnapshot(target.host.clone(),&target.path,target.device).unwrap().data,authority.data);
+    assert_eq!(store.queryOne("SELECT count(*) FROM _operit_log",vec![]).unwrap().unwrap().get::<_,i64>(0).unwrap(),0);
+    assert_eq!(target.export().len(),1);
+    source.dispose(); target.dispose();
+}
+
+#[test]
+fn opening_a_legacy_plugin_log_backfills_the_index_and_physically_compacts_old_payloads() {
+    use operit_store::{SqliteRowGet,SqliteStore::SqliteValue};
+    let f = Fixture::new("legacy-compaction"); let handle = f.open("objects");
+    let mut originals = Vec::new();
+    for i in 0..20 {
+        f.call(json!({"op":"commit","handle":handle,"mutations":[put("x",json!(i))]})).unwrap();
+        originals.push(f.export().pop().unwrap());
+    }
+    let store = SqliteStore::openWithHost(f.host.clone(),&f.path).unwrap();
+    store.transaction(|tx| {
+        tx.execute("DELETE FROM _operit_compaction_progress",vec![])?;
+        tx.execute("DELETE FROM _operit_compaction_scopes",vec![])?;
+        tx.execute("DELETE FROM _operit_compacted",vec![])?;
+        for op in &originals {
+            tx.execute("INSERT OR IGNORE INTO _operit_log(origin,sequence,created_at,payload,outgoing) VALUES(?1,?2,?3,?4,1)",
+                vec![SqliteValue::Text(op.originDeviceId.clone()),SqliteValue::Integer(op.sequence),SqliteValue::Integer(op.createdAt),SqliteValue::Text(serde_json::to_string(&op.payload).unwrap())])?;
+        }
+        Ok(())
+    }).unwrap();
+    assert_eq!(store.queryOne("SELECT count(*) FROM _operit_log",vec![]).unwrap().unwrap().get::<_,i64>(0).unwrap(),20);
+    let reopened = f.open("objects");
+    assert_eq!(f.export(),vec![originals.pop().unwrap()]);
+    assert_eq!(store.queryOne("SELECT count(*) FROM _operit_log",vec![]).unwrap().unwrap().get::<_,i64>(0).unwrap(),1);
+    assert_eq!(f.get(&reopened,"x")["value"],json!(19));
+    f.call(json!({"op":"commit","handle":reopened,"mutations":[put("x",json!(20))]})).unwrap();
+    assert!(f.export()[0].sequence > 20);
+    f.dispose();
 }

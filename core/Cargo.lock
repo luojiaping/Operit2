@@ -2100,6 +2100,7 @@ dependencies = [
  "aes",
  "base64",
  "flate2",
+ "getrandom 0.2.17",
  "image",
  "md-5",
  "operit-host-api",
@@ -2452,7 +2453,7 @@ dependencies = [
 
 [[package]]
 name = "operit-runtime"
-version = "2.0.0-preview.23"
+version = "2.0.0-preview.24"
 dependencies = [
  "aes",
  "async-trait",

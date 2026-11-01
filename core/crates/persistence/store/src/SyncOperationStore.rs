@@ -77,9 +77,9 @@ impl SyncClock {
     /// Keeps only sequences this device authored. Applied peer operations also
     /// advance their origins here, but they are not work this device still
     /// owes its peers, so change summaries exclude them.
-    pub fn retainAuthoredBy(&mut self, deviceId: &str) {
+    pub fn retainAuthoredBy(&mut self, deviceId: &str, nodeId: &str) {
         self.sequences
-            .retain(|origin, _| origin.starts_with(deviceId));
+            .retain(|origin, _| origin.starts_with(deviceId) || origin == nodeId);
     }
 }
 
@@ -91,9 +91,16 @@ pub trait SyncOperationKnowledge {
     fn containsSequence(&self, origin: &str, sequence: i64) -> bool;
     /// Finds the next missing sequence after a cursor, skipping known intervals.
     fn nextMissingSequence(&self, origin: &str, after: i64) -> Option<i64>;
+    /// Returns exact received intervals for SQL-side export filtering.
+    fn knownRanges(&self, origin: &str) -> Vec<[i64; 2]>;
 }
 
 impl SyncOperationKnowledge for SyncClock {
+    /// Converts a contiguous clock prefix into exact intervals.
+    fn knownRanges(&self, origin: &str) -> Vec<[i64; 2]> {
+        let end = self.sequenceFor(origin);
+        if end > 0 { vec![[1, end]] } else { vec![] }
+    }
     /// Reads the contiguous observation boundary used by store callers.
     fn sequenceFor(&self, origin: &str) -> i64 {
         SyncClock::sequenceFor(self, origin)
@@ -161,6 +168,10 @@ impl SyncReceipt {
 }
 
 impl SyncOperationKnowledge for SyncReceipt {
+    /// Preserves sparse holes when planning exports in SQL.
+    fn knownRanges(&self, origin: &str) -> Vec<[i64; 2]> {
+        self.ranges.get(origin).cloned().unwrap_or_default()
+    }
     /// Returns only an actually received prefix, leaving sparse gaps requestable.
     fn sequenceFor(&self, origin: &str) -> i64 {
         match self.ranges.get(origin).and_then(|ranges| ranges.first()) {
@@ -454,11 +465,12 @@ enum JournalProjection {
 }
 
 impl JournalProjection {
-    fn includes(&self, record: &JournalRecord) -> bool {
+    /// Filters indexed headers before allocating or decoding their JSON.
+    fn predicate(&self) -> &'static str {
         match self {
-            Self::All => true,
-            Self::PreferenceDatasetHistory => record.domain == "preferences",
-            Self::MergeMetadata => record.is_merge_candidate(),
+            Self::All => "1",
+            Self::PreferenceDatasetHistory => "domain='preferences'",
+            Self::MergeMetadata => "domain='preferences' AND (json_extract(header,'$.route.encrypted')=1 OR json_extract(header,'$.operation')='alias' OR json_extract(header,'$.route.merge_metadata')=1)",
         }
     }
 }
@@ -753,22 +765,7 @@ impl SyncOperationStore {
         domains: &[String],
         limit: usize,
     ) -> Result<Vec<SyncOperation>, SyncOperationStoreError> {
-        // Preference outboxes can only contribute to the preferences domain.
-        // Policy and other domain reads must not open unrelated encrypted stores.
-        if domains.is_empty() || domains.iter().any(|domain| domain == "preferences") {
-            self.publishPreferenceOutboxes()?;
-        }
-        self.readJournal(
-            clock,
-            JournalQuery {
-                domains,
-                projection: JournalProjection::All,
-                export_floors: true,
-                limit,
-                max_bytes: usize::MAX,
-                retain: None,
-            },
-        )
+        self.operationsSinceWithInventory(clock, domains, limit, usize::MAX, None, None)
     }
 
     /// Filters before compaction and bounds the combined archived/pending page.
@@ -781,35 +778,20 @@ impl SyncOperationStore {
         maxBytes: usize,
         retain: impl Fn(&SyncOperation) -> bool,
     ) -> Result<Vec<SyncOperation>, SyncOperationStoreError> {
-        // Preference outboxes can only contribute to the preferences domain.
-        // Policy and other domain reads must not open unrelated encrypted stores.
-        if domains.is_empty() || domains.iter().any(|domain| domain == "preferences") {
-            self.publishPreferenceOutboxes()?;
-        }
-        self.readJournal(
-            clock,
-            JournalQuery {
-                domains,
-                projection: JournalProjection::All,
-                export_floors: true,
-                limit,
-                max_bytes: maxBytes,
-                retain: Some(&retain),
-            },
-        )
+        self.operationsSinceWithInventory(clock, domains, limit, maxBytes, None, Some(&retain))
     }
 
     /// Plans the normal bounded export and optionally inventories its compacted missing identities.
     pub fn operationsSinceWithInventory<K: SyncOperationKnowledge>(
         &self, clock: &K, domains: &[String], limit: usize, maxBytes: usize,
-        inventory: Option<&mut BTreeSet<String>>, retain: impl Fn(&SyncOperation) -> bool,
+        inventory: Option<&mut BTreeSet<String>>, retain: Option<&dyn Fn(&SyncOperation) -> bool>,
     ) -> Result<Vec<SyncOperation>, SyncOperationStoreError> {
         if domains.is_empty() || domains.iter().any(|domain| domain == "preferences") {
             self.publishPreferenceOutboxes()?;
         }
         self.readJournalWithInventory(clock, JournalQuery {
             domains, projection: JournalProjection::All, export_floors: true,
-            limit, max_bytes: maxBytes, retain: Some(&retain),
+            limit, max_bytes: maxBytes, retain,
         }, inventory)
     }
 
@@ -878,6 +860,11 @@ impl SyncOperationStore {
         Ok(history)
     }
 
+    pub(crate) fn preferenceCompactionHistory(&self, path: &str, format: u32) -> Result<Vec<SyncOperation>, SyncOperationStoreError> {
+        self.withJournal(|journal| journal.preference_compaction_history(path, format))?.into_iter()
+            .map(|operation| self.decodeOperationPayload(operation)).collect()
+    }
+
     /// Lists registered owners, including datasets prepared by plugins while their UI is closed.
     pub fn preferenceDatasets(&self) -> Result<BTreeMap<String, bool>, SyncOperationStoreError> {
         self.withJournal(|journal| journal.files())
@@ -933,6 +920,29 @@ impl SyncOperationStore {
         Ok(self
             .loadCachedJson(&mut clockState, &self.clockPath())?
             .clone())
+    }
+
+    /// Fingerprints authored changes without publishing outboxes or reading business contents.
+    #[cfg(feature = "full")]
+    pub fn synchronizationSummary(&self) -> Result<String, SyncOperationStoreError> {
+        let mut clock = self.currentLocalClock()?;
+        let sql = operit_util::RuntimeStoreRoot::default_runtime_store_root_config().map(|_| {
+            crate::sync::SqlChatSyncStore::SqlChatSyncStore::default().and_then(|store| store.localClock()).map_err(|e|e.to_string())
+        });
+        if let Some(Ok(sql)) = &sql {
+            for (origin, sequence) in &sql.sequences {
+                clock.setSequence(origin.clone(), (*sequence).max(clock.sequenceFor(origin)));
+            }
+        }
+        let deviceId = self.localDeviceId()?;
+        let nodeId = crate::CoreNodeIdentityStore::CoreNodeIdentityStore::new(self.storageHost.clone())
+            .initialize().map_err(SyncOperationStoreError::Message)?.nodeId;
+        clock.retainAuthoredBy(&deviceId, &nodeId);
+        crate::Transaction::digest(&(clock, sql.and_then(Result::err),
+            crate::NetworkControlStore::NetworkControlStore::new(self.storageHost.clone())
+                .and_then(|store|store.projectionEntryCount()).map_err(SyncOperationStoreError::Message)?,
+            crate::DevicePreferencesStore::devicePreferencesMutationRevision()))
+            .map_err(SyncOperationStoreError::Message)
     }
 
     /// Writes the local vector clock to storage.
@@ -1689,6 +1699,7 @@ impl SyncOperationStore {
         if state.is_none() {
             let mut journal = crate::Transaction::Journal::open(self.storageHost.as_ref(), &self.rootPath)?;
             self.importLegacyJournal(&mut journal)?;
+            journal.reclaim_sql_copies()?;
             *state = Some(journal);
         }
         action(state.as_mut().expect("journal opened"))
@@ -1856,11 +1867,34 @@ impl SyncOperationStore {
         Ok(())
     }
 
+    /// The caller supplies a committed coverage proof for these exact originals.
+    pub(crate) fn retireCoveredOperations(&self, operations: &[SyncOperation]) -> Result<(), SyncOperationStoreError> {
+        self.withJournal(|journal|journal.transaction(|tx|crate::Transaction::Journal::retire_ids(tx,
+            operations.iter().map(|operation|operation.opId.clone()))))
+    }
+
     pub fn pendingOperationIds(&self) -> Result<Vec<String>, SyncOperationStoreError> {
         self.withJournal(|journal| journal.pending_ids())
     }
 
     pub fn pendingOperationCount(&self) -> Result<usize, SyncOperationStoreError> { Ok(self.pendingOperationIds()?.len()) }
+
+    /// Retains receipts and identity checks while dropping synchronization work outside declared ownership.
+    pub fn ignoreFileOperations(&self, domain: &str, path: &str) -> Result<(), SyncOperationStoreError> {
+        let routes = crate::PreferenceLayout::routes(self.storageHost.clone()).map_err(SyncOperationStoreError::Message)?;
+        self.withJournal(|journal| journal.transaction(|tx| {
+            for path in std::iter::once(path).chain(routes.iter().filter(|(_,target)| target.as_str() == path).map(|(source,_)|source.as_str())) {
+                let ids = tx.query("SELECT id FROM originals WHERE domain=?1 AND target=?2", vec![crate::Transaction::text(domain),crate::Transaction::text(path)])?
+                    .iter().map(|row|row.valueAt(0)?.asString()).collect::<Result<Vec<_>,_>>()?;
+                crate::Transaction::Journal::retire_ids(tx, ids)?;
+                tx.execute("DELETE FROM transaction_files WHERE path=?1", vec![crate::Transaction::text(path)])?;
+                tx.execute("DELETE FROM transaction_owners WHERE path=?1", vec![crate::Transaction::text(path)])?;
+            }
+            Ok(())
+        }))?;
+        operit_util::AppLogger::AppLogger::i("TransactionSync", &format!("sync_file.ignored domain={domain} path={path} reason=unregistered"));
+        Ok(())
+    }
 
     /// Discovers committed and pending preference owners without decoding transaction payloads.
     pub fn preferenceOwnerPaths(&self) -> Result<Vec<String>, SyncOperationStoreError> {
@@ -1871,9 +1905,36 @@ impl SyncOperationStore {
         self.pendingOperationIds()?.iter().map(|id| self.original(id)).collect()
     }
 
+    /// Complete file replacements can retry directly; structured deltas still require correction.
+    pub fn applicationOperations(&self) -> Result<Vec<SyncOperation>, SyncOperationStoreError> {
+        let mut operations = self.pendingOperations()?;
+        operations.extend(self.fileRetryOperations()?);
+        Ok(operations)
+    }
+
+    /// Queries only failed ordinary files, without decoding unrelated skipped owner payloads.
+    fn fileRetryOperations(&self) -> Result<Vec<SyncOperation>, SyncOperationStoreError> {
+        self.withJournal(|journal|journal.skipped_ids(Some(crate::RuntimeFileSyncStore::RUNTIME_FILE_SYNC_DOMAIN)))?
+            .iter().map(|id|self.original(id)).filter(|op|op.as_ref().map_or(true, crate::RuntimeFileSyncStore::RuntimeFileSyncStore::isCompleteState)).collect()
+    }
+
+    /// Skipped originals still relay normally, but no longer block file correction as pending work.
+    pub fn skippedOperations(&self) -> Result<Vec<SyncOperation>, SyncOperationStoreError> {
+        self.withJournal(|journal| journal.skipped_ids(None))?.iter().map(|id| self.original(id)).collect()
+    }
+
+    pub(crate) fn skipOperations(&self, operations: &[SyncOperation]) -> Result<(), SyncOperationStoreError> {
+        self.withJournal(|journal| journal.skip(operations))?;
+        publishSyncMutation();
+        Ok(())
+    }
+
     pub fn visitPendingOperations(&self, domains: &[&str], mut visit: impl FnMut(&SyncOperation)) -> Result<(), SyncOperationStoreError> {
         for header in self.withJournal(|journal| journal.headers(Some(true)))? {
             if domains.is_empty() || domains.contains(&header.domain.as_str()) { visit(&self.original(&header.op_id)?); }
+        }
+        if domains.is_empty() || domains.contains(&crate::RuntimeFileSyncStore::RUNTIME_FILE_SYNC_DOMAIN) {
+            for operation in self.fileRetryOperations()? { visit(&operation); }
         }
         Ok(())
     }
@@ -1901,30 +1962,23 @@ impl SyncOperationStore {
             let mut state = lockSyncState(&self.sharedState.exportFloors, "export floors")?;
             self.loadCachedJson(&mut state, &self.exportFloorsPath())?.clone()
         } else { BTreeMap::new() };
-        let headers = self.withJournal(|journal| journal.headers(if query.export_floors { None } else { Some(false) }))?;
+        let headers = self.withJournal(|journal| journal.headers_since(clock, query.domains, query.projection.predicate(), query.export_floors, &floors))?;
         let mut selected = Vec::new();
         for record in headers {
             let floor = floors.get(&record.origin_device_id).copied().unwrap_or(0);
             let control = record.domain == NETWORK_CONTROL_SYNC_DOMAIN && record.sequence <= clock.sequenceFor(&networkControlClockKey(&record.origin_device_id));
-            if record.sequence <= floor || control || clock.containsSequence(&record.origin_device_id, record.sequence)
-                || (!query.domains.is_empty() && !query.domains.contains(&record.domain)) || !query.projection.includes(&record) { continue; }
+            if record.sequence <= floor || control { continue; }
             selected.push((record.order()?, record));
         }
         // Filter before choosing a replaceable entity's latest original.
-        let mut winners = BTreeMap::new();
-        for (_, record) in &selected {
-            if record.domain != "preferences" && record.semantics == SyncOperationSemantics::EntityState {
-                winners.entry((&record.origin_device_id, &record.domain, &record.entity_type, &record.entity_id))
-                    .or_insert_with(Vec::new).push(record);
-            }
-        }
+        let mut winners = BTreeSet::new();
         let mut winnerIds = BTreeSet::new();
-        for group in winners.values_mut() {
-            group.sort_by_key(|record| std::cmp::Reverse(record.sequence));
-            for record in group {
-                if query.retain.map(|retain| self.original(&record.op_id).map(|op| retain(&op))).transpose()?.unwrap_or(true) {
-                    winnerIds.insert(record.op_id.clone()); break;
-                }
+        // SQL supplies ascending source sequences; reverse traversal finds each entity's winner once.
+        for (_, record) in selected.iter().rev().filter(|(_, r)| r.domain != "preferences" && r.semantics == SyncOperationSemantics::EntityState) {
+            let key = (&record.origin_device_id, &record.domain, &record.entity_type, &record.entity_id);
+            if !winners.contains(&key) && query.retain.map(|retain| self.original(&record.op_id).map(|op| retain(&op))).transpose()?.unwrap_or(true) {
+                winners.insert(key);
+                winnerIds.insert(record.op_id.clone());
             }
         }
         selected.sort_by(|a, b| a.0.cmp(&b.0));

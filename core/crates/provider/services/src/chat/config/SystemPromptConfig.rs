@@ -681,6 +681,17 @@ mod tests {
         assert!(!prompt.contains("<param"));
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn native_package_guidelines_advertise_json_objects_in_both_languages() {
+        for english in [true, false] {
+            let mut options = packagePromptOptions(true);
+            options.use_english = english;
+            let prompt = SystemPromptConfig::getSystemPrompt(options).await.unwrap();
+            assert!(prompt.contains("JSON"));
+            assert!(!prompt.contains("YAML"));
+        }
+    }
+
     /// Verifies text-protocol prompts retain the XML package invocation syntax.
     #[tokio::test(flavor = "current_thread")]
     async fn xmlToolPromptIncludesPackageInvocationSyntax() {

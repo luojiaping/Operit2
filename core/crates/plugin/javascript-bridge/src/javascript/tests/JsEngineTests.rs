@@ -970,9 +970,6 @@ fn detached_call_preparation_accepts_boolean_result() {
     register_test_runtime_storage("js-engine-tests");
     let mut state = newTestJsEngineState(None);
     state
-        .initJavaScriptEnvironment()
-        .expect("JavaScript test environment must initialize");
-    state
         .evalJavaScriptVoid(
             "var call = __operitRegisterCallSession('detached-call', {}); call.detached = true; call.pendingReferences = 1; JSON.parse = JSON.stringify = function() { throw Error('JSON transport used'); };",
         )
@@ -989,9 +986,6 @@ fn clearing_timer_from_another_call_releases_timer_owner_reference() {
     testJavaScriptRuntimeHost();
     register_test_runtime_storage("js-engine-tests");
     let mut state = newTestJsEngineState(None);
-    state
-        .initJavaScriptEnvironment()
-        .expect("JavaScript test environment must initialize");
     let result = state
         .evalJavaScriptString(
             r#"(function() {
@@ -2055,7 +2049,6 @@ fn cancellation_cleanup_deadline_does_not_limit_another_call() {
     testJavaScriptRuntimeHost();
     register_test_runtime_storage("js-engine-tests");
     let mut state = newTestJsEngineState(None);
-    state.initJavaScriptEnvironment().unwrap();
     let cleanup = operit_host_api::HostJavaScriptExecutionInterrupt::new(20).unwrap();
     let scope = super::ExecutionScope::enter(&state, Some(cleanup.clone()));
     super::CURRENT_CLEANUP_OWNER.with(|owner| *owner.borrow_mut() = Some(("retired".into(), cleanup)));
@@ -4906,7 +4899,8 @@ async fn prepared_provider_replenishes_without_reusing_page_state() {
     register_test_runtime_storage("js-engine-tests");
     let host = Arc::new(TestPluginConfigExecutionHost::default());
     let provider = crate::javascript::JsExecutionProvider::HostJsExecutionProvider::new();
-    for index in 0..5 {
+    let mut engines = Vec::new();
+    for index in 0..256 {
         let engine = provider.acquire_toolpkg_execution_engine(host.clone(), ToolPkgExecutionContext {
             context_key: format!("prepared-page-{index}"), container_package_name: "test.package".into(),
             api_version: "2.0.0".into(),
@@ -4917,9 +4911,10 @@ async fn prepared_provider_replenishes_without_reusing_page_state() {
             "probe", &testParams(), &BTreeMap::new(), None, false,
         ).await, "fresh prepared page");
         assert_eq!(serde_json::from_str::<Value>(&output).unwrap()["counter"], 1);
-        engine.destroy();
+        engines.push(engine);
     }
-    assert_eq!(host.toolPkgContextBindings.load(Ordering::SeqCst), 5);
+    assert_eq!(host.toolPkgContextBindings.load(Ordering::SeqCst), 256);
+    for engine in engines { engine.destroy(); }
 }
 
 /// An invalid package identity destroys its claimed runtime without consuming a context binding.
@@ -4929,7 +4924,7 @@ async fn prepared_engine_rejects_invalid_owner_and_destroys_runtime() {
     register_test_runtime_storage("js-engine-tests");
     let host = Arc::new(TestPluginConfigExecutionHost::default());
     let prepared = super::PreparedJsEngine::new().unwrap();
-    let alive = prepared.engine.as_ref().unwrap().worker.alive.clone();
+    let alive = prepared.engine.worker.alive.clone();
     let result = prepared.bind(host.clone(), ToolPkgExecutionContext {
         context_key: String::new(), container_package_name: "test.package".into(),
         api_version: "2.0.0".into(),
@@ -4946,8 +4941,37 @@ fn unclaimed_prepared_engine_destroys_runtime() {
     testJavaScriptRuntimeHost();
     register_test_runtime_storage("js-engine-tests");
     let prepared = super::PreparedJsEngine::new().unwrap();
-    let alive = prepared.engine.as_ref().unwrap().worker.alive.clone();
+    let alive = prepared.engine.worker.alive.clone();
     drop(prepared);
+    assert!(!alive.load(Ordering::Acquire));
+}
+
+/// The final clone releases its Host registration without an explicit destroy call.
+#[test]
+fn last_engine_owner_destroys_runtime() {
+    let engine = newTestToolPkgRegistrationEngine();
+    let alive = engine.worker.alive.clone();
+    let host = engine.worker.runtimeHost.clone();
+    let handle = engine.worker.stateHandle;
+    let clone = engine.clone();
+    drop(engine);
+    assert!(alive.load(Ordering::Acquire));
+    drop(clone);
+    assert!(!alive.load(Ordering::Acquire));
+    assert!(host.executeHostJavaScriptRuntimeStateTask(handle,
+        operit_host_api::HostJavaScriptExecutionInterrupt::unlimited(),
+        Box::new(|_, _| Ok(Box::new(()))),
+    ).is_err());
+}
+
+/// Explicit shutdown stays idempotent when the final owner is subsequently dropped.
+#[test]
+fn explicit_engine_shutdown_can_be_repeated_before_drop() {
+    let engine = newTestToolPkgRegistrationEngine();
+    let alive = engine.worker.alive.clone();
+    engine.destroy();
+    engine.clone().destroy();
+    drop(engine);
     assert!(!alive.load(Ordering::Acquire));
 }
 
@@ -5082,6 +5106,58 @@ fn native_bootstrap_libraries_preserve_globals_and_initialize_once() {
     assert_eq!(output["types"], serde_json::json!([
         "function", "function", "function", "object", "function", "object", "object", "object"
     ]));
+}
+
+/// Exercises the binary media facade through the real JavaScript-to-Rust crypto binding.
+#[test]
+fn wechat_binary_crypto_round_trip_in_native_engine() {
+    let mut state = newTestJsEngineState(None);
+    let output = state.evalJavaScriptString(r#"
+        var key = CryptoJS.binary.randomHex(16);
+        var source = 'AP+A/w==';
+        var encrypted = CryptoJS.binary.encryptAesEcb(source, key);
+        JSON.stringify({
+            decrypted: CryptoJS.binary.decryptAesEcb(encrypted, key),
+            digest: CryptoJS.binary.md5('aGVsbG8='),
+            keyLength: key.length,
+            distinctKeys: key !== CryptoJS.binary.randomHex(16)
+        });
+    "#).expect("native binary media crypto");
+    let output: Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(output["decrypted"], "AP+A/w==");
+    assert_eq!(output["digest"], "5d41402abc4b2a76b9719d911017c592");
+    assert_eq!(output["keyLength"], 32);
+    assert_eq!(output["distinctKeys"], true);
+}
+
+/// Registers the complete WeChat module graph in the real package engine without logging in.
+#[test]
+fn register_wechat_bot_toolpkg_main() {
+    ensure_test_runtime_root();
+    let engine = newTestToolPkgRegistrationEngine();
+    let dist = testRepositoryRoot().join("plugins/packages/external/wechat/dist");
+    let script = std::fs::read_to_string(dist.join("main.js")).expect("WeChat main.js");
+    let mut resources = BTreeMap::new();
+    collect_message_insert_text_resources(&dist, &dist, &mut resources);
+    let mut params = testParams();
+    for (key, value) in [
+        ("toolPkgId", "com.operit.wechat_bot"),
+        ("__operit_registration_config_scope", "device"),
+        ("__operit_ui_package_name", "com.operit.wechat_bot"),
+        ("__operit_script_screen", "dist/main.js"),
+    ] {
+        params.insert(key.into(), Value::String(value.into()));
+    }
+    let capture = engine
+        .execute_toolpkg_main_registration_function_with_text_resources(
+            &script,
+            "registerToolPkg",
+            &params,
+            Some(Arc::new(resources)),
+        )
+        .expect("WeChat native package registration");
+    assert_eq!(capture.toolboxUiModules.len(), 1);
+    assert_eq!(capture.appLifecycleHooks.len(), 3);
 }
 
 /// Compares initialization policies in fresh native contexts without business queries or Flutter.
@@ -5389,9 +5465,10 @@ async fn discarded_queued_start_finishes_without_a_wall_deadline() {
         }
     }
 
-    let engine = newTestToolPkgRegistrationEngine();
-    let mut worker = engine.worker.clone();
-    worker.runtimeHost = Arc::new(DiscardQueuedHost(worker.runtimeHost.clone()));
+    let mut engine = newTestToolPkgRegistrationEngine();
+    let host = engine.worker.runtimeHost.clone();
+    Arc::get_mut(&mut engine.worker.owner).unwrap().runtimeHost = Arc::new(DiscardQueuedHost(host));
+    let worker = engine.worker.clone();
     let result = tokio::time::timeout(Duration::from_secs(2), worker.execute_script_function_async(
         "exports.run = function() { return true; };".into(), "run".into(),
         BTreeMap::new(), BTreeMap::new(), None, false, None,
