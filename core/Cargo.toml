@@ -62,6 +62,13 @@ tar = "0.4"
 lmdb = { package = "lmdb-rkv", version = "0.14" }
 wasmi = { version = "2.0.0-beta.7", default-features = false, features = ["stable", "std", "validate", "auto-dispatch"] }
 
+[profile.dev]
+# Cap debug info at line tables and disable incremental so the target dir
+# stops accumulating multi-GB sessions. The Flutter Windows bridge build
+# script overrides these via CARGO_PROFILE_DEV_DEBUG / CARGO_INCREMENTAL.
+debug = 1
+incremental = false
+
 [profile.dev.package.operit-plugin-theme]
 opt-level = 2
 
