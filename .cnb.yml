@@ -99,6 +99,8 @@
             # The V8 source build inherits Cargo's job count, and the helper
             # defaults to six; give ninja the runner's cores instead.
             export OPERIT_ANDROID_V8_JOBS=48
+            # The dependency release serves the unchanged, SHA-256-pinned sysroot archive.
+            export OPERIT_ANDROID_V8_SYSROOT_MIRROR=https://cnb.cool/luojiaping/Operit2/-/releases/download/build-deps-v8-152.2.0
             python3 tools/build_scripts/build_flutter_android.py --enforce-lockfile
             # Attachment paths are version independent; stage the versioned
             # release asset under the name upload-apk expects.

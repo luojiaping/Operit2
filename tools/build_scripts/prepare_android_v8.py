@@ -309,11 +309,20 @@ def install_linux_sysroot(source):
     """
     if IS_WINDOWS or sys.platform == "darwin":
         return
-    linux = source / "build/linux"
-    if linux.is_dir() and any(linux.glob("debian_bullseye_amd64-sysroot")):
-        return
-    run([sys.executable, "build/linux/sysroot_scripts/install-sysroot.py",
-         "--arch=amd64"], cwd=source)
+    mirror = os.environ.get("OPERIT_ANDROID_V8_SYSROOT_MIRROR")
+    if mirror is not None:
+        mirror = mirror.strip().rstrip("/")
+        if not mirror:
+            raise RuntimeError("OPERIT_ANDROID_V8_SYSROOT_MIRROR must name a mirror URL")
+        metadata_path = source / "build/linux/sysroot_scripts/sysroots.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        for sysroot in metadata.values():
+            sysroot["URL"] = mirror
+        metadata_path.write_text(json.dumps(metadata, indent=4) + "\n", encoding="utf-8")
+    # Chromium checks the completion stamp and archive SHA-256 itself. An existing
+    # directory alone can be left by an interrupted download and is not a valid cache.
+    run([sys.executable, "-u", "build/linux/sysroot_scripts/install-sysroot.py",
+         "--arch=amd64"], cwd=source, timeout=600)
 
 
 def prepare_icu(source):

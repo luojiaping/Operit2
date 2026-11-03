@@ -117,6 +117,52 @@ class AndroidV8BuildTests(unittest.TestCase):
              patch.object(v8, "download_fallback_ndk", side_effect=AssertionError("must use Gradle NDK")):
             self.assertEqual(v8.find_ndk(self.cache), ndk.resolve())
 
+    def test_sysroot_mirror_preserves_pinned_hashes_and_archive_names(self):
+        source = self.root / "source"
+        metadata_path = source / "build/linux/sysroot_scripts/sysroots.json"
+        metadata_path.parent.mkdir(parents=True)
+        original = {
+            "bullseye_amd64": {
+                "URL": "https://commondatastorage.googleapis.com/chrome-linux-sysroot",
+                "Sha256Sum": "pinned-amd64-hash",
+                "Tarball": "debian_bullseye_amd64_sysroot.tar.xz",
+                "SysrootDir": "debian_bullseye_amd64-sysroot",
+            },
+        }
+        metadata_path.write_text(json.dumps(original), encoding="utf-8")
+        with patch.object(v8, "IS_WINDOWS", False), \
+             patch.object(v8.sys, "platform", "linux"), \
+             patch.dict(os.environ, {"OPERIT_ANDROID_V8_SYSROOT_MIRROR": "https://mirror.example/sysroot/"}), \
+             patch.object(v8, "run") as run:
+            v8.install_linux_sysroot(source)
+        mirrored = json.loads(metadata_path.read_text(encoding="utf-8"))
+        self.assertEqual(mirrored["bullseye_amd64"], {
+            **original["bullseye_amd64"], "URL": "https://mirror.example/sysroot",
+        })
+        run.assert_called_once_with(
+            [sys.executable, "-u", "build/linux/sysroot_scripts/install-sysroot.py", "--arch=amd64"],
+            cwd=source, timeout=600)
+
+    def test_incomplete_sysroot_directory_does_not_skip_the_installer(self):
+        source = self.root / "source"
+        (source / "build/linux/debian_bullseye_amd64-sysroot").mkdir(parents=True)
+        with patch.object(v8, "IS_WINDOWS", False), \
+             patch.object(v8.sys, "platform", "linux"), \
+             patch.dict(os.environ, {}, clear=True), \
+             patch.object(v8, "run") as run:
+            v8.install_linux_sysroot(source)
+        run.assert_called_once()
+        self.assertEqual(run.call_args.kwargs["timeout"], 600)
+
+    def test_empty_sysroot_mirror_is_rejected(self):
+        with patch.object(v8, "IS_WINDOWS", False), \
+             patch.object(v8.sys, "platform", "linux"), \
+             patch.dict(os.environ, {"OPERIT_ANDROID_V8_SYSROOT_MIRROR": " "}), \
+             patch.object(v8, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "must name a mirror URL"):
+                v8.install_linux_sysroot(self.root / "source")
+        run.assert_not_called()
+
     def test_version_is_taken_from_the_app_lockfile(self):
         lock = self.root / "Cargo.lock"
         lock.write_text('[[package]]\nname="v8"\nversion="152.2.0"\n')

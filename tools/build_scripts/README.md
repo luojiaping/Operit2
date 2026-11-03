@@ -246,8 +246,14 @@ llvm@23 lld@23`); on Windows, set `OPERIT_LIBCLANG_DIR`
 to a directory containing `libclang.dll` (the Gradle build already does).
 The helper also provisions the pinned `gn` and `ninja` under the cache and
 passes them via `GN`/`NINJA`, because the crate's own downloader opens raw
-connections that bypass proxy environment settings. `armv7-linux-androideabi`
-is not supported: rusty_v8's build script maps only
+connections that bypass proxy environment settings.
+On Linux, `OPERIT_ANDROID_V8_SYSROOT_MIRROR` selects the Chromium sysroot bucket
+mirror; only download URLs change, while the crate's pinned archive names and
+SHA-256 hashes stay intact. Chromium's installer verifies the completion stamp
+before reusing a sysroot, and the installation command has a ten-minute timeout.
+An incomplete directory from an interrupted download is not treated as a cache.
+
+`armv7-linux-androideabi` is not supported: rusty_v8's build script maps only
 the x86_64 and aarch64 Android targets. Build/cache checks:
 
 ```bash
