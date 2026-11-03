@@ -94,7 +94,7 @@ Future<void> _mountWorkspacePicker(
             onOpenTerminalSessions: () {},
             onOpenBrowserSessions: () {},
             onOpenBrowser: ({url, localFilePath, workspaceHtmlPath}) {},
-            onActivateCurrentTab: () {},
+            onFinishWebVisit: (_, _) {},
             onCloseCurrentTab: () {},
             onOpenWorkspaceCreator: () {},
             onBindWorkspace: (workspace) async => bindings.add(workspace),
