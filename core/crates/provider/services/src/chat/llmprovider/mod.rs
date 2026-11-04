@@ -64,8 +64,8 @@ pub mod SlidingWindowRateLimiter;
 mod StreamingResponseLines;
 #[path = "StructuredToolCallBridge.rs"]
 pub mod StructuredToolCallBridge;
-#[path = "ThinkingConfiguration.rs"]
-pub mod ThinkingConfiguration;
+#[path = "ThinkingDialect.rs"]
+pub mod ThinkingDialect;
 #[path = "ToolPkgJsAiProviderService.rs"]
 pub mod ToolPkgJsAiProviderService;
 #[path = "UnsafeModelSsl.rs"]
