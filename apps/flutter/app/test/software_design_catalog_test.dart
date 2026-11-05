@@ -53,7 +53,7 @@ void main() {
       final scenarios = catalog.scenarios();
       expect(scenarios.map((s) => s.id).toSet().length, scenarios.length);
       expect(scenarios.where((s) => s.group == 'settings').length, 12);
-      expect(scenarios.where((s) => s.group == 'packages').length, 3);
+      expect(scenarios.where((s) => s.group == 'packages').length, 2);
       expect(scenarios.where((s) => s.group == 'market').length, 1);
       // A detail route needs a concrete extension, so it has no scenario.
       expect(

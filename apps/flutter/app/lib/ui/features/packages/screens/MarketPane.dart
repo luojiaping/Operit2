@@ -16,6 +16,8 @@ import '../components/StoreCards.dart';
 import '../components/StoreDetailKit.dart';
 import '../components/StoreVisuals.dart';
 import '../market/MarketInstallStateStore.dart';
+import '../market/ArtifactMarketSupport.dart';
+import '../market/MarketRecommendations.dart';
 import '../market/MarketStatsSupport.dart';
 import '../model/ExtensionCatalogController.dart';
 import '../model/GitHubAccountState.dart';
@@ -41,6 +43,7 @@ class _MarketPaneState extends State<MarketPane> {
   late final GitHubAccountState _account = GitHubAccountState.of(_clients);
   StoreKind? _kind;
   MarketSortOption _kindSort = MarketSortOption.updated;
+  int _homeGeneration = 0;
   bool _homeLoading = true;
   String? _homeError;
   List<core_proxy.MarketEntrySummary> _recent =
@@ -48,6 +51,8 @@ class _MarketPaneState extends State<MarketPane> {
   List<core_proxy.MarketEntrySummary> _popular =
       const <core_proxy.MarketEntrySummary>[];
   List<core_proxy.MarketEntrySummary> _loved =
+      const <core_proxy.MarketEntrySummary>[];
+  List<core_proxy.MarketEntrySummary> _recommendations =
       const <core_proxy.MarketEntrySummary>[];
   List<core_proxy.MarketCategoryInfo> _categories =
       const <core_proxy.MarketCategoryInfo>[];
@@ -104,6 +109,7 @@ class _MarketPaneState extends State<MarketPane> {
   }
 
   Future<void> _loadHome() async {
+    final generation = ++_homeGeneration;
     setState(() {
       _homeLoading = true;
       _homeError = null;
@@ -115,17 +121,45 @@ class _MarketPaneState extends State<MarketPane> {
         _market.getListPage(sort: 'likes', page: 1),
         _market.getManifest(),
       ]);
-      if (!mounted) return;
+      if (!mounted || generation != _homeGeneration) return;
+      final recent = results[0] as core_proxy.MarketListPage;
+      final candidates = <core_proxy.MarketEntrySummary>[
+        ...recent.items,
+        ...(results[1] as core_proxy.MarketListPage).items,
+        ...(results[2] as core_proxy.MarketListPage).items,
+      ];
       setState(() {
-        _recent = (results[0] as core_proxy.MarketListPage).items;
+        _recent = recent.items;
         _popular = (results[1] as core_proxy.MarketListPage).items;
         _loved = (results[2] as core_proxy.MarketListPage).items;
         _categories = (results[3] as core_proxy.MarketManifest).categories;
+        _recommendations = marketRecommendations(candidates);
         _homeLoading = false;
+      });
+      final extra = await Future.wait([
+        for (var page = 2; page <= math.min(3, marketPageCount(recent)); page++)
+          _market
+              .getListPage(sort: 'updated', page: page)
+              .then(
+                (result) => result.items,
+                onError: (Object error, StackTrace stackTrace) {
+                  debugPrint(
+                    'Failed to load market recommendations: $error\n$stackTrace',
+                  );
+                  return <core_proxy.MarketEntrySummary>[];
+                },
+              ),
+      ]);
+      if (!mounted || generation != _homeGeneration || extra.isEmpty) return;
+      setState(() {
+        _recommendations = marketRecommendations([
+          ...candidates,
+          ...extra.expand((entries) => entries),
+        ]);
       });
     } catch (error, stackTrace) {
       debugPrint('Failed to load market home: $error\n$stackTrace');
-      if (!mounted) return;
+      if (!mounted || generation != _homeGeneration) return;
       setState(() {
         _homeError = error.toString();
         _homeLoading = false;
@@ -182,13 +216,6 @@ class _MarketPaneState extends State<MarketPane> {
   bool _candidateInstalled(core_proxy.ExtensionCatalogCandidate candidate) {
     return _controller.findCandidate(candidate.kind, candidate.id) == null &&
         _controller.findEntry(candidate.kind, candidate.id) != null;
-  }
-
-  List<core_proxy.MarketEntrySummary> _featured() {
-    final seen = <String>{};
-    return <core_proxy.MarketEntrySummary>[..._recent, ..._popular, ..._loved]
-        .where((entry) => entry.featured && seen.add(entry.id))
-        .toList(growable: false);
   }
 
   Future<void> _installCandidate(
@@ -326,14 +353,13 @@ class _MarketPaneState extends State<MarketPane> {
             gutter: width < 600 ? 16 : 24,
           );
           final contentWidth = width - padding.horizontal;
-          final featured = _featured();
           return CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: <Widget>[
-              if (featured.isNotEmpty)
+              if (_recommendations.isNotEmpty)
                 SliverToBoxAdapter(
                   child: _FeaturedCarousel(
-                    entries: featured,
+                    entries: _recommendations,
                     itemBuilder: (context, entry) => StoreFeaturedBanner(
                       entry: entry,
                       installState: _installState,
@@ -422,7 +448,12 @@ class _MarketPaneState extends State<MarketPane> {
                           _CategoryTile(
                             category: category,
                             onTap: () => openMarketBrowse(
-                              heading: category.name,
+                              heading: marketCategoryText(
+                                category,
+                                languageCode: Localizations.localeOf(
+                                  context,
+                                ).languageCode,
+                              ).name,
                               categoryId: category.id,
                             ),
                           ),
@@ -668,7 +699,10 @@ class _FeaturedCarousel extends StatefulWidget {
   const _FeaturedCarousel({required this.entries, required this.itemBuilder});
 
   final List<core_proxy.MarketEntrySummary> entries;
-  final Widget Function(BuildContext context, core_proxy.MarketEntrySummary entry)
+  final Widget Function(
+    BuildContext context,
+    core_proxy.MarketEntrySummary entry,
+  )
   itemBuilder;
 
   @override
@@ -793,7 +827,11 @@ class _FeaturedCarouselState extends State<_FeaturedCarousel> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
-                    for (var index = 0; index < widget.entries.length; index += 1)
+                    for (
+                      var index = 0;
+                      index < widget.entries.length;
+                      index += 1
+                    )
                       AnimatedContainer(
                         duration: motion.standard,
                         curve: ExtensionMotion.enter,
@@ -835,7 +873,11 @@ class _CategoryTile extends StatelessWidget {
       'category:${category.id}',
     );
     final ink = palette.onContainer;
-    final description = category.description?.trim() ?? '';
+    final text = marketCategoryText(
+      category,
+      languageCode: Localizations.localeOf(context).languageCode,
+    );
+    final description = text.description;
     return ConstrainedBox(
       constraints: const BoxConstraints(
         minWidth: 176,
@@ -867,7 +909,7 @@ class _CategoryTile extends StatelessWidget {
                     right: -6,
                     bottom: -24,
                     child: Text(
-                      extensionMonogram(category.name),
+                      extensionMonogram(text.name),
                       maxLines: 1,
                       softWrap: false,
                       textScaler: TextScaler.noScaling,
@@ -886,7 +928,7 @@ class _CategoryTile extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          category.name,
+                          text.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleSmall?.copyWith(

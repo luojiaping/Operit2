@@ -13,6 +13,7 @@ import '../components/StoreCards.dart';
 import '../components/StoreDetailKit.dart';
 import '../components/StoreVisuals.dart';
 import '../market/MarketInstallStateStore.dart';
+import '../market/ArtifactMarketSupport.dart';
 import '../market/MarketStatsSupport.dart';
 
 String marketSortLabel(MarketSortOption sort) => switch (sort) {
@@ -37,7 +38,11 @@ int marketPageCount(core_proxy.MarketListPage page) {
 
 /// Compact menu that switches the listing order.
 class MarketSortMenu extends StatelessWidget {
-  const MarketSortMenu({super.key, required this.sort, required this.onChanged});
+  const MarketSortMenu({
+    super.key,
+    required this.sort,
+    required this.onChanged,
+  });
 
   final MarketSortOption sort;
   final ValueChanged<MarketSortOption> onChanged;
@@ -265,6 +270,56 @@ class _StoreMarketListingState extends State<StoreMarketListing> {
     }
   }
 
+  Iterable<Widget> _entrySlivers(EdgeInsets padding) sync* {
+    final dated = widget.sort == MarketSortOption.updated;
+    String date(core_proxy.MarketEntrySummary entry) =>
+        entry.updatedAt.trim().isEmpty
+        ? '更早'
+        : formatMarketDate(entry.updatedAt);
+    final groups = <List<core_proxy.MarketEntrySummary>>[];
+    for (final entry in _items) {
+      if (groups.isEmpty || (dated && date(groups.last.last) != date(entry))) {
+        groups.add(<core_proxy.MarketEntrySummary>[]);
+      }
+      groups.last.add(entry);
+    }
+    for (final group in groups) {
+      if (dated) {
+        yield SliverPadding(
+          padding: EdgeInsets.fromLTRB(padding.left + 10, 16, padding.right, 8),
+          sliver: SliverToBoxAdapter(
+            child: Text(
+              date(group.first),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
+      }
+      yield SliverPadding(
+        padding: dated ? padding.copyWith(top: 0, bottom: 16) : padding,
+        sliver: SliverGrid(
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 520,
+            mainAxisExtent: 88 * storeTextScale(context),
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 4,
+          ),
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final entry = group[index];
+            return StoreEntrance(
+              index: index % 12,
+              animate: _revealed.add(entry.id),
+              child: StoreMarketRow(entry: entry, installState: _installState),
+            );
+          }, childCount: group.length),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return NotificationListener<ScrollNotification>(
@@ -317,28 +372,7 @@ class _StoreMarketListingState extends State<StoreMarketListing> {
                   ),
                 )
               else
-                SliverPadding(
-                  padding: padding,
-                  sliver: SliverGrid(
-                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 520,
-                      mainAxisExtent: 88 * storeTextScale(context),
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 4,
-                    ),
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final entry = _items[index];
-                      return StoreEntrance(
-                        index: index % 12,
-                        animate: _revealed.add(entry.id),
-                        child: StoreMarketRow(
-                          entry: entry,
-                          installState: _installState,
-                        ),
-                      );
-                    }, childCount: _items.length),
-                  ),
-                ),
+                ..._entrySlivers(padding),
               if (_loadingMore)
                 const SliverToBoxAdapter(
                   child: Padding(

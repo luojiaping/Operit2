@@ -111,10 +111,10 @@ All functions in the copied v1 `Files` namespace have signature adapters:
 Environment interpretation follows the old API, not the OS running Operit2:
 
 - Omitted environment means the documented v1 `android` environment.
-- Linux absolute paths map to `/mnt/linux`.
+- Linux absolute paths map to `/virtual/linux`.
 - Android `/sdcard` and `/data` use the existing VFS roots.
 - `/storage/emulated/0` maps to `/sdcard`.
-- `/app` and `/mnt` paths returned by current resource/config APIs remain VFS paths.
+- `/operitapp` and `/virtual` paths returned by current resource/config APIs remain VFS paths.
 - Unmapped Android roots and unsupported environment names are explicit errors.
 
 The SDK-internal v1 compatibility layer executes the supported Linux file operations
@@ -153,6 +153,14 @@ client and provider capability limits. No historical database migration is impli
 API 2.0.0 exposes `getCallerParticipantId()` consistently in the runtime and
 current declarations. Its value belongs to the authenticated configuration
 provider and is not a runtime-wide character-card identity.
+
+`getChatId()` and `getCallerParticipantId()` use the native caller snapshot for
+both API generations, including prompt and summary hooks. Capturing identity
+before scheduling prevents a later chat selection from changing an invocation.
+Summary hooks also receive `chatId` and `metadata.executionContext` for the
+explicit chat being summarized. Outside an AI turn, an event can still carry a
+target chat, but it does not acquire an execution participant. The platform only
+transports neutral identity; character-provider interpretation stays in v1.
 
 For API 1.0.0 and 1.0.1, `getCallerCardId()` projects the execution participant
 only when the authenticated owner is `com.operit.character_cards`. A call without
@@ -227,7 +235,7 @@ dispatch there:
 The existing v1 runtime adapter also translates the executing container's old
 `/data/user/0/com.ai.assistance.operit/files/toolpkg_cache/<package>-*` namespace
 (and the `/data/data` spelling). Concrete hexadecimal cache suffixes are accepted.
-It reads the already extracted `/app/data/cache/toolpkg` tree through canonical
+It reads the already extracted `/operitapp/data/cache/toolpkg` tree through canonical
 Files APIs and imports it through the internal compatibility file adapter into the terminal's existing
 `/tmp/operit-v1/toolpkg` directory. File calls using these legacy addresses and
 terminal commands then access that same copy. No host bindings or mounts are added.

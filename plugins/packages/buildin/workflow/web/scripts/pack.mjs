@@ -27,4 +27,4 @@ if (typeof manifest.public_api !== "string" || manifest.public_api !== "src/api.
 }
 files[manifest.public_api] = new Uint8Array(await readFile(manifest.public_api));
 await collect("dist");
-await writeFile("dist/workflow.toolpkg", zipSync(files));
+await writeFile("dist/workflow.toolpkg", zipSync(files, { mtime: new Date(1980, 0, 1) }));

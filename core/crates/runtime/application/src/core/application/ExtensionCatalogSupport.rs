@@ -6,7 +6,7 @@ use operit_tools::tools::mcp_runtime::MCPLocalServer::MCPLocalServer;
 use operit_tools::tools::packTool::RuntimePackageManager::ToolPkgLoadIssue;
 use serde::{Deserialize, Serialize};
 
-use super::MarketInstallSupport;
+use super::MarketInstallSupport::{self, MarketInstallMarker};
 use super::OperitApplication::OperitApplication;
 
 /// One normalized card row for the package manager's local catalog views.
@@ -87,6 +87,32 @@ pub struct ExtensionCatalogUpdateCheck {
     pub update_available: bool,
 }
 
+fn catalog_entry(
+    id: &str,
+    kind: &str,
+    scopes: &BTreeMap<String, String>,
+    marker: Option<&MarketInstallMarker>,
+    bundled_update: bool,
+) -> ExtensionCatalogEntry {
+    ExtensionCatalogEntry {
+        id: id.into(),
+        kind: kind.into(),
+        source: if marker.is_some() { "market" } else { "manual" }.into(),
+        scope: scopes.get(id).cloned().unwrap_or_else(|| "device".into()),
+        runtime_state: "ready".into(),
+        update_state: if bundled_update {
+            "available"
+        } else if marker.is_some() {
+            "unknown"
+        } else {
+            "noSource"
+        }.into(),
+        market_entry_id: marker.map(|marker| marker.entry_id.clone()),
+        installed_market_version_id: marker.map(|marker| marker.version_id.clone()),
+        ..Default::default()
+    }
+}
+
 pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapshot, String> {
     let package_scopes = app.getExtensionScopes("package".into())?;
     let skill_scopes = app.getExtensionScopes("skill".into())?;
@@ -164,34 +190,19 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
         };
         let enabled = enabled_names.contains(&runtime.packageName);
         installed.push(ExtensionCatalogEntry {
-            id: runtime.packageName.clone(),
-            kind: "toolpkg".into(),
             source: source.into(),
             display_name: runtime.displayName.resolve(false),
             description: runtime.description.resolve(false),
             version: runtime.version.clone(),
             authors: runtime.author.clone(),
             category: "ToolPkg".into(),
-            scope: package_scopes
-                .get(&runtime.packageName)
-                .cloned()
-                .unwrap_or_else(|| "device".into()),
             activation_state: if enabled { "enabled" } else { "disabled" }.into(),
             runtime_state: if runtime.dependencyIssues.is_empty() {
                 "ready".into()
             } else {
                 "error".into()
             },
-            update_state: if bundled_updates.contains(&runtime.packageName) {
-                "available".into()
-            } else if market_marker.is_some() {
-                "unknown".into()
-            } else {
-                "noSource".into()
-            },
             is_customized: customized_names.contains(&runtime.packageName),
-            market_entry_id: market_marker.map(|marker| marker.entry_id.clone()),
-            installed_market_version_id: market_marker.map(|marker| marker.version_id.clone()),
             logo_resource_key: runtime.logoResource.as_ref().map(|resource| resource.key.clone()),
             logo_mime_type: runtime
                 .logoResource
@@ -208,17 +219,19 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
                 .map(|entry| entry.id.clone())
                 .collect(),
             dependency_issue_count: runtime.dependencyIssues.len(),
+            ..catalog_entry(
+                &runtime.packageName, "toolpkg", &package_scopes,
+                market_marker, bundled_updates.contains(&runtime.packageName),
+            )
         });
     }
 
     for package in packages.values() {
-        if plugin_owned_names.contains(&package.name) {
+        if plugin_owned_names.contains(&package.name) || operit_tools::tools::a2a::A2ARepository::is_a2a_package(package) {
             continue;
         }
         let market_marker = market_origins.get(&("package".into(), package.name.clone()));
-        let source = if customized_names.contains(&package.name) {
-            "builtin"
-        } else if package.is_built_in {
+        let source = if customized_names.contains(&package.name) || package.is_built_in {
             "builtin"
         } else if market_marker.is_some() {
             "market"
@@ -228,14 +241,14 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
             "manual"
         };
         let enabled = enabled_names.contains(&package.name);
+        let display_name = package.display_name.resolve(false);
         installed.push(ExtensionCatalogEntry {
-            id: package.name.clone(),
-            kind: "script".into(),
             source: source.into(),
-            display_name: non_empty_or(
-                package.display_name.resolve(false),
-                &package.name,
-            ),
+            display_name: if display_name.trim().is_empty() {
+                package.name.clone()
+            } else {
+                display_name
+            },
             description: package.description.resolve(false),
             version: package_versions
                 .get(&package.name)
@@ -243,76 +256,50 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
                 .unwrap_or_default(),
             authors: package.author.clone(),
             category: package.category.clone(),
-            scope: package_scopes
-                .get(&package.name)
-                .cloned()
-                .unwrap_or_else(|| "device".into()),
             activation_state: if enabled { "enabled" } else { "disabled" }.into(),
-            runtime_state: "ready".into(),
-            update_state: if bundled_updates.contains(&package.name) {
-                "available".into()
-            } else if market_marker.is_some() {
-                "unknown".into()
-            } else {
-                "noSource".into()
-            },
             is_customized: customized_names.contains(&package.name),
-            market_entry_id: market_marker.map(|marker| marker.entry_id.clone()),
-            installed_market_version_id: market_marker.map(|marker| marker.version_id.clone()),
-            logo_resource_key: None,
-            logo_mime_type: None,
             tool_count: package.tools.len(),
-            subpackage_count: 0,
-            ui_module_count: 0,
-            has_ui: false,
-            chat_sidebar_entry_ids: Vec::new(),
-            dependency_issue_count: 0,
+            ..catalog_entry(
+                &package.name, "script", &package_scopes,
+                market_marker, bundled_updates.contains(&package.name),
+            )
         });
     }
 
     let skill_repository = app.skillRepository();
     let (skills, skill_errors) = skill_repository.getAvailableSkillPackagesSnapshot();
-    let visible_skills = skill_repository
-        .getAiVisibleSkillPackages()
-        .into_keys()
-        .collect::<BTreeSet<_>>();
     for skill in skills.values() {
         let market_marker = market_origins.get(&("skill".into(), skill.name.clone()));
         installed.push(ExtensionCatalogEntry {
-            id: skill.name.clone(),
-            kind: "skill".into(),
-            source: if market_marker.is_some() { "market" } else { "manual" }.into(),
             display_name: skill.name.clone(),
             description: skill.description.clone(),
-            version: String::new(),
-            authors: Vec::new(),
             category: "Skill".into(),
-            scope: skill_scopes
-                .get(&skill.name)
-                .cloned()
-                .unwrap_or_else(|| "device".into()),
-            activation_state: if visible_skills.contains(&skill.name) {
+            activation_state: if skill_repository.isSkillVisibleToAi(&skill.name) {
                 "aiVisible".into()
             } else {
                 "aiHidden".into()
             },
-            runtime_state: "ready".into(),
-            update_state: if market_marker.is_some() {
-                "unknown".into()
-            } else {
-                "noSource".into()
-            },
-            is_customized: false,
-            market_entry_id: market_marker.map(|marker| marker.entry_id.clone()),
-            installed_market_version_id: market_marker.map(|marker| marker.version_id.clone()),
-            logo_resource_key: None,
-            logo_mime_type: None,
-            tool_count: 0,
-            subpackage_count: 0,
-            ui_module_count: 0,
-            has_ui: false,
-            chat_sidebar_entry_ids: Vec::new(),
-            dependency_issue_count: 0,
+            ..catalog_entry(&skill.name, "skill", &skill_scopes, market_marker, false)
+        });
+    }
+
+    let repository = operit_tools::tools::a2a::A2ARepository::A2ARepository::new(app.hostManager.clone())?;
+    let a2a_scopes = app.getExtensionScopes("a2a".into())?;
+    for record in repository.records()? {
+        let loaded = repository.config(&record.id);
+        let valid = loaded.is_ok();
+        let config = loaded.unwrap_or_else(|_| serde_json::from_value(record.settings["agent"].clone()).unwrap_or_default());
+        let marker = market_origins.get(&("a2a".into(), record.id.clone()));
+        installed.push(ExtensionCatalogEntry {
+            display_name: config.card["name"].as_str().unwrap_or(&record.id).into(),
+            description: config.card["description"].as_str().unwrap_or(&config.url).into(),
+            version: config.card["version"].as_str().unwrap_or("").into(),
+            authors: config.card["provider"]["organization"].as_str().map(|v| vec![v.into()]).unwrap_or_default(),
+            category: "A2A".into(),
+            activation_state: if config.disabled {"disabled"} else {"enabled"}.into(),
+            runtime_state: if !valid || !packages.get(&operit_tools::tools::a2a::A2ARepository::package_name(&record.id)).is_some_and(operit_tools::tools::a2a::A2ARepository::is_a2a_package) {"error"} else if config.card.is_null() {"unconfigured"} else {"ready"}.into(),
+            tool_count: 3,
+            ..catalog_entry(&record.id, "a2a", &a2a_scopes, marker, false)
         });
     }
 
@@ -327,9 +314,6 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
             .get(&("mcp".into(), server_id.clone()))
             .or_else(|| market_origins.get(&("mcp_plugin".into(), server_id.clone())));
         installed.push(ExtensionCatalogEntry {
-            id: server_id.clone(),
-            kind: "mcp".into(),
-            source: if market_marker.is_some() { "market" } else { "manual" }.into(),
             display_name: display_metadata
                 .map(|value| value.name.clone())
                 .filter(|value| !value.trim().is_empty())
@@ -366,40 +350,16 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
             } else {
                 "stopped".into()
             },
-            update_state: if market_marker.is_some() {
-                "unknown".into()
-            } else {
-                "noSource".into()
-            },
-            is_customized: false,
-            market_entry_id: market_marker.map(|marker| marker.entry_id.clone()),
-            installed_market_version_id: market_marker.map(|marker| marker.version_id.clone()),
-            logo_resource_key: None,
-            logo_mime_type: None,
             tool_count: status
                 .and_then(|value| value.cachedTools.as_ref())
                 .map(|tools| tools.len())
                 .unwrap_or_default(),
-            subpackage_count: 0,
-            ui_module_count: 0,
-            has_ui: false,
-            chat_sidebar_entry_ids: Vec::new(),
-            dependency_issue_count: 0,
+            ..catalog_entry(&server_id, "mcp", &mcp_scopes, market_marker, false)
         });
     }
 
-    installed.sort_by(|left, right| {
-        left.display_name
-            .to_lowercase()
-            .cmp(&right.display_name.to_lowercase())
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    bundled_available.sort_by(|left, right| {
-        left.display_name
-            .to_lowercase()
-            .cmp(&right.display_name.to_lowercase())
-            .then_with(|| left.id.cmp(&right.id))
-    });
+    installed.sort_by_cached_key(|entry| (entry.display_name.to_lowercase(), entry.id.clone()));
+    bundled_available.sort_by_cached_key(|entry| (entry.display_name.to_lowercase(), entry.id.clone()));
 
     let mut diagnostics = load_issues
         .into_iter()
@@ -424,12 +384,7 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
             can_delete: false,
         }
     }));
-    diagnostics.sort_by(|left, right| {
-        left.display_name
-            .to_lowercase()
-            .cmp(&right.display_name.to_lowercase())
-            .then_with(|| left.source_path.cmp(&right.source_path))
-    });
+    diagnostics.sort_by_cached_key(|entry| (entry.display_name.to_lowercase(), entry.source_path.clone()));
 
     Ok(ExtensionCatalogSnapshot {
         revision: ExtensionStore::catalogRevisionFlow().value(),
@@ -442,15 +397,13 @@ pub(super) fn snapshot(app: &OperitApplication) -> Result<ExtensionCatalogSnapsh
 pub(super) fn check_updates(
     app: &OperitApplication,
 ) -> Result<Vec<ExtensionCatalogUpdateCheck>, String> {
-    let origins = MarketInstallSupport::installed_marker_origins(app)?;
     let mut results = Vec::new();
     let mut checked_entry_ids = BTreeSet::new();
-    for (_, marker) in origins {
-        if !checked_entry_ids.insert(marker.entry_id.clone()) {
-            continue;
-        }
-        let entry = operit_providers::market::MarketStatsApiService::MarketStatsApiService::new()
-            .get_entry_by_id(&marker.entry_id)?;
+    let api = operit_providers::market::MarketStatsApiService::MarketStatsApiService::new();
+    for marker in MarketInstallSupport::installed_marker_origins(app)?.into_values()
+        .filter(|marker| checked_entry_ids.insert(marker.entry_id.clone()))
+    {
+        let entry = api.get_entry_by_id(&marker.entry_id)?;
         let latest_version_id = entry
             .latest_version
             .map(|version| version.id.trim().to_string())
@@ -486,12 +439,4 @@ pub(super) fn delete_diagnostic(
         .map_err(|error| error.to_string())?;
     manager.deleteToolPkgLoadIssue(issue)?;
     Ok(true)
-}
-
-fn non_empty_or(value: String, replacement: &str) -> String {
-    if value.trim().is_empty() {
-        replacement.to_string()
-    } else {
-        value
-    }
 }

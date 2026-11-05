@@ -23,13 +23,13 @@ import '../components/PackageTab.dart';
 import '../components/StoreDetailKit.dart';
 import '../components/StoreVisuals.dart';
 import '../dialogs/MCPImportDialog.dart';
+import '../dialogs/A2AImportDialog.dart';
 import '../dialogs/PackageEnvironmentVariablesDialog.dart';
 import '../dialogs/QuickPluginCreatorDialog.dart';
 import '../dialogs/SkillImportDialog.dart';
 import '../market/PluginCreationIntent.dart';
 import '../model/DeviceSpaceState.dart';
 import '../model/ExtensionCatalogController.dart';
-import 'DevicesPane.dart';
 import 'ExtensionsPane.dart';
 import 'MarketPane.dart';
 
@@ -56,7 +56,7 @@ class PackageManagerScreen extends StatefulWidget {
   State<PackageManagerScreen> createState() => _PackageManagerScreenState();
 }
 
-enum _AddAction { toolpkg, script, skill, mcp, create }
+enum _AddAction { toolpkg, script, skill, mcp, a2a, create }
 
 enum _MoreAction { add, checkUpdates, environment, refresh }
 
@@ -149,7 +149,7 @@ class _PackageManagerScreenState extends State<PackageManagerScreen>
     AppToastController.instance.show(
       '设备空间同步完成，$changed 个扩展有变化',
       actionLabel: '查看',
-      onAction: () => _selectTab(PackageTab.devices),
+      onAction: () => _selectTab(PackageTab.extensions),
     );
   }
 
@@ -173,8 +173,7 @@ class _PackageManagerScreenState extends State<PackageManagerScreen>
     if (command) {
       final tab = switch (key) {
         LogicalKeyboardKey.digit1 => PackageTab.extensions,
-        LogicalKeyboardKey.digit2 => PackageTab.devices,
-        LogicalKeyboardKey.digit3 => PackageTab.market,
+        LogicalKeyboardKey.digit2 => PackageTab.market,
         _ => null,
       };
       if (tab != null) {
@@ -229,7 +228,6 @@ class _PackageManagerScreenState extends State<PackageManagerScreen>
         tab: _tab,
         searchOpen: _searchOpen,
         controller: _controller,
-        space: _space,
         searchController: _searchController,
         searchFocus: _searchFocus,
         onSelect: _selectTab,
@@ -239,57 +237,57 @@ class _PackageManagerScreenState extends State<PackageManagerScreen>
         // Phones keep the title wide enough for the section switcher.
         final narrow = MediaQuery.sizeOf(context).width < 600;
         return <Widget>[
-        ValueListenableBuilder<bool>(
-          valueListenable: _searchOpen,
-          builder: (context, open, child) => IconButton(
-            tooltip: open ? '关闭搜索' : '搜索（Ctrl+F）',
-            onPressed: open ? _closeSearch : _openSearch,
-            icon: Icon(open ? Icons.close_rounded : Icons.search_rounded),
+          ValueListenableBuilder<bool>(
+            valueListenable: _searchOpen,
+            builder: (context, open, child) => IconButton(
+              tooltip: open ? '关闭搜索' : '搜索（Ctrl+F）',
+              onPressed: open ? _closeSearch : _openSearch,
+              icon: Icon(open ? Icons.close_rounded : Icons.search_rounded),
+            ),
           ),
-        ),
-        if (!narrow)
-          IconButton(
-            tooltip: '添加扩展',
-            onPressed: _showAddSheet,
-            icon: const Icon(Icons.add_rounded),
-          ),
-        PopupMenuButton<_MoreAction>(
-          tooltip: '更多',
-          icon: const Icon(Icons.more_vert_rounded),
-          onSelected: _onMoreSelected,
-          itemBuilder: (context) => <PopupMenuEntry<_MoreAction>>[
-            if (narrow)
+          if (!narrow)
+            IconButton(
+              tooltip: '添加扩展',
+              onPressed: _showAddSheet,
+              icon: const Icon(Icons.add_rounded),
+            ),
+          PopupMenuButton<_MoreAction>(
+            tooltip: '更多',
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: _onMoreSelected,
+            itemBuilder: (context) => <PopupMenuEntry<_MoreAction>>[
+              if (narrow)
+                const PopupMenuItem<_MoreAction>(
+                  value: _MoreAction.add,
+                  child: ListTile(
+                    leading: Icon(Icons.add_rounded),
+                    title: Text('添加扩展'),
+                  ),
+                ),
               const PopupMenuItem<_MoreAction>(
-                value: _MoreAction.add,
+                value: _MoreAction.checkUpdates,
                 child: ListTile(
-                  leading: Icon(Icons.add_rounded),
-                  title: Text('添加扩展'),
+                  leading: Icon(Icons.system_update_alt_rounded),
+                  title: Text('检查更新'),
                 ),
               ),
-            const PopupMenuItem<_MoreAction>(
-              value: _MoreAction.checkUpdates,
-              child: ListTile(
-                leading: Icon(Icons.system_update_alt_rounded),
-                title: Text('检查更新'),
+              const PopupMenuItem<_MoreAction>(
+                value: _MoreAction.environment,
+                child: ListTile(
+                  leading: Icon(Icons.key_outlined),
+                  title: Text('环境变量'),
+                ),
               ),
-            ),
-            const PopupMenuItem<_MoreAction>(
-              value: _MoreAction.environment,
-              child: ListTile(
-                leading: Icon(Icons.key_outlined),
-                title: Text('环境变量'),
+              const PopupMenuItem<_MoreAction>(
+                value: _MoreAction.refresh,
+                child: ListTile(
+                  leading: Icon(Icons.refresh_rounded),
+                  title: Text('重新加载目录'),
+                ),
               ),
-            ),
-            const PopupMenuItem<_MoreAction>(
-              value: _MoreAction.refresh,
-              child: ListTile(
-                leading: Icon(Icons.refresh_rounded),
-                title: Text('重新加载目录'),
-              ),
-            ),
-          ],
-        ),
-      ];
+            ],
+          ),
+        ];
       },
       child: Material(
         type: MaterialType.transparency,
@@ -316,10 +314,6 @@ class _PackageManagerScreenState extends State<PackageManagerScreen>
                         controller: _controller,
                         query: _query,
                         onAdd: _showAddSheet,
-                      ),
-                      PackageTab.devices => DevicesPane(
-                        controller: _controller,
-                        query: _query,
                       ),
                       PackageTab.market => MarketPane(
                         controller: _controller,
@@ -405,9 +399,7 @@ class _PackageManagerScreenState extends State<PackageManagerScreen>
     if (rejected.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '不能直接导入：${rejected.join('、')}。技能和 MCP 请通过「添加扩展」导入。',
-          ),
+          content: Text('不能直接导入：${rejected.join('、')}。技能和 MCP 请通过「添加扩展」导入。'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -441,6 +433,12 @@ class _PackageManagerScreenState extends State<PackageManagerScreen>
         await _showSkillImportDialog();
       case _AddAction.mcp:
         await _showMcpImportDialog();
+      case _AddAction.a2a:
+        final added = await showDialog<bool>(
+          context: context,
+          builder: (context) => A2AImportDialog(clients: widget.clients),
+        );
+        if (added == true) await _controller.refresh();
       case _AddAction.create:
         await _openQuickPluginCreator();
     }
@@ -513,7 +511,6 @@ class _TopBarTitle extends StatelessWidget {
     required this.tab,
     required this.searchOpen,
     required this.controller,
-    required this.space,
     required this.searchController,
     required this.searchFocus,
     required this.onSelect,
@@ -523,7 +520,6 @@ class _TopBarTitle extends StatelessWidget {
   final ValueNotifier<PackageTab> tab;
   final ValueNotifier<bool> searchOpen;
   final ExtensionCatalogController controller;
-  final DeviceSpaceState space;
   final TextEditingController searchController;
   final FocusNode searchFocus;
   final ValueChanged<PackageTab> onSelect;
@@ -533,12 +529,7 @@ class _TopBarTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     final motion = ExtensionMotion.of(context);
     return ListenableBuilder(
-      listenable: Listenable.merge(<Listenable>[
-        tab,
-        searchOpen,
-        controller,
-        space,
-      ]),
+      listenable: Listenable.merge(<Listenable>[tab, searchOpen, controller]),
       builder: (context, child) {
         final Widget content;
         if (searchOpen.value) {
@@ -548,7 +539,6 @@ class _TopBarTitle extends StatelessWidget {
             focusNode: searchFocus,
             hintText: switch (tab.value) {
               PackageTab.extensions => '搜索已安装的扩展',
-              PackageTab.devices => '搜索扩展',
               PackageTab.market => '搜索市场和官方扩展',
             },
             onChanged: onSearchChanged,
@@ -585,12 +575,6 @@ class _TopBarTitle extends StatelessWidget {
                         alert: attention > 0,
                       ),
                       _TabLabel(
-                        icon: Icons.hub_outlined,
-                        label: '设备',
-                        compact: compact,
-                        pulse: space.syncing,
-                      ),
-                      _TabLabel(
                         icon: Icons.storefront_outlined,
                         label: '市场',
                         compact: compact,
@@ -620,7 +604,7 @@ class _TopBarTitle extends StatelessWidget {
   }
 }
 
-/// Tab label with a count that pops when it grows, an alert dot or a sync pulse.
+/// Tab label with a count that pops when it grows and an alert dot.
 class _TabLabel extends StatelessWidget {
   const _TabLabel({
     required this.icon,
@@ -628,7 +612,6 @@ class _TabLabel extends StatelessWidget {
     required this.compact,
     this.count,
     this.alert = false,
-    this.pulse = false,
   });
 
   final IconData icon;
@@ -636,7 +619,6 @@ class _TabLabel extends StatelessWidget {
   final bool compact;
   final int? count;
   final bool alert;
-  final bool pulse;
 
   @override
   Widget build(BuildContext context) {
@@ -667,68 +649,18 @@ class _TabLabel extends StatelessWidget {
             ),
           ),
         ],
-        if (alert || pulse) ...<Widget>[
+        if (alert) ...<Widget>[
           const SizedBox(width: 4),
-          _Dot(color: alert ? colorScheme.error : colorScheme.primary, pulse: pulse),
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: colorScheme.error,
+              shape: BoxShape.circle,
+            ),
+          ),
         ],
       ],
-    );
-  }
-}
-
-class _Dot extends StatefulWidget {
-  const _Dot({required this.color, required this.pulse});
-
-  final Color color;
-  final bool pulse;
-
-  @override
-  State<_Dot> createState() => _DotState();
-}
-
-class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1200),
-  );
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _sync();
-  }
-
-  @override
-  void didUpdateWidget(covariant _Dot oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _sync();
-  }
-
-  void _sync() {
-    if (widget.pulse && ExtensionMotion.of(context).ambient) {
-      if (!_controller.isAnimating) {
-        _controller.repeat(reverse: true);
-      }
-    } else {
-      _controller.value = 1;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: Tween<double>(begin: 0.35, end: 1).animate(_controller),
-      child: Container(
-        width: 6,
-        height: 6,
-        decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
-      ),
     );
   }
 }
@@ -861,6 +793,12 @@ class _AddExtensionSheet extends StatelessWidget {
         subtitle: 'GitHub、ZIP、配置或表单',
         action: _AddAction.mcp,
       ),
+      const _AddOption(
+        kind: StoreKind.a2a,
+        title: '添加 A2A',
+        subtitle: '服务地址、Agent Card 或配置文件',
+        action: _AddAction.a2a,
+      ),
     ];
     return SafeArea(
       child: Padding(
@@ -875,7 +813,7 @@ class _AddExtensionSheet extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '导入的扩展先装在这台设备上，之后可以在「设备」里共享到设备空间。'
+              '导入的扩展先装在这台设备上，之后可以在扩展详情里共享到设备空间。'
               '桌面端也可以直接把文件拖进来。',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,

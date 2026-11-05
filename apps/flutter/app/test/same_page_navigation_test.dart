@@ -32,7 +32,8 @@ void main() {
 
   test('a tab link shows the page the package sidebar entry opened', () {
     expect(page(packages, {'initialTab': 'extensions'}), page(packages));
-    expect(page(packages, {'initialTab': 'devices'}), isNot(page(packages)));
+    expect(page(packages, {'initialTab': 'devices'}), page(packages));
+    expect(page(packages, {'initialTab': 'market'}), isNot(page(packages)));
   });
 
   test('the market entry shares the package page on its market tab', () {

@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::chat::enhance::MultiServiceManager::MultiServiceManager;
 use crate::chat::llmprovider::AIService::{ensure_response_completed, AIService, SendMessageRequest};
-use crate::chat::llmprovider::MediaLinkBuilder::MediaLinkBuilder;
-use crate::chat::llmprovider::ThinkingDialect::RequestThinking;
 use crate::runtime_support::ProviderRuntimeContext;
 use operit_model::ModelConfigData::ResolvedModelConfig;
 use operit_model::PromptTurn::{toPromptTurns, PromptTurn, PromptTurnKind};
@@ -16,6 +14,7 @@ use operit_util::stream::RevisableTextStream::RevisableTextStreamLike;
 use operit_util::stream::Stream::Stream;
 use operit_util::ChatMarkupRegex::ChatMarkupRegex;
 use operit_util::ImagePoolManager::ImagePoolManager;
+use operit_util::MediaLinkBuilder::MediaLinkBuilder;
 use operit_util::MediaPoolManager::MediaPoolManager;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,7 +83,10 @@ impl ModelConfigConnectionTester {
                     SendMessageRequest {
                         chat_history: vec![PromptTurn::new(PromptTurnKind::USER, "Hi")],
                         model_parameters: parameters.clone(),
-                        thinking: RequestThinking::default(),
+                        enable_thinking: false,
+                        thinking_quality_level: 1,
+                        thinking_configurations: "[]".to_string(),
+                        thinking_option_id: String::new(),
                         stream: false,
                         available_tools: Vec::new(),
                         preserve_think_in_history: false,
@@ -122,7 +124,10 @@ impl ModelConfigConnectionTester {
                         SendMessageRequest {
                             chat_history: toPromptTurns(&history),
                             model_parameters: parameters.clone(),
-                            thinking: RequestThinking::default(),
+                            enable_thinking: false,
+                            thinking_quality_level: 1,
+                            thinking_configurations: "[]".to_string(),
+                            thinking_option_id: String::new(),
                             stream: false,
                             available_tools: vec![Self::echoToolPrompt()],
                             preserve_think_in_history: false,
@@ -155,7 +160,10 @@ impl ModelConfigConnectionTester {
                         SendMessageRequest {
                             chat_history: vec![PromptTurn::new(PromptTurnKind::USER, prompt)],
                             model_parameters: parameters.clone(),
-                            thinking: RequestThinking::default(),
+                            enable_thinking: false,
+                            thinking_quality_level: 1,
+                            thinking_configurations: "[]".to_string(),
+                            thinking_option_id: String::new(),
                             stream: false,
                             available_tools: Vec::new(),
                             preserve_think_in_history: false,
@@ -189,7 +197,10 @@ impl ModelConfigConnectionTester {
                         SendMessageRequest {
                             chat_history: vec![PromptTurn::new(PromptTurnKind::USER, prompt)],
                             model_parameters: parameters.clone(),
-                            thinking: RequestThinking::default(),
+                            enable_thinking: false,
+                            thinking_quality_level: 1,
+                            thinking_configurations: "[]".to_string(),
+                            thinking_option_id: String::new(),
                             stream: false,
                             available_tools: Vec::new(),
                             preserve_think_in_history: false,
@@ -223,7 +234,10 @@ impl ModelConfigConnectionTester {
                         SendMessageRequest {
                             chat_history: vec![PromptTurn::new(PromptTurnKind::USER, prompt)],
                             model_parameters: parameters.clone(),
-                            thinking: RequestThinking::default(),
+                            enable_thinking: false,
+                            thinking_quality_level: 1,
+                            thinking_configurations: "[]".to_string(),
+                            thinking_option_id: String::new(),
                             stream: false,
                             available_tools: Vec::new(),
                             preserve_think_in_history: false,

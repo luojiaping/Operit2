@@ -9,9 +9,6 @@
 #endif
 
 namespace operit::arm64 {
-uint64_t read_floating_control(const CpuState &cpu) noexcept {
-    return cpu.fpcr & floating_control_mask;
-}
 uint64_t read_floating_status(const CpuState &cpu) noexcept {
     return cpu.fpsr & floating_status_mask;
 }
@@ -48,7 +45,14 @@ namespace {
 using Bits = unsigned char __attribute__((vector_size(16)));
 void write_scalar(CpuState &cpu, unsigned rd, const Bits &value, unsigned type) {
     cpu.v[rd].fill(0);
-    std::memcpy(cpu.v[rd].data(), &value, type == 3 ? 2 : type == 1 ? 8 : 4);
+    // Keep each store width constant so scalar results do not call libc memcpy.
+    // memcpy preserves the raw FP bits without alignment or aliasing assumptions.
+    if (type == 3)
+        std::memcpy(cpu.v[rd].data(), &value, 2);
+    else if (type == 1)
+        std::memcpy(cpu.v[rd].data(), &value, 8);
+    else
+        std::memcpy(cpu.v[rd].data(), &value, 4);
 }
 bool size_conversion(CpuState &cpu, uint32_t raw) {
     Bits input, result;

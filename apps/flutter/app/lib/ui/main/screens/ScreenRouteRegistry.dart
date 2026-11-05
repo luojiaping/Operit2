@@ -181,9 +181,9 @@ class ScreenRouteRegistry {
     if (initialTab is! String) {
       throw StateError('Invalid PackageManager.initialTab: $initialTab');
     }
-    // Released builds had one tab per extension kind.
+    // Older links selected a kind or the removed device tab.
     final compatibleTab = switch (initialTab) {
-      'plugins' || 'packages' || 'skills' || 'mcp' => 'extensions',
+      'plugins' || 'packages' || 'skills' || 'mcp' || 'devices' => 'extensions',
       _ => initialTab,
     };
     return PackageManagerScreenRoute(

@@ -155,11 +155,11 @@ impl OperitApplication {
                 runtimeStorageHost.clone(),
             );
             let logFile = pathMapper
-                .resolve("/app/data/logs/operit.log")
+                .resolve("/operitapp/data/logs/operit.log")
                 .expect("runtime log path must resolve through the file-system host")
                 .physicalPath;
             let packageLogFile = pathMapper
-                .resolve("/app/data/logs/toolpkg.log")
+                .resolve("/operitapp/data/logs/toolpkg.log")
                 .expect("ToolPkg log path must resolve through the file-system host")
                 .physicalPath;
             if let Err(error) =
@@ -287,7 +287,7 @@ impl OperitApplication {
     #[allow(non_snake_case)]
     fn cleanOnExitFiles(&self) -> Result<(), String> {
         let fileSystem = self.runtimeFileSystem()?;
-        const CLEAN_ON_EXIT_PATH: &str = "/app/data/temp/clean_on_exit";
+        const CLEAN_ON_EXIT_PATH: &str = "/operitapp/data/temp/clean_on_exit";
         fileSystem.makeDirectory(CLEAN_ON_EXIT_PATH, true)?;
         for entry in fileSystem.listFiles(CLEAN_ON_EXIT_PATH)? {
             let path = PathMapper::joinVfsPath(CLEAN_ON_EXIT_PATH, &entry.name)?;
@@ -561,6 +561,53 @@ impl OperitApplication {
         MCPRepository::getInstance(&self.hostManager, self.toolHandler.runtimeSupport())
     }
 
+    /// Imports portable A2A connection definitions into the extension/package registry.
+    #[allow(non_snake_case)]
+    pub fn importA2AConfig(&self, configJson: String) -> Result<Vec<String>, String> {
+        let ids = operit_tools::tools::a2a::A2ARepository::A2ARepository::new(self.hostManager.clone())?.import(&configJson)?;
+        self.packageManager().lock().map_err(|e| e.to_string())?.reloadA2APackages();
+        Ok(ids)
+    }
+
+    /// Reads the saved connection manifest for editing or export.
+    #[allow(non_snake_case)]
+    pub fn getA2AConfig(&self, id: String) -> Result<String, String> {
+        let config = operit_tools::tools::a2a::A2ARepository::A2ARepository::new(self.hostManager.clone())?.config(&id)?;
+        serde_json::to_string(&config).map_err(|e| e.to_string())
+    }
+
+    /// Fetches and validates an Agent Card before the user saves a connection.
+    #[allow(non_snake_case)]
+    pub async fn discoverA2AAgent(&self, configJson: String) -> Result<String, String> {
+        let config = serde_json::from_str(&configJson).map_err(|e| e.to_string())?;
+        let config = operit_tools::tools::a2a::A2ARepository::A2ARepository::new(self.hostManager.clone())?.discover(config).await?;
+        serde_json::to_string(&config).map_err(|e| e.to_string())
+    }
+
+    /// Enables or disables an installed A2A package through its canonical owner record.
+    #[allow(non_snake_case)]
+    pub fn setA2AEnabled(&self, id: String, enabled: bool) -> Result<(), String> {
+        operit_tools::tools::a2a::A2ARepository::A2ARepository::new(self.hostManager.clone())?.set_enabled(&id, enabled)?;
+        self.packageManager().lock().map_err(|e| e.to_string())?.reloadA2APackages();
+        Ok(())
+    }
+
+    /// Deletes an A2A installation and removes its package tools.
+    #[allow(non_snake_case)]
+    pub fn deleteA2A(&self, id: String) -> Result<(), String> {
+        operit_tools::tools::a2a::A2ARepository::A2ARepository::new(self.hostManager.clone())?.delete(&id)?;
+        self.packageManager().lock().map_err(|e| e.to_string())?.reloadA2APackages();
+        Ok(())
+    }
+
+    /// Executes the same A2A operations used by the installed package's tools.
+    #[allow(non_snake_case)]
+    pub async fn invokeA2A(&self, id: String, operation: String, argumentsJson: String) -> Result<String, String> {
+        let arguments = serde_json::from_str(&argumentsJson).map_err(|e| e.to_string())?;
+        let result = operit_tools::tools::a2a::A2ARepository::A2ARepository::new(self.hostManager.clone())?.invoke(&id, &operation, arguments).await?;
+        serde_json::to_string(&result).map_err(|e| e.to_string())
+    }
+
     /// Creates a skill repository with this runtime's host and tool support.
     #[allow(non_snake_case)]
     pub fn skillRepository(&self) -> SkillRepository {
@@ -617,7 +664,7 @@ impl OperitApplication {
                 self.skillRepository().getAvailableSkillPackages();
                 None
             }
-            "mcp" => None,
+            "mcp" | "a2a" => None,
             _ => return Err(format!("Unknown extension kind: {kind}")),
         };
         let mut result = BTreeMap::new();
@@ -664,7 +711,7 @@ impl OperitApplication {
                 operit_store::ExtensionStore::ExtensionStore::default()
                     .moveScope(&kind, &id, &scope)
             }
-            "mcp" => operit_store::ExtensionStore::ExtensionStore::default()
+            "mcp" | "a2a" => operit_store::ExtensionStore::ExtensionStore::default()
                 .moveScope(&kind, &id, &scope),
             _ => Err(format!("Unknown extension kind: {kind}")),
         }
@@ -849,14 +896,6 @@ impl OperitApplication {
         Ok(path.to_string_lossy().into_owned())
     }
 
-    /// Returns the directory holding persisted chat attachment files.
-    #[allow(non_snake_case)]
-    pub fn chatAttachmentsPath(&self) -> Result<String, String> {
-        let path = OperitPaths::chatAttachmentsDir()?;
-        self.ensureHostDirectory(&path)?;
-        Ok(path.to_string_lossy().into_owned())
-    }
-
     /// Clears the current runtime log files.
     #[allow(non_snake_case)]
     pub fn resetLogs(&self) {
@@ -906,8 +945,11 @@ impl OperitApplication {
             }
         }
         let mut blobs = BTreeMap::new();
+        let managedFiles = self.runtimeWorkspaceFileSyncStore()?;
+        for reference in managedFiles.deferredBlobs()? { blobs.insert(reference.contentHash.clone(), reference); }
         for operation in states.into_values() {
             if !store.shouldApplyOperation(operation).map_err(|e|e.to_string())? { continue; }
+            if operit_store::WorkspaceFileSyncStore::WorkspaceFileSyncStore::owns(operation) && !managedFiles.wantsBlob(operation)? { continue; }
             match RuntimeFileSyncStore::requiredBlob(operation) {
                 Ok(Some(reference)) => { blobs.insert(reference.contentHash.clone(), reference); }
                 Ok(None) => {}

@@ -11,6 +11,10 @@ import 'package:operit2/core/proxy/generated/CoreProxyModels.g.dart'
     as core_proxy;
 import 'package:operit2/data/preferences/UserPreferencesManager.dart';
 import 'package:operit2/ui/features/packages/components/StoreVisuals.dart';
+import 'package:operit2/ui/features/packages/components/StoreCards.dart';
+import 'package:operit2/ui/features/packages/screens/StoreBrowseScreen.dart';
+import 'package:operit2/ui/features/packages/screens/MarketPane.dart';
+import 'package:operit2/ui/features/packages/market/MarketStatsSupport.dart';
 import 'package:operit2/ui/features/packages/screens/PackageManagerScreen.dart';
 import 'package:operit2/ui/main/TopBarController.dart';
 import 'package:operit2/ui/main/navigation/ToolPkgCatalogChangeBus.dart';
@@ -56,7 +60,9 @@ void main() {
 
     expect(changes, <bool>[true]);
     expect(
-      tester.widgetList<Switch>(find.byType(Switch)).every((item) => item.value),
+      tester
+          .widgetList<Switch>(find.byType(Switch))
+          .every((item) => item.value),
       isTrue,
     );
     expect(tester.takeException(), isNull);
@@ -123,34 +129,153 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('devices pane separates shared and device-only extensions', (
+  testWidgets('location grouping separates shared and device-only extensions', (
     tester,
   ) async {
     final bridge = _CatalogBridge();
     await tester.pumpWidget(_manager(bridge));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('设备'));
+    expect(find.text('设备'), findsNothing);
+    await tester.tap(find.text('按位置'));
     await tester.pumpAndSettle();
 
-    expect(_sectionHeader('共享到设备空间'), findsOneWidget);
+    expect(_sectionHeader('设备空间'), findsOneWidget);
     expect(_sectionHeader('仅本机'), findsOneWidget);
     expect(find.text('Demo skill'), findsOneWidget);
-    // Sharing explains its consequence in place before anything moves.
-    await tester.tap(find.text('共享').first);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('配置里的密钥也会一起同步'), findsOneWidget);
-    expect(bridge.scopeMoves, isEmpty);
     expect(tester.takeException(), isNull);
   });
+
+  for (final failExtraPage in [false, true]) {
+    testWidgets(
+      'recommendations read at most three recent pages (failure: $failExtraPage)',
+      (tester) async {
+        final bridge = _CatalogBridge()..marketTotal = 20;
+        core_proxy.MarketEntrySummary entry(String id, int downloads) =>
+            core_proxy.MarketEntrySummary.fromJson({
+              'id': id,
+              'type': 'package',
+              'title': id,
+              'createdAt': DateTime.now().toUtc().toIso8601String(),
+              'downloads': downloads,
+            });
+        bridge.marketPages[('updated', 1)] = [entry('first', 1)];
+        bridge.marketPages[('updated', 2)] = [entry('second', 10)];
+        bridge.marketPages[('updated', 3)] = [entry('third', 1000)];
+        if (failExtraPage) bridge.failedMarketPage = 2;
+        await tester.pumpWidget(_manager(bridge));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('市场'));
+        await tester.pumpAndSettle();
+        expect(
+          bridge.marketRequests.where((request) => request.$1 == 'updated'),
+          [('updated', 1), ('updated', 2), ('updated', 3)],
+        );
+        expect(
+          tester
+              .widget<StoreFeaturedBanner>(
+                find.byType(StoreFeaturedBanner).first,
+              )
+              .entry
+              .id,
+          'third',
+        );
+        expect(find.text('推荐 · 插件'), findsWidgets);
+        expect(find.text('市场暂时无法连接'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets(
+    'recent listings group rows by date; other sorts have no date headings',
+    (tester) async {
+      final bridge = _CatalogBridge();
+      final entries = [
+        for (final (id, date) in [
+          ('a', '2026-11-05'),
+          ('b', '2026-11-05'),
+          ('c', '2026-11-04'),
+        ])
+          core_proxy.MarketEntrySummary.fromJson({
+            'id': id,
+            'type': 'package',
+            'title': id,
+            'updatedAt': '${date}T12:00:00Z',
+          }),
+      ];
+      bridge.marketPages[('updated', 1)] = entries;
+      bridge.marketPages[('downloads', 1)] = entries;
+      final sort = ValueNotifier(MarketSortOption.updated);
+      addTearDown(sort.dispose);
+      await tester.pumpWidget(
+        _manager(
+          bridge,
+          child: ValueListenableBuilder(
+            valueListenable: sort,
+            builder: (context, value, child) => StoreMarketListing(
+              clients: GeneratedCoreProxyClients(bridge),
+              sort: value,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('2026-11-05'), findsOneWidget);
+      expect(find.text('2026-11-04'), findsOneWidget);
+      expect(find.text('a'), findsOneWidget);
+      expect(find.text('b'), findsOneWidget);
+      sort.value = MarketSortOption.downloads;
+      await tester.pumpAndSettle();
+      expect(find.text('2026-11-05'), findsNothing);
+      expect(find.text('2026-11-04'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Chinese market categories show localized titles and descriptions',
+    (tester) async {
+      tester.platformDispatcher.localesTestValue = const [Locale('zh')];
+      addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+      final bridge = _CatalogBridge();
+      bridge.categories.add(
+        const core_proxy.MarketCategoryInfo(
+          id: 'search_research',
+          name: 'Search & Research',
+          description: 'Search engines, research tools, knowledge retrieval',
+        ),
+      );
+      await tester.pumpWidget(_manager(bridge));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('市场'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('搜索与研究'),
+        250,
+        scrollable: find.descendant(
+          of: find.byType(MarketPane),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Scrollable &&
+                widget.axisDirection == AxisDirection.down,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Search & Research'), findsNothing);
+      expect(find.text('搜索引擎、研究工具与知识检索'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
-Finder _sectionHeader(String title) => find.descendant(
-  of: find.byType(StoreSectionHeader),
-  matching: find.textContaining(title),
+Finder _sectionHeader(String title) => find.byWidgetPredicate(
+  (widget) => widget is StoreSectionHeader && widget.title == title,
 );
 
 /// Renders the shell top bar the screen fills, so tabs are reachable.
-Widget _manager(_CatalogBridge bridge) {
+Widget _manager(_CatalogBridge bridge, {Widget? child}) {
   final topBar = TopBarController();
   addTearDown(topBar.dispose);
   return OperitTheme(
@@ -163,7 +288,9 @@ Widget _manager(_CatalogBridge bridge) {
       controller: topBar,
       child: AnimatedBuilder(
         animation: topBar,
-        child: PackageManagerScreen(clients: GeneratedCoreProxyClients(bridge)),
+        child:
+            child ??
+            PackageManagerScreen(clients: GeneratedCoreProxyClients(bridge)),
         builder: (context, child) => Scaffold(
           appBar: AppBar(
             title: topBar.titleContent?.content(context),
@@ -212,6 +339,11 @@ core_proxy.ExtensionCatalogEntry _entry({
 
 class _CatalogBridge extends OperitRuntimeBridge {
   int snapshotReads = 0;
+  final marketPages = <(String, int), List<core_proxy.MarketEntrySummary>>{};
+  final marketRequests = <(String, int)>[];
+  int marketTotal = 0;
+  int? failedMarketPage;
+  final categories = <core_proxy.MarketCategoryInfo>[];
   bool enabled = false;
   final imports = <String>[];
   final scopeMoves = <String>[];
@@ -282,22 +414,29 @@ class _CatalogBridge extends OperitRuntimeBridge {
       case 'isLoggedIn':
         return false;
       case 'get_list_page':
-        return const core_proxy.MarketListPage(
+        final args = request.args as Map;
+        final sort = args['sort'] as String;
+        final page = args['page'] as int;
+        marketRequests.add((sort, page));
+        if (page == failedMarketPage) {
+          throw StateError('Extra page unavailable');
+        }
+        return core_proxy.MarketListPage(
           generatedAt: null,
-          sort: 'updated',
-          page: 1,
-          pageSize: 20,
-          total: 0,
-          items: <core_proxy.MarketEntrySummary>[],
+          sort: sort,
+          page: page,
+          pageSize: 2,
+          total: marketTotal,
+          items: marketPages[(sort, page)] ?? <core_proxy.MarketEntrySummary>[],
         ).toJson();
       case 'get_manifest':
-        return const core_proxy.MarketManifest(
+        return core_proxy.MarketManifest(
           ok: true,
           marketVersion: 1,
           generatedAt: null,
           types: <core_proxy.MarketTypeInfo>[],
           formatVersions: <core_proxy.MarketFormatInfo>[],
-          categories: <core_proxy.MarketCategoryInfo>[],
+          categories: categories,
           states: <core_proxy.MarketStateInfo>[],
         ).toJson();
       case 'enableToolPkgContainer':

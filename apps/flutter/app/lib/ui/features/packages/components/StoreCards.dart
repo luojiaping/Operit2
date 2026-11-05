@@ -343,7 +343,7 @@ class StoreFeaturedBanner extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        '精选 · ${kind.label}',
+                        '${entry.featured ? '精选' : '推荐'} · ${kind.label}',
                         style: theme.textTheme.labelMedium?.copyWith(
                           color: ink.withValues(alpha: 0.72),
                           fontWeight: FontWeight.w600,
