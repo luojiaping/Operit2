@@ -37,8 +37,10 @@ Every App/CLI build embeds the ToolPkg assets generated from `plugins/packages/`
 into `core/crates/runtime/application/assets/plugins/{buildin,external}`.
 `prepare_plugin_assets()` in `common.py` runs
 `plugins/tools/sync_plugin_packages.py --source runtime --no-hot-reload`; the
-CLI entry points call it before `cargo build`, and Flutter builds trigger it
-from their native hooks. `verify_cli_plugin_assets()` rejects a packaged CLI
+CLI entry points call it before `cargo build`. Flutter proxy generation calls it
+before `cargo check` because the runtime build script reads ToolPkg archives for
+bundled skill examples; native hooks also prepare the assets before compiling
+the bridge. `verify_cli_plugin_assets()` rejects a packaged CLI
 whose binary omits any generated asset name. Do not commit or reuse stale
 asset directories across machines.
 

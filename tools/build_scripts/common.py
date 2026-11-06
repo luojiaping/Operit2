@@ -343,6 +343,8 @@ def verify_cli_plugin_assets(binary_path: Path) -> None:
 
 
 def generate_dart_proxy_artifacts() -> None:
+    # Proxy codegen compiles operit-runtime, whose skill examples reference ToolPkg archives.
+    prepare_plugin_assets()
     manifest = REPO_ROOT / "core" / "crates" / "proxy" / "local" / "Cargo.toml"
     # The artifacts are written by this crate's build script, which Cargo skips
     # whenever the target directory is warm. The generated files are ignored by
