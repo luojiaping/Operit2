@@ -893,7 +893,13 @@ impl ChatServiceCore {
     #[operit_route_macros::operit_core_route(binding = chatId)]
     pub async fn cancelMessage(&mut self, chatId: String) -> Result<(), String> {
         let turn = self.messageProcessingDelegate.readCurrentTurnCancellationSnapshot(chatId.clone());
-        let partialMessage = self.messageProcessingDelegate.cancelMessage(chatId.clone()).await;
+        let partialMessage = match self.messageProcessingDelegate.cancelMessage(chatId.clone()).await {
+            Ok(message) => message,
+            Err(error) => {
+                self.messageProcessingDelegate.failTurnReceipt(&chatId, error.clone());
+                return Err(error);
+            }
+        };
         if let (Some(turn), Some(partial)) = (turn, &partialMessage) {
             if turn.turnOptions.persistTurn {
             if let Err(error) = self.chatHistoryDelegate.commitAssistantMessageSegment(chatId.clone(), partial.clone(), None) {
@@ -1253,7 +1259,7 @@ impl ChatServiceCore {
         }
         self.messageProcessingDelegate
             .cancelMessageForDestructiveMutation(chatId.clone())
-            .await;
+            .await?;
         let backupChatId = chatId.clone();
         let backupWorkspacePath = self
             .chatHistoryDelegate
@@ -1283,7 +1289,7 @@ impl ChatServiceCore {
         self.chatHistoryDelegate.prepareChatForDestructiveMutation(chatId.clone());
         self.messageProcessingDelegate
             .cancelMessageForDestructiveMutation(chatId.clone())
-            .await;
+            .await?;
         self.pendingQueueStateFlow().update(|queues| {
             queues.remove(&chatId);
         });
@@ -1472,59 +1478,39 @@ impl ChatServiceCore {
                 return false;
             }
         };
-        let startTime = currentTimeMillis();
-        let pendingPlaceholder = ChatMessage {
-            sender: "summary".to_string(),
-            timestamp: ChatMessageTimestampAllocator::next(),
-            roleName: "system".to_string(),
-            sentAt: startTime,
-            ..ChatMessage::new("summary".to_string())
-        };
-        let persistedPending = self.chatHistoryDelegate.addSummaryMessage(
-            pendingPlaceholder,
-            beforeTimestamp.clone(),
-            afterTimestamp.clone(),
-            Some(currentChatId.clone()),
-        );
-
+        // Generation must not persist a summary boundary before valid content exists.
         let summaryMessage = match AIMessageManager::summarizeMemory(
             &mut enhancedAiService,
             messagesToSummarize,
             false,
             currentChatId.clone(),
             &configuration,
+            None,
         )
         .await
+        .map_err(|error| error.to_string())
+        .and_then(|summary| summary.ok_or_else(|| "No valid conversation summary was generated".to_string()))
         {
-            Ok(Some(summaryMessage)) => summaryMessage,
-            _ => {
-                if let Some(pending) = persistedPending {
-                    let _ = self.chatHistoryDelegate.deleteMessageByTimestamp(currentChatId.clone(), pending.timestamp);
-                }
+            Ok(summaryMessage) => summaryMessage,
+            Err(error) => {
+                AppLogger::e("ChatSummary", &format!("Summary insertion failed for {currentChatId}: {error}"));
                 self.messageProcessingDelegate
-                    .setInputProcessingStateForChat(currentChatId, InputProcessingState::Idle);
+                    .setInputProcessingStateForChat(currentChatId, InputProcessingState::Error { message: error });
                 return false;
             }
         };
 
-        if let Some(pending) = persistedPending {
-            let updated = ChatMessage {
-                parts: summaryMessage.parts,
-                inputTokens: summaryMessage.inputTokens,
-                outputTokens: summaryMessage.outputTokens,
-                waitDurationMs: summaryMessage.waitDurationMs,
-                completedAt: summaryMessage.completedAt,
-                sentAt: summaryMessage.sentAt,
-                ..pending
-            };
-            self.chatHistoryDelegate.updateSummaryMessage(updated, Some(currentChatId.clone()));
-        } else {
-            self.chatHistoryDelegate.addSummaryMessage(
-                summaryMessage,
-                beforeTimestamp,
-                afterTimestamp,
-                Some(currentChatId.clone()),
-            );
+        if self.chatHistoryDelegate.addSummaryMessage(
+            summaryMessage,
+            beforeTimestamp,
+            afterTimestamp,
+            Some(currentChatId.clone()),
+        ).is_none() {
+            self.messageProcessingDelegate
+                .setInputProcessingStateForChat(currentChatId, InputProcessingState::Error {
+                    message: "Summary could not be inserted at the selected message".to_string(),
+                });
+            return false;
         }
         if let Some(delegate) = self.messageCoordinationDelegate.as_mut() {
             delegate.chatHistoryDelegate = self.chatHistoryDelegate.clone_for_core();

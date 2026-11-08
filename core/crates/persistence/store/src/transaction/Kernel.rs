@@ -65,12 +65,10 @@ impl From<crate::PreferencesDataStore::PreferencesDataStoreError> for ApplyError
     }
 }
 
+#[cfg(feature = "full")]
 impl From<crate::SqliteStore::SqliteStoreError> for ApplyError {
     fn from(error: crate::SqliteStore::SqliteStoreError) -> Self {
-        match error {
-            crate::SqliteStore::SqliteStoreError::Message(_) => Self::Capability(error.to_string()),
-            _ => Self::Retry(error.to_string()),
-        }
+        Self::Capability(error.to_string())
     }
 }
 
@@ -84,7 +82,7 @@ pub struct Participant<'a> {
     pub coverage: Box<dyn Fn() -> Result<BTreeSet<String>, String> + 'a>,
     /// Owner-defined business equality; snapshot tokens and transfer contents remain complete.
     pub content_digest: fn(&Snapshot) -> Result<String, String>,
-    pub repair: Option<Box<dyn Fn(&str, &Snapshot, Option<&str>) -> Result<bool, String> + 'a>>,
+    pub repair: Option<Box<dyn Fn(&str, &Snapshot, Option<&str>, Option<&serde_json::Value>) -> Result<bool, String> + 'a>>,
 }
 
 /// Existing SQL business databases expose their originals through the same source contract.
@@ -152,8 +150,7 @@ impl<'a> Registry<'a> {
 
     pub fn pending_owners(&self) -> Result<BTreeSet<String>, String> {
         let mut pending = BTreeSet::new();
-        for (path,mut operations) in self.pending_groups(&mut ApplyReport::default())? {
-            self.discard_covered(&path,&mut operations)?;
+        for (path,operations) in self.pending_groups(&mut ApplyReport::default())? {
             if !operations.is_empty() { pending.insert(path); }
         }
         Ok(pending)
@@ -214,19 +211,26 @@ impl<'a> Registry<'a> {
                 continue;
             }
             let first = &operations[0];
-            if first.domain == "preferences" && !self.owners.contains_key(&path)
-                || first.domain == crate::RuntimeFileSyncStore::RUNTIME_FILE_SYNC_DOMAIN
-                    && operit_util::RuntimeStorageLayout::runtimeStorageOwnership(&first.entityId) != Ok(operit_util::RuntimeStorageLayout::RuntimeStorageOwnership::Space) {
+            #[cfg(feature = "full")]
+            let nonSpaceFile = first.domain == crate::RuntimeFileSyncStore::RUNTIME_FILE_SYNC_DOMAIN
+                && operit_util::RuntimeStorageLayout::runtimeStorageOwnership(&first.entityId) != Ok(operit_util::RuntimeStorageLayout::RuntimeStorageOwnership::Space);
+            #[cfg(not(feature = "full"))]
+            let nonSpaceFile = false;
+            if first.domain == "preferences" && !self.owners.contains_key(&path) || nonSpaceFile {
                 self.journal.ignoreFileOperations(&first.domain, if first.domain == "preferences" { &path } else { &first.entityId }).map_err(|e|e.to_string())?;
                 report.skipped += operations.len();
                 continue;
             }
             if let Err(error) = self.discard_covered(&path,&mut operations) {
-                self.failure(&path, &operations, ApplyError::Retry(error), &mut report)?;
+                self.failure(&path, &operations, ApplyError::Capability(error), &mut report)?;
                 continue;
             }
             if operations.is_empty() { continue; }
-            if skipped.contains_key(&path) && !operations.iter().all(crate::RuntimeFileSyncStore::RuntimeFileSyncStore::isCompleteState)
+            #[cfg(feature = "full")]
+            let completeFileStates = operations.iter().all(crate::RuntimeFileSyncStore::RuntimeFileSyncStore::isCompleteState);
+            #[cfg(not(feature = "full"))]
+            let completeFileStates = false;
+            if skipped.contains_key(&path) && !completeFileStates
                 && !operations.iter().any(|operation|
                 operation.operation == "initialize" && operation.entityType == "initialization") {
                 self.journal.skipOperations(&operations).map_err(|e|e.to_string())?;
@@ -326,17 +330,18 @@ impl<'a> Registry<'a> {
 
     /// Only materialized contents decide whether a dataset needs correction.
     pub fn manifests(&self) -> Result<(Vec<super::Manifest>, BTreeSet<String>, Vec<String>), String> {
-        let (snapshots, pending, mut errors) = self.snapshots()?;
+        let (snapshots, pending, errors) = self.snapshots()?;
         let mut manifests = Vec::new();
         for snapshot in snapshots {
-            let manifest = self.owners.get(&snapshot.data.owner.path)
-                .ok_or_else(|| "Unknown transaction owner".to_string())
-                .and_then(|owner| (owner.content_digest)(&snapshot))
-                .and_then(|digest| snapshot.manifest_with_digest(digest));
-            match manifest {
-                Ok(manifest) => manifests.push(manifest),
-                Err(error) => errors.push(format!("{}: {error}", snapshot.data.owner.path)),
+            let mut manifest = snapshot.manifest()?;
+            match (self.owners[&snapshot.data.owner.path].content_digest)(&snapshot) {
+                Ok(digest) => manifest.digest = digest,
+                Err(error) => {
+                    manifest.damaged = true;
+                    operit_util::AppLogger::AppLogger::w("TransactionSync", &format!("sync_consistency.damaged owner={} error={error}", snapshot.data.owner.path));
+                },
             }
+            manifests.push(manifest);
         }
         Ok((manifests,pending,errors))
     }
@@ -344,7 +349,6 @@ impl<'a> Registry<'a> {
     pub fn snapshot(&self, owner: &Owner) -> Result<Snapshot, String> {
         if self.pending_owners()?.contains(&owner.path) { return Err("Dataset has pending transactions".into()); }
         let participant = self.owners.get(&owner.path).ok_or("Unknown transaction owner")?;
-        if !self.skipped()?.contains_key(&owner.path) { (participant.prepare)().map_err(|e|e.to_string())?; }
         let snapshot = (participant.snapshot.as_ref().ok_or("Owner has no snapshot capability")?)()?;
         if &snapshot.data.owner != owner { return Err("Owner format/layout is not ready".into()); }
         Ok(snapshot)
@@ -377,13 +381,12 @@ impl<'a> Registry<'a> {
 
     /// Authority, version checks, CAS and verification are shared by every backend.
     pub fn repair(&self, owner: &Owner, expected: &str, source: &Snapshot) -> Result<bool, String> {
-        self.repair_file(owner, expected, source, None)
+        self.repair_file(owner, expected, source, None, None)
     }
 
-    pub fn repair_file(&self, owner: &Owner, expected: &str, source: &Snapshot, file: Option<&str>) -> Result<bool, String> {
+    pub fn repair_file(&self, owner: &Owner, expected: &str, source: &Snapshot, file: Option<&str>, definition: Option<&serde_json::Value>) -> Result<bool, String> {
         if &source.data.owner != owner { return Err("Snapshot owner differs".into()); }
         let participant = self.owners.get(&owner.path).ok_or("Unknown transaction owner")?;
-        if !self.skipped()?.contains_key(&owner.path) { (participant.prepare)().map_err(|e|e.to_string())?; }
         let mut pending = self.journal.pendingOperations().map_err(|e|e.to_string())?.into_iter()
             .filter(|operation|self.target(operation).as_ref() == Ok(&owner.path)).collect::<Vec<_>>();
         self.discard_covered(&owner.path,&mut pending)?;
@@ -394,14 +397,14 @@ impl<'a> Registry<'a> {
         if !expected.is_empty() {
             let current = capture()?;
             if current.token()? != expected { return Ok(false); }
-            if (&current.data.revision, &current.node) > (&source.data.revision, &source.node) {
+            if current.damage.is_none() && (participant.content_digest)(&current).is_ok() && (&current.data.revision, &current.node) > (&source.data.revision, &source.node) {
                 return Err("Snapshot source is older than the local authority".into());
             }
         }
         let repair = participant.repair.as_ref().ok_or("Owner cannot replace files")?;
-        if !repair(expected, source, file)? { return Ok(false); }
+        if !repair(expected, source, file, definition)? { return Ok(false); }
         let verified = capture()?;
-        if verified.data != source.data { return Err("Snapshot verification failed after replacement".into()); }
+        if verified.damage.is_some() || verified.data != source.data { return Err("Snapshot verification failed after replacement".into()); }
         self.journal.retireCoveredOperations(&pending).map_err(|e|e.to_string())?;
         let skipped = self.skipped()?.remove(&owner.path).unwrap_or_default();
         let covered = skipped.into_iter().filter(|operation|source.covered.contains(&operation.opId)).collect::<Vec<_>>();

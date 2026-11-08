@@ -495,7 +495,7 @@ impl AIMessageManager {
                         }),
                     )
                 {
-                    Self::cancelOperationForId(&chatKey, Some(operationId)).await;
+                    Self::cancelOperationForId(&chatKey, Some(operationId)).await?;
                     return Err(AiServiceError::RequestFailed(error.to_string()));
                 }
                 ChainLogger::verbose_with_level(
@@ -525,6 +525,7 @@ impl AIMessageManager {
         autoContinue: bool,
         chatId: String,
         configuration: &ChatConfigurationResult,
+        progress: Option<operit_providers::chat::enhance::ConversationService::SummaryProgressCallback>,
     ) -> Result<Option<ChatMessage>, operit_providers::chat::llmprovider::AIService::AiServiceError>
     {
         let lastSummaryIndex = messages
@@ -571,7 +572,7 @@ impl AIMessageManager {
 
         let startTime = ChatMessageTimestampAllocator::currentTimeMillis();
         let summary = enhancedAiService
-            .generateSummaryForConfiguration(conversationToSummarize, previousSummary, chatId, configuration)
+            .generateSummaryForConfiguration(conversationToSummarize, previousSummary, chatId, configuration, progress)
             .await?;
         let endTime = ChatMessageTimestampAllocator::currentTimeMillis();
         if summary.trim().is_empty() {
@@ -1102,27 +1103,27 @@ impl AIMessageManager {
     }
 
     #[allow(non_snake_case)]
-    pub async fn cancelCurrentOperation() {
+    pub async fn cancelCurrentOperation() -> Result<(), AiServiceError> {
         let lock = LAST_ACTIVE_CHAT_KEY.get_or_init(|| Mutex::new(DEFAULT_CHAT_KEY.to_string()));
         let chatKey = lock
             .lock()
             .expect("last active chat key mutex poisoned")
             .clone();
-        Self::cancelOperation(chatKey).await;
+        Self::cancelOperation(chatKey).await
     }
 
     #[allow(non_snake_case)]
-    pub async fn cancelOperation(chatId: String) {
+    pub async fn cancelOperation(chatId: String) -> Result<(), AiServiceError> {
         let chatKey = if chatId.trim().is_empty() {
             DEFAULT_CHAT_KEY.to_string()
         } else {
             chatId
         };
-        Self::cancelOperationForId(&chatKey, None).await;
+        Self::cancelOperationForId(&chatKey, None).await
     }
 
     /// Takes ownership of the service before anything can close the response stream.
-    async fn cancelOperationForId(chatKey: &str, expectedOperationId: Option<u64>) {
+    async fn cancelOperationForId(chatKey: &str, expectedOperationId: Option<u64>) -> Result<(), AiServiceError> {
         let operation = {
             let mut operations = activeChatOperations()
                 .lock()
@@ -1135,7 +1136,7 @@ impl AIMessageManager {
             }
         };
         let Some((operationId, mut operation)) = operation else {
-            return;
+            return Ok(());
         };
         // Close the per-send gate immediately, including a send that has not yet
         // entered the provider or registered its execution context.
@@ -1155,7 +1156,7 @@ impl AIMessageManager {
         if let Some(stream) = operation.responseStream {
             stream.close();
         }
-        operation.enhancedAiService.cancelConversation().await;
+        let usageResult = operation.enhancedAiService.cancelConversation().await;
         ChainLogger::info(
             SEND_CHAIN,
             "send.cancel.done",
@@ -1164,16 +1165,23 @@ impl AIMessageManager {
                 ("operationId", operationId.to_string()),
             ],
         );
+        usageResult
     }
 
     #[allow(non_snake_case)]
-    pub async fn cancelAllOperations() {
+    pub async fn cancelAllOperations() -> Result<(), AiServiceError> {
         let operations = activeChatOperations()
             .lock()
             .expect("active chat operations mutex poisoned")
             .snapshot();
+        let mut errors = Vec::new();
         for (chatKey, operationId) in operations {
-            Self::cancelOperationForId(&chatKey, Some(operationId)).await;
+            if let Err(error) = Self::cancelOperationForId(&chatKey, Some(operationId)).await {
+                errors.push(format!("{chatKey}: {error}"));
+            }
+        }
+        if errors.is_empty() { Ok(()) } else {
+            Err(AiServiceError::RequestFailed(errors.join("; ")))
         }
     }
 }
@@ -1269,10 +1277,10 @@ fn condenseAssistantMessageForReview(message: &ChatMessage) -> String {
             }
             MessagePartKind::Thinking => None,
             MessagePartKind::ToolCall => {
-                let tool_name = part
-                    .toolName
-                    .as_deref()
-                    .expect("tool-call parts require a tool name");
+                let tool_label = match &part.toolName {
+                    Some(name) => format!("工具: {name}"),
+                    None => "工具".to_string(),
+                };
                 let params = part
                     .attributes
                     .iter()
@@ -1290,13 +1298,13 @@ fn condenseAssistantMessageForReview(message: &ChatMessage) -> String {
                 } else {
                     format!(" {}", params.join("; "))
                 };
-                Some(format!("[工具: {tool_name}]{params_text}"))
+                Some(format!("[{tool_label}]{params_text}"))
             }
             MessagePartKind::ToolResult => {
-                let tool_name = part
-                    .toolName
-                    .as_deref()
-                    .expect("tool-result parts require a tool name");
+                let tool_label = match &part.toolName {
+                    Some(name) => format!("结果: {name}"),
+                    None => "结果".to_string(),
+                };
                 let status = part
                     .attributes
                     .get("status")
@@ -1317,7 +1325,7 @@ fn condenseAssistantMessageForReview(message: &ChatMessage) -> String {
                 } else {
                     format!(" {result}")
                 };
-                Some(format!("[结果: {tool_name}{status_text}]{result_text}"))
+                Some(format!("[{tool_label}{status_text}]{result_text}"))
             }
         };
         if let Some(segment) = segment {

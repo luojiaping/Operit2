@@ -1,5 +1,7 @@
 // ignore_for_file: file_names
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/proxy/generated/CoreProxyModels.g.dart' as core_proxy;
@@ -74,6 +76,100 @@ class _MarketStats extends StatelessWidget {
   }
 }
 
+/// Keeps the API marker on the avatar without clipping its kind badge.
+class _MarketAvatar extends StatelessWidget {
+  const _MarketAvatar({required this.entry, this.kind});
+
+  final core_proxy.MarketEntrySummary entry;
+  final StoreKind? kind;
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 44.0;
+    const cornerSize = 20.0;
+    final avatar = ExtensionAvatar(
+      seed: marketEntryAvatarSeed(entry),
+      label: entry.title,
+      kind: kind,
+      size: size,
+    );
+    if ((entry.type != 'package' && entry.type != 'toolpkg') ||
+        entry.latestVersion?.apiVersion?.trim() != '2.0.0') {
+      return avatar;
+    }
+    final colors = Theme.of(context).colorScheme;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        avatar,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Semantics(
+              label: 'ToolPkg API 2.0.0',
+              excludeSemantics: true,
+              child: ClipPath(
+                clipper: ShapeBorderClipper(
+                  shape: RoundedSuperellipseBorder(
+                    borderRadius: BorderRadius.circular(size * 0.3),
+                  ),
+                ),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: ClipPath(
+                    clipper: const _MarketCornerClipper(),
+                    child: SizedBox.square(
+                      dimension: cornerSize,
+                      child: ColoredBox(
+                        color: colors.primary,
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: SizedBox.square(
+                            dimension: cornerSize * 2 / 3,
+                            child: Center(
+                              child: Transform.rotate(
+                                angle: -math.pi / 4,
+                                child: Text(
+                                  'v2',
+                                  textDirection: TextDirection.ltr,
+                                  textScaler: TextScaler.noScaling,
+                                  style: TextStyle(
+                                    color: colors.onPrimary,
+                                    fontSize: 8,
+                                    height: 1,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Fills the corner all the way to both edges, within the host's round clip.
+class _MarketCornerClipper extends CustomClipper<Path> {
+  const _MarketCornerClipper();
+
+  @override
+  Path getClip(Size size) => Path()
+    ..lineTo(size.width, 0)
+    ..lineTo(0, size.height)
+    ..close();
+
+  @override
+  bool shouldReclip(_MarketCornerClipper oldClipper) => false;
+}
+
 /// Card for horizontal shelves: avatar, name, publisher, summary and stats.
 class StoreMarketCard extends StatelessWidget {
   const StoreMarketCard({
@@ -92,59 +188,57 @@ class StoreMarketCard extends StatelessWidget {
     final publisher = marketEntryPublisher(entry);
     return StorePressable(
       onTap: () => openMarketEntryDetail(entry),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              ExtensionAvatar(
-                seed: marketEntryAvatarSeed(entry),
-                label: entry.title,
-                size: 44,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _MarketAvatar(entry: entry),
+                const Spacer(),
+                StoreBadge(label: kind.label, icon: kind.icon),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              entry.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
               ),
-              const Spacer(),
-              StoreBadge(label: kind.label, icon: kind.icon),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            entry.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            publisher.isEmpty ? '社区市场' : publisher,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Expanded(
-            child: Text(
-              entry.description,
-              maxLines: 2,
+            const SizedBox(height: 2),
+            Text(
+              publisher.isEmpty ? '社区市场' : publisher,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
-                height: 1.45,
               ),
             ),
-          ),
-          Row(
-            children: <Widget>[
-              Expanded(child: _MarketStats(entry: entry)),
-              StoreMarketGetButton(entry: entry, installState: installState),
-            ],
-          ),
-        ],
+            const SizedBox(height: 6),
+            Expanded(
+              child: Text(
+                entry.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.45,
+                ),
+              ),
+            ),
+            Row(
+              children: <Widget>[
+                Expanded(child: _MarketStats(entry: entry)),
+                StoreMarketGetButton(entry: entry, installState: installState),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -261,12 +355,7 @@ class StoreMarketRow extends StatelessWidget {
     final publisher = marketEntryPublisher(entry);
     return StoreAppRow(
       rank: rank,
-      icon: ExtensionAvatar(
-        seed: marketEntryAvatarSeed(entry),
-        label: entry.title,
-        kind: kind,
-        size: 44,
-      ),
+      icon: _MarketAvatar(entry: entry, kind: kind),
       title: entry.title,
       subtitle: <String>[
         kind.label,

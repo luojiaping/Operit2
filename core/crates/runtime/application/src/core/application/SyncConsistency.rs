@@ -51,7 +51,7 @@ impl OperitApplication {
             }), project: None,
             snapshot: Some(Box::new(move || snapshot.as_ref().map_err(Clone::clone)?.syncSnapshot().map_err(|e|e.to_string()))),
             coverage: Box::new(move || coverage.as_ref().map_err(Clone::clone)?.syncCoverage()),
-            repair: Some(Box::new(move |expected,source,_| repair.as_ref().map_err(Clone::clone)?.repairSyncedSnapshot(expected,source).map_err(|e|e.to_string()))),
+            repair: Some(Box::new(move |expected,source,_,_| repair.as_ref().map_err(Clone::clone)?.repairSyncedSnapshot(expected,source).map_err(|e|e.to_string()))),
         })?;
         registry.sources.push(Source {
             receipt: Box::new(move || receipt.as_ref().map_err(Clone::clone)?.receipt().map(|r|(r,vec![])).map_err(|e|e.to_string())),
@@ -68,7 +68,7 @@ impl OperitApplication {
                 PluginStorage::operationIdsSince(inventory.clone()?,receipt).map_err(|e|e.to_string())
             }),
         });
-        let installed = plugin.clone().and_then(|host|PluginStorage::syncDatasetPaths(host).map_err(|e|e.to_string())).unwrap_or_default().into_iter().collect::<std::collections::BTreeSet<_>>();
+        let installed = PluginStorage::syncDatasetPaths(plugin.clone()?).map_err(|e|e.to_string())?.into_iter().collect::<std::collections::BTreeSet<_>>();
         let mut paths = installed.clone();
         for operation in operations.iter().filter(|op|op.domain==PLUGIN_STORAGE_SYNC_DOMAIN) { paths.insert(PluginStorage::syncDatasetPath(operation).map_err(|e|e.to_string())?); }
         let node = registry.journal.localDeviceId().map_err(|e|e.to_string())?;
@@ -85,7 +85,7 @@ impl OperitApplication {
                 project: Some(Box::new(move |aliases|PluginStorage::reconcilePreferenceReferences(project.clone()?,&project_path,aliases).map_err(|e|e.to_string()))),
                 snapshot: if installed.contains(&snapshot_path) { Some(Box::new(move ||PluginStorage::syncSnapshot(snapshot.clone()?,&snapshot_path,&node_snapshot))) } else { None },
                 coverage: if installed.contains(&coverage_path) { Box::new(move || PluginStorage::syncCoverage(coverage.clone()?,&coverage_path)) } else { Box::new(||Ok(Default::default())) },
-                repair: Some(Box::new(move |expected,source,_|PluginStorage::repairSyncedSnapshot(repair.clone()?,expected,source,&node_repair))),
+                repair: Some(Box::new(move |expected,source,_,definition|PluginStorage::repairSyncedSnapshot(repair.clone()?,expected,source,&node_repair,definition.ok_or("Missing database definition")?))),
             })?;
         }
         for operation in operations.iter().filter(|op|!matches!(op.domain.as_str(),"preferences"|CHAT_SYNC_DOMAIN|PLUGIN_STORAGE_SYNC_DOMAIN)) {
@@ -189,12 +189,12 @@ impl OperitApplication {
                 },
                 operit_store::Transaction::Backend::Sql => {
                     let storage = self.hostManager.runtimeStorageHost.clone().ok_or("Runtime storage is unavailable")?;
-                    PluginStorage::installSnapshotDefinition(self.pluginSqliteHost()?,storage,&owner.path,
+                    PluginStorage::provisionSnapshotDatabase(self.pluginSqliteHost()?,storage,&owner.path,
                         source.definition.clone().ok_or("Missing database definition")?).map_err(|e|e.to_string())?;
                 },
             }
         }
         let registry = self.transactionRegistry(&schema,&pending)?;
-        registry.repair_file(&owner,expected,&source.snapshot,source.content.as_deref())
+        registry.repair_file(&owner,expected,&source.snapshot,source.content.as_deref(),source.definition.as_ref())
     }
 }
