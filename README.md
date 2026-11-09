@@ -1,7 +1,7 @@
 <h1 align="center"><img src="docs/assets/operit-logo.svg" width="64" alt="Operit logo" valign="middle"> Operit2</h1>
 <p align="center"><a href="README.md">English</a> · <a href="README-zh.md">简体中文</a></p>
 <p align="center"><sub>An Agent core that connects your device space.</sub></p>
-<p align="center"><strong>Preview Release</strong> · <a href="docs/Operit2-Technical-Whitepaper.pdf">Read the technical whitepaper</a></p>
+<p align="center"><strong>Preview Release</strong> · <a href="docs/Operit2技术白皮书.pdf">Technical whitepaper (Chinese 2.0)</a></p>
 
 <p align="center">
   <img src="docs/assets/operit-device-space-concept-v7-en.png" alt="Operit2 device space concept" width="100%">
@@ -9,7 +9,7 @@
 
 Operit2 is an open-source, cross-device Agent project for personal users. It aims to let phones, desktops, and cloud devices each play to their strengths, so conversations, tasks, and context can continue across a personal device space.
 
-The project grew out of Operit's Android Agent practice and is currently refining multi-device synchronization, cross-device execution, and recovery experiences. The project's original motivation, engineering architecture, and long-term direction are described in the [Operit2 technical whitepaper](docs/Operit2-Technical-Whitepaper.pdf).
+The project grew out of Operit's Android Agent practice and is currently refining multi-device synchronization, cross-device execution, and recovery experiences. The project's motivation, engineering architecture, and long-term direction are described in the [revised technical whitepaper (Chinese 2.0)](docs/Operit2技术白皮书.pdf).
 
 > During the preview stage, the underlying structure, data formats, plugin contracts, and cross-device workflows may still undergo breaking changes.
 
@@ -125,7 +125,7 @@ Operit2 uses a capability model that tightens layer by layer from the outside in
 Several principles must be preserved:
 
 - Space membership does not grant other nodes the ability to read local files, use the local terminal, or obtain administrator/root capabilities;
-- API keys, device private keys, pairing keys, sessions, and local platform permissions belong to the node locally by default and are not automatically copied by joining a Space;
+- Full model and speech Provider configurations participate in authorized business replication and may include API keys, key pools, and custom headers. OAuth and pairing state have separate node-local storage policies; encryption at rest and replication scope are distinct properties;
 - `Full` only means that AI capability limits are relaxed; it does not elevate Host privileges or create capabilities that the operating system does not have;
 - An application's internal sandbox fields and UI must not be presented as real operating-system-level isolation boundaries;
 - Before exposing Link or Web Access externally, use a strong token, a restricted listen address, TLS/firewall protection, and redacted logs;
@@ -145,7 +145,7 @@ The following directions are still being designed, refined, or validated:
 - Improve the experience of adding new devices, recovering data, and running long-lived deployments;
 - Validate the discovery, routing, and synchronization costs as the number of nodes increases.
 
-The current focus is personal device spaces. Scheduling across thousands of nodes has not been validated, and enterprise organization governance is not a product goal. Long-running quality still requires continued testing; Rust itself does not guarantee the absence of resource leaks. See the [technical whitepaper](docs/Operit2-Technical-Whitepaper.pdf) for more detailed design trade-offs.
+The current focus is personal device spaces. Scheduling across thousands of nodes has not been validated, and enterprise organization governance is not a product goal. Long-running quality still requires continued testing; Rust itself does not guarantee the absence of resource leaks. See the [revised technical whitepaper (Chinese 2.0)](docs/Operit2技术白皮书.pdf) for more detailed design trade-offs.
 
 ## Quick Start
 

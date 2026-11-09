@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 705" role="img" aria-label="04  持久化同步的接收、物化与内容校验">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="705" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">04  持久化同步的接收、物化与内容校验</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">操作身份、稀疏收据、owner 规则与 blob 完整性共同决定结果</text>
+<polyline points="335,180 390,180" fill="none" stroke="#6a4ca3" stroke-width="2"/>
+<polygon points="390,180 379.0,175.0 379.0,185.0" fill="#6a4ca3"/>
+<polyline points="675,180 730,180" fill="none" stroke="#6a4ca3" stroke-width="2"/>
+<polygon points="730,180 719.0,175.0 719.0,185.0" fill="#6a4ca3"/>
+<polyline points="870,240 870,320" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="870,320 875.0,309.0 865.0,309.0" fill="#16704a"/>
+<polyline points="730,380 675,380" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="675,380 686.0,385.0 686.0,375.0" fill="#16704a"/>
+<polyline points="390,380 335,380" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="335,380 346.0,385.0 346.0,375.0" fill="#16704a"/>
+<rect x="40" y="120" width="295" height="120" rx="9" fill="#f5f2fa" stroke="#6a4ca3" stroke-width="1.6"/>
+<text x="187.5" y="150" fill="#6a4ca3" font-size="22" font-weight="700" text-anchor="middle">源节点业务写入</text>
+<text x="187.5" y="178" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">事务 / preference / SQL / 文件</text>
+<text x="187.5" y="205" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">来源 ID 与序号、修订信息</text>
+<rect x="390" y="120" width="285" height="120" rx="9" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="532.5" y="150" fill="#8c6000" font-size="22" font-weight="700" text-anchor="middle">增量交换</text>
+<text x="532.5" y="178" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">授权检查与 endpoint 协商</text>
+<text x="532.5" y="205" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">按接收知识导出缺失操作</text>
+<rect x="730" y="120" width="280" height="120" rx="9" fill="#f5f2fa" stroke="#6a4ca3" stroke-width="1.6"/>
+<text x="870.0" y="150" fill="#6a4ca3" font-size="22" font-weight="700" text-anchor="middle">接收账本</text>
+<text x="870.0" y="178" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">原文身份与去重</text>
+<text x="870.0" y="205" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">稀疏收据保留历史空洞</text>
+<rect x="730" y="320" width="280" height="120" rx="9" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="870.0" y="350" fill="#16704a" font-size="22" font-weight="700" text-anchor="middle">owner 选择与就绪检查</text>
+<text x="870.0" y="378" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">格式 / 依赖 / blob / 迁移</text>
+<text x="870.0" y="405" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">未就绪记录保留待处理</text>
+<rect x="390" y="320" width="285" height="120" rx="9" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="532.5" y="350" fill="#16704a" font-size="22" font-weight="700" text-anchor="middle">确定规则重放与提交</text>
+<text x="532.5" y="378" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">Preference 文件提交协议</text>
+<text x="532.5" y="405" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">SQL owner 本库事务</text>
+<rect x="40" y="320" width="295" height="120" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="187.5" y="350" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">物化与通知</text>
+<text x="187.5" y="378" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">持久业务视图更新</text>
+<text x="187.5" y="405" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">UI / watch 获得变化</text>
+<polyline points="180,440 180,510 525,510 525,550" fill="none" stroke="#2c5f9e" stroke-width="2"/>
+<polygon points="525,550 530.0,539.0 520.0,539.0" fill="#2c5f9e"/>
+<rect x="40" y="550" width="970" height="102" rx="9" fill="#f0f5fb" stroke="#2c5f9e" stroke-width="1.6"/>
+<text x="525.0" y="580" fill="#2c5f9e" font-size="22" font-weight="700" text-anchor="middle">注册 snapshot owner 的附加闭环</text>
+<text x="525.0" y="608" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">稳定导出范围下比较内容摘要 → 必要时选择完整快照校正 → 初始化事务与覆盖凭据</text>
+<text x="525.0" y="635" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">当前覆盖 Preference / 聊天 SQL / 插件 SQL；不是所有数据的统一修复</text>
+<text x="32" y="684" fill="#526575" font-size="18" font-weight="400" text-anchor="start">本图不表达跨设备分布式 ACID，也不保证一般业务操作可交换。</text>
+</svg>

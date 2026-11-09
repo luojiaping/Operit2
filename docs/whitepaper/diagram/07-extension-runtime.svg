@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 630" role="img" aria-label="07  扩展契约与实际执行位置">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="630" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">07  扩展契约与实际执行位置</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">包格式、工作流材料、远程协议与原生 SDK 是不同抽象层</text>
+<polyline points="165,240 165,330" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="165,330 170.0,319.0 160.0,319.0" fill="#526575"/>
+<polyline points="520,240 520,330" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="520,330 525.0,319.0 515.0,319.0" fill="#526575"/>
+<polyline points="880,240 880,330" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="880,330 885.0,319.0 875.0,319.0" fill="#526575"/>
+<rect x="40" y="125" width="250" height="115" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="165.0" y="155" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">Skill</text>
+<text x="165.0" y="183" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">说明、资源、可见性</text>
+<text x="165.0" y="210" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">提供工作流材料</text>
+<rect x="360" y="125" width="320" height="115" rx="9" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="520.0" y="155" fill="#16704a" font-size="22" font-weight="700" text-anchor="middle">JS / TS Package、ToolPkg</text>
+<text x="520.0" y="183" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">声明、脚本、资源、UI</text>
+<text x="520.0" y="210" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">Compose / 可选 WASM</text>
+<rect x="755" y="125" width="255" height="115" rx="9" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="882.5" y="155" fill="#8c6000" font-size="22" font-weight="700" text-anchor="middle">MCP</text>
+<text x="882.5" y="183" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">外部 server 工具协议</text>
+<text x="882.5" y="210" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">本地进程或远端服务</text>
+<rect x="40" y="330" width="250" height="115" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="165.0" y="360" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">工具系统</text>
+<text x="165.0" y="388" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">发现、注册与上下文使用</text>
+<text x="165.0" y="415" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">无独立通用沙箱承诺</text>
+<rect x="360" y="330" width="320" height="115" rx="9" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="520.0" y="360" fill="#16704a" font-size="22" font-weight="700" text-anchor="middle">Host JavaScript realm</text>
+<text x="520.0" y="388" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">当前 native Host 使用 V8</text>
+<text x="520.0" y="415" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">WASM 实例可在 realm 内执行</text>
+<rect x="755" y="330" width="255" height="115" rx="9" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="882.5" y="360" fill="#8c6000" font-size="22" font-weight="700" text-anchor="middle">MCP 客户端与生命周期</text>
+<text x="882.5" y="388" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">配置、工具描述与调用</text>
+<text x="882.5" y="415" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">外部程序拥有自身权限</text>
+<rect x="40" y="510" width="970" height="80" rx="9" fill="#f5f2fa" stroke="#6a4ca3" stroke-width="1.6"/>
+<text x="525.0" y="540" fill="#6a4ca3" font-size="22" font-weight="700" text-anchor="middle">共享契约与本地资源：plugin-sdk / SDK IPC / ToolRuntimeSupport / Host API</text>
+<text x="525.0" y="568" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">跨节点可用性还取决于安装状态、运行时、依赖、权限与资源</text>
+<text x="32" y="295" fill="#526575" font-size="18" font-weight="400" text-anchor="start">工具被注册、接口可路由或数据已同步，都不单独证明插件可以在另一节点执行。</text>
+</svg>

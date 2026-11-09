@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 1188" role="img" aria-label="Operit2 中文技术白皮书封面">
+<title>Operit2 技术白皮书</title>
+<desc>白底出版网格、深墨标题、蓝绿等量节点与层叠状态平面，表达个人设备空间中的连接与连续性。</desc>
+<rect x="0" y="0" width="840" height="1188" fill="#ffffff"/>
+<polyline points="64.00,63.00 88.00,63.00" fill="none" stroke="#007d8b" stroke-width="4"/>
+<text x="101" y="69" fill="#132f43" font-size="16" font-family="Segoe UI" data-pdf-font="CoverSans" font-weight="700" text-anchor="start">OPERIT</text>
+<text x="776" y="68" fill="#657d8d" font-size="11" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="end">RESEARCH &amp; ENGINEERING</text>
+<polyline points="64.00,91.00 776.00,91.00" fill="none" stroke="#d7e4ea" stroke-width="1"/>
+<text x="61" y="202" fill="#132f43" font-size="100" font-family="Segoe UI" data-pdf-font="CoverSans" font-weight="700" text-anchor="start">OPERIT2</text>
+<text x="66" y="236" fill="#007d8b" font-size="15" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="start">TECHNICAL WHITE PAPER</text>
+<text x="62" y="310" fill="#132f43" font-size="49" font-family="Microsoft YaHei" data-pdf-font="CoverCN" font-weight="700" text-anchor="start">技术白皮书</text>
+<text x="65" y="365" fill="#132f43" font-size="26" font-family="Microsoft YaHei" data-pdf-font="CoverCN" font-weight="400" text-anchor="start">面向个人设备空间的</text>
+<text x="65" y="405" fill="#132f43" font-size="30" font-family="Microsoft YaHei" data-pdf-font="CoverCN" font-weight="400" text-anchor="start">可持续 Agent 运行时</text>
+<polyline points="66.00,437.00 129.00,437.00" fill="none" stroke="#007d8b" stroke-width="3"/>
+<text x="150" y="442" fill="#657d8d" font-size="11.2" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="start">ARCHITECTURE  /  STATE  /  CONTINUITY</text>
+<polygon points="426.00,593.00 738.00,773.00 426.00,953.00 114.00,773.00" fill="#f4f8fb" stroke="#e3edf3" stroke-width="1.2"/>
+<polyline points="478.00,623.00 166.00,803.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="374.00,623.00 686.00,803.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="530.00,653.00 218.00,833.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="322.00,653.00 634.00,833.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="582.00,683.00 270.00,863.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="270.00,683.00 582.00,863.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="634.00,713.00 322.00,893.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="218.00,713.00 530.00,893.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="686.00,743.00 374.00,923.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polyline points="166.00,743.00 478.00,923.00" fill="none" stroke="#e3edf3" stroke-width="0.7"/>
+<polygon points="426.00,555.00 738.00,735.00 426.00,915.00 114.00,735.00" fill="#f9fcfd" stroke="#dce8ef" stroke-width="1.2"/>
+<polyline points="478.00,585.00 166.00,765.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="374.00,585.00 686.00,765.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="530.00,615.00 218.00,795.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="322.00,615.00 634.00,795.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="582.00,645.00 270.00,825.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="270.00,645.00 582.00,825.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="634.00,675.00 322.00,855.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="218.00,675.00 530.00,855.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="686.00,705.00 374.00,885.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="166.00,705.00 478.00,885.00" fill="none" stroke="#dce8ef" stroke-width="0.7"/>
+<polyline points="426.00,593.00 426.00,520.00" fill="none" stroke="#cfdee7" stroke-width="1.1" stroke-dasharray="4,5"/>
+<polyline points="114.00,773.00 114.00,700.00" fill="none" stroke="#cfdee7" stroke-width="1.1" stroke-dasharray="4,5"/>
+<polyline points="738.00,773.00 738.00,700.00" fill="none" stroke="#cfdee7" stroke-width="1.1" stroke-dasharray="4,5"/>
+<polyline points="426.00,953.00 426.00,880.00" fill="none" stroke="#cfdee7" stroke-width="1.1" stroke-dasharray="4,5"/>
+<polygon points="426.00,520.00 738.00,700.00 426.00,880.00 114.00,700.00" fill="#fcfefe" stroke="#d7e6ed" stroke-width="1.2"/>
+<polyline points="478.00,550.00 166.00,730.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="374.00,550.00 686.00,730.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="530.00,580.00 218.00,760.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="322.00,580.00 634.00,760.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="582.00,610.00 270.00,790.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="270.00,610.00 582.00,790.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="634.00,640.00 322.00,820.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="218.00,640.00 530.00,820.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="686.00,670.00 374.00,850.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<polyline points="166.00,670.00 478.00,850.00" fill="none" stroke="#d7e6ed" stroke-width="0.7"/>
+<circle cx="426" cy="520" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="374" cy="550" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="322" cy="580" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="270" cy="610" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="218" cy="640" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="166" cy="670" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="114" cy="700" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="478" cy="550" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="426" cy="580" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="374" cy="610" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="322" cy="640" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="270" cy="670" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="218" cy="700" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="166" cy="730" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="530" cy="580" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="478" cy="610" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="426" cy="640" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="374" cy="670" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="322" cy="700" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="270" cy="730" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="218" cy="760" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="582" cy="610" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="530" cy="640" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="478" cy="670" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="426" cy="700" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="374" cy="730" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="322" cy="760" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="270" cy="790" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="634" cy="640" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="582" cy="670" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="530" cy="700" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="478" cy="730" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="426" cy="760" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="374" cy="790" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="322" cy="820" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="686" cy="670" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="634" cy="700" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="582" cy="730" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="530" cy="760" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="478" cy="790" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="426" cy="820" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="374" cy="850" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="738" cy="700" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="686" cy="730" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="634" cy="760" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="582" cy="790" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="530" cy="820" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="478" cy="850" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<circle cx="426" cy="880" r="1.25" fill="#c2d6df" stroke="none" stroke-width="1"/>
+<polyline points="420.00,520.00 432.00,520.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="426.00,515.00 426.00,525.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="108.00,700.00 120.00,700.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="114.00,695.00 114.00,705.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="732.00,700.00 744.00,700.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="738.00,695.00 738.00,705.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="420.00,880.00 432.00,880.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="426.00,875.00 426.00,885.00" fill="none" stroke="#9dbcc9" stroke-width="1"/>
+<polyline points="254.40,679.00 426.00,580.00 566.40,661.00" fill="none" stroke="#007d8b" stroke-width="2.8"/>
+<polyline points="566.40,661.00 639.20,703.00 467.60,802.00" fill="none" stroke="#3779b6" stroke-width="2.4"/>
+<polyline points="467.60,802.00 254.40,679.00" fill="none" stroke="#4c95b4" stroke-width="2.3"/>
+<circle cx="426" cy="580" r="4" fill="#ffffff" stroke="#007d8b" stroke-width="1.6"/>
+<circle cx="639.2" cy="703.0" r="4" fill="#ffffff" stroke="#007d8b" stroke-width="1.6"/>
+<circle cx="254.4" cy="679.0" r="4" fill="#ffffff" stroke="#007d8b" stroke-width="1.6"/>
+<circle cx="467.6" cy="802.0" r="4" fill="#ffffff" stroke="#007d8b" stroke-width="1.6"/>
+<polyline points="254.40,714.00 467.60,837.00 566.40,780.00" fill="none" stroke="#a5c7d6" stroke-width="1.4"/>
+<circle cx="316.8" cy="715.0" r="4" fill="#007d8b" stroke="none" stroke-width="1"/>
+<circle cx="420.8" cy="775.0" r="4" fill="#007d8b" stroke="none" stroke-width="1"/>
+<polygon points="490.40,651.00 566.40,689.00 566.40,702.00 490.40,664.00" fill="#edf5f8" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,689.00 642.40,651.00 642.40,664.00 566.40,702.00" fill="#e0ecf3" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,613.00 642.40,651.00 566.40,689.00 490.40,651.00" fill="#f8fbfd" stroke="#3779b6" stroke-width="1.4"/>
+<polygon points="490.40,624.00 566.40,662.00 566.40,675.00 490.40,637.00" fill="#edf5f8" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,662.00 642.40,624.00 642.40,637.00 566.40,675.00" fill="#e0ecf3" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,586.00 642.40,624.00 566.40,662.00 490.40,624.00" fill="#f5fafc" stroke="#3779b6" stroke-width="1.4"/>
+<polygon points="490.40,597.00 566.40,635.00 566.40,648.00 490.40,610.00" fill="#edf5f8" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,635.00 642.40,597.00 642.40,610.00 566.40,648.00" fill="#e0ecf3" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,559.00 642.40,597.00 566.40,635.00 490.40,597.00" fill="#ffffff" stroke="#3779b6" stroke-width="1.4"/>
+<polygon points="530.40,589.00 566.40,607.00 566.40,614.00 530.40,596.00" fill="#d5e9ef" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,607.00 602.40,589.00 602.40,596.00 566.40,614.00" fill="#e0ecf3" stroke="#3779b6" stroke-width="1.25"/>
+<polygon points="566.40,571.00 602.40,589.00 566.40,607.00 530.40,589.00" fill="#e8f4f7" stroke="#3779b6" stroke-width="1.4"/>
+<polygon points="566.40,574.00 590.40,586.00 566.40,598.00 542.40,586.00" fill="#3779b6" stroke="none" stroke-width="1"/>
+<polyline points="521.40,626.50 521.40,631.50" fill="none" stroke="#3779b6" stroke-width="1"/>
+<polyline points="536.40,634.00 536.40,639.00" fill="none" stroke="#3779b6" stroke-width="1"/>
+<polyline points="551.40,641.50 551.40,646.50" fill="none" stroke="#3779b6" stroke-width="1"/>
+<polyline points="566.40,649.00 566.40,654.00" fill="none" stroke="#3779b6" stroke-width="1"/>
+<polyline points="581.40,641.50 581.40,646.50" fill="none" stroke="#3779b6" stroke-width="1"/>
+<polyline points="596.40,634.00 596.40,639.00" fill="none" stroke="#3779b6" stroke-width="1"/>
+<polyline points="611.40,626.50 611.40,631.50" fill="none" stroke="#3779b6" stroke-width="1"/>
+<polygon points="178.40,669.00 254.40,707.00 254.40,720.00 178.40,682.00" fill="#edf5f8" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,707.00 330.40,669.00 330.40,682.00 254.40,720.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,631.00 330.40,669.00 254.40,707.00 178.40,669.00" fill="#f8fbfd" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="178.40,642.00 254.40,680.00 254.40,693.00 178.40,655.00" fill="#edf5f8" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,680.00 330.40,642.00 330.40,655.00 254.40,693.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,604.00 330.40,642.00 254.40,680.00 178.40,642.00" fill="#f5fafc" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="178.40,615.00 254.40,653.00 254.40,666.00 178.40,628.00" fill="#edf5f8" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,653.00 330.40,615.00 330.40,628.00 254.40,666.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,577.00 330.40,615.00 254.40,653.00 178.40,615.00" fill="#ffffff" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="218.40,607.00 254.40,625.00 254.40,632.00 218.40,614.00" fill="#d5e9ef" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,625.00 290.40,607.00 290.40,614.00 254.40,632.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="254.40,589.00 290.40,607.00 254.40,625.00 218.40,607.00" fill="#e8f4f7" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="254.40,592.00 278.40,604.00 254.40,616.00 230.40,604.00" fill="#007d8b" stroke="none" stroke-width="1"/>
+<polyline points="209.40,644.50 209.40,649.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="224.40,652.00 224.40,657.00" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="239.40,659.50 239.40,664.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="254.40,667.00 254.40,672.00" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="269.40,659.50 269.40,664.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="284.40,652.00 284.40,657.00" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="299.40,644.50 299.40,649.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polygon points="391.60,792.00 467.60,830.00 467.60,843.00 391.60,805.00" fill="#edf5f8" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,830.00 543.60,792.00 543.60,805.00 467.60,843.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,754.00 543.60,792.00 467.60,830.00 391.60,792.00" fill="#f8fbfd" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="391.60,765.00 467.60,803.00 467.60,816.00 391.60,778.00" fill="#edf5f8" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,803.00 543.60,765.00 543.60,778.00 467.60,816.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,727.00 543.60,765.00 467.60,803.00 391.60,765.00" fill="#f5fafc" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="391.60,738.00 467.60,776.00 467.60,789.00 391.60,751.00" fill="#edf5f8" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,776.00 543.60,738.00 543.60,751.00 467.60,789.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,700.00 543.60,738.00 467.60,776.00 391.60,738.00" fill="#ffffff" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="431.60,730.00 467.60,748.00 467.60,755.00 431.60,737.00" fill="#d5e9ef" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,748.00 503.60,730.00 503.60,737.00 467.60,755.00" fill="#e0ecf3" stroke="#007d8b" stroke-width="1.25"/>
+<polygon points="467.60,712.00 503.60,730.00 467.60,748.00 431.60,730.00" fill="#e8f4f7" stroke="#007d8b" stroke-width="1.4"/>
+<polygon points="467.60,715.00 491.60,727.00 467.60,739.00 443.60,727.00" fill="#007d8b" stroke="none" stroke-width="1"/>
+<polyline points="422.60,767.50 422.60,772.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="437.60,775.00 437.60,780.00" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="452.60,782.50 452.60,787.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="467.60,790.00 467.60,795.00" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="482.60,782.50 482.60,787.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="497.60,775.00 497.60,780.00" fill="none" stroke="#007d8b" stroke-width="1"/>
+<polyline points="512.60,767.50 512.60,772.50" fill="none" stroke="#007d8b" stroke-width="1"/>
+<text x="64" y="656" fill="#007d8b" font-size="11.5" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="start">CORENODE / 01</text>
+<polyline points="64.00,668.00 135.00,668.00 175.00,690.00" fill="none" stroke="#7fb1bd" stroke-width="1"/>
+<text x="776" y="597" fill="#3779b6" font-size="11.5" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="end">CORENODE / 02</text>
+<polyline points="776.00,609.00 705.00,609.00 646.00,643.00" fill="none" stroke="#8cadca" stroke-width="1"/>
+<text x="776" y="855" fill="#007d8b" font-size="11.5" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="end">CORENODE / 03</text>
+<polyline points="776.00,867.00 692.00,867.00 547.00,779.00" fill="none" stroke="#7fb1bd" stroke-width="1"/>
+<text x="66" y="548" fill="#657d8d" font-size="10.5" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="start">01 / DEVICE SPACE</text>
+<polyline points="66.00,559.00 157.00,559.00 195.00,580.00" fill="none" stroke="#b3cbd6" stroke-width="1"/>
+<text x="772" y="953" fill="#657d8d" font-size="10.5" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="end">STATE / CONTINUITY</text>
+<polyline points="64.00,1017.00 776.00,1017.00" fill="none" stroke="#d7e4ea" stroke-width="1"/>
+<text x="65" y="1056" fill="#132f43" font-size="18" font-family="Microsoft YaHei" data-pdf-font="CoverCN" font-weight="400" text-anchor="start">Operit 项目</text>
+<text x="65" y="1093" fill="#657d8d" font-size="12.5" font-family="Microsoft YaHei" data-pdf-font="CoverCN" font-weight="400" text-anchor="start">技术架构与实现研究</text>
+<text x="65" y="1118" fill="#657d8d" font-size="10.5" font-family="Microsoft YaHei" data-pdf-font="CoverCN" font-weight="400" text-anchor="start">源码基线 1ef7884 · 预览阶段</text>
+<text x="776" y="1058" fill="#007d8b" font-size="31" font-family="Segoe UI" data-pdf-font="CoverSans" font-weight="700" text-anchor="end">2.0</text>
+<text x="776" y="1093" fill="#657d8d" font-size="10.8" font-family="Microsoft YaHei" data-pdf-font="CoverCN" font-weight="400" text-anchor="end">中文版 / CHINESE EDITION</text>
+<text x="776" y="1118" fill="#657d8d" font-size="11.5" font-family="Consolas" data-pdf-font="CoverMono" font-weight="400" text-anchor="end">2026.11.07</text>
+</svg>

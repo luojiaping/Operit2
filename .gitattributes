@@ -4,3 +4,6 @@ apps/flutter/packages/operit_ui/assets/licenses/*.txt -text
 # Preserve provenance hashes of the imported v1 declaration snapshot.
 plugins/types-v1/*.d.ts -text
 plugins/types-v1/LICENSE -text
+
+# Generated PDFs must retain exact bytes and use binary diffs.
+*.pdf binary

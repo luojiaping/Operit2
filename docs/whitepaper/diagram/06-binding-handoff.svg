@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 780" role="img" aria-label="06  Binding 切换与目标节点续跑">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="780" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">06  Binding 切换与目标节点续跑</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">实现序列的抽象；请求失败、重提与节点崩溃可能使结果不确定</text>
+<line x1="145" y1="180" x2="145" y2="715" stroke="#475569" stroke-dasharray="6,5"/>
+<line x1="410" y1="180" x2="410" y2="715" stroke="#475569" stroke-dasharray="6,5"/>
+<line x1="675" y1="180" x2="675" y2="715" stroke="#475569" stroke-dasharray="6,5"/>
+<line x1="935" y1="180" x2="935" y2="715" stroke="#475569" stroke-dasharray="6,5"/>
+<rect x="38" y="110" width="214" height="70" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="145.0" y="140" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">Agent 工具回合</text>
+<rect x="303" y="110" width="214" height="70" rx="9" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="410.0" y="140" fill="#16704a" font-size="22" font-weight="700" text-anchor="middle">原执行节点</text>
+<rect x="568" y="110" width="214" height="70" rx="9" fill="#f5f2fa" stroke="#6a4ca3" stroke-width="1.6"/>
+<text x="675.0" y="140" fill="#6a4ca3" font-size="22" font-weight="700" text-anchor="middle">同步与 Binding</text>
+<rect x="828" y="110" width="214" height="70" rx="9" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="935.0" y="140" fill="#8c6000" font-size="22" font-weight="700" text-anchor="middle">目标执行节点</text>
+<polyline points="145,225 410,225" fill="none" stroke="#007b8b" stroke-width="2"/>
+<polygon points="410,225 399.0,220.0 399.0,230.0" fill="#007b8b"/>
+<text x="277.5" y="215.0" fill="#007b8b" font-size="18" font-weight="400" text-anchor="middle">1  switch_core 请求</text>
+<text x="438" y="268" fill="#526575" font-size="18" font-weight="400" text-anchor="start">校验成员、能力、执行权限、可达性</text>
+<polyline points="410,310 675,310" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="675,310 664.0,305.0 664.0,315.0" fill="#16704a"/>
+<text x="542.5" y="300.0" fill="#16704a" font-size="18" font-weight="400" text-anchor="middle">2  完成段持久化，释放本地执行保护</text>
+<polyline points="410,375 935,375" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="935,375 924.0,370.0 924.0,380.0" fill="#16704a"/>
+<text x="672.5" y="365.0" fill="#16704a" font-size="18" font-weight="400" text-anchor="middle">3  BeforeChangeRoute 检查后同步目标</text>
+<polyline points="410,440 675,440" fill="none" stroke="#6a4ca3" stroke-width="2"/>
+<polygon points="675,440 664.0,435.0 664.0,445.0" fill="#6a4ca3"/>
+<text x="542.5" y="430.0" fill="#6a4ca3" font-size="18" font-weight="400" text-anchor="middle">4  本地比较写入 Binding</text>
+<polyline points="675,505 935,505" fill="none" stroke="#6a4ca3" stroke-width="2"/>
+<polygon points="935,505 924.0,500.0 924.0,510.0" fill="#6a4ca3"/>
+<text x="805.0" y="495.0" fill="#6a4ca3" font-size="18" font-weight="400" text-anchor="middle">5  即时安装 Binding</text>
+<polyline points="410,570 935,570" fill="none" stroke="#8c6000" stroke-width="2"/>
+<polygon points="935,570 924.0,565.0 924.0,575.0" fill="#8c6000"/>
+<text x="672.5" y="560.0" fill="#8c6000" font-size="18" font-weight="400" text-anchor="middle">6  AfterChangeRoute + resumeContext</text>
+<text x="740" y="625" fill="#8c6000" font-size="20" font-weight="400" text-anchor="start">目标开始后续模型交互</text>
+<text x="40" y="678" fill="#526575" font-size="18" font-weight="400" text-anchor="start">原节点不再推进该次正常续跑；PTY、浏览器会话、进行中的模型请求不搬迁。</text>
+<text x="32" y="748" fill="#ac3550" font-size="18" font-weight="400" text-anchor="start">本地 CAS / generation / lease 不等于跨节点共识、外部副作用 fencing 或 exactly-once。</text>
+</svg>

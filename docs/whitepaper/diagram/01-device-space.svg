@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 640" role="img" aria-label="01  个人设备空间与访问入口">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="640" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">01  个人设备空间与访问入口</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">CoreNode 的地位对等；存储角色、执行权限与平台能力分别决定参与范围</text>
+<rect x="25" y="105" width="1000" height="340" rx="9" fill="#ffffff" stroke="#8c6000" stroke-width="1.6" stroke-dasharray="8,5"/>
+<text x="45" y="135" fill="#8c6000" font-size="20" font-weight="400" text-anchor="start">Space：成员、控制策略、可达性与获准的业务副本同步</text>
+<polyline points="345,265 385,265" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="385,265 374.0,260.0 374.0,270.0" fill="#16704a"/>
+<polyline points="680,265 720,265" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="720,265 709.0,260.0 709.0,270.0" fill="#16704a"/>
+<rect x="50" y="165" width="295" height="210" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="197.5" y="195" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">手机 CoreNode</text>
+<text x="197.5" y="223" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">Rust Core + 本地 Host</text>
+<text x="197.5" y="250" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">交互、移动能力、任务发起</text>
+<text x="197.5" y="277" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">业务副本依授权参与</text>
+<rect x="385" y="165" width="295" height="210" rx="9" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="532.5" y="195" fill="#16704a" font-size="22" font-weight="700" text-anchor="middle">桌面 CoreNode</text>
+<text x="532.5" y="223" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">Rust Core + 本地 Host</text>
+<text x="532.5" y="250" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">文件、终端、浏览器</text>
+<text x="532.5" y="277" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">Binding 可指定其续跑</text>
+<rect x="720" y="165" width="280" height="210" rx="9" fill="#f5f2fa" stroke="#6a4ca3" stroke-width="1.6"/>
+<text x="860.0" y="195" fill="#6a4ca3" font-size="22" font-weight="700" text-anchor="middle">长期在线 CoreNode</text>
+<text x="860.0" y="223" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">Rust Core + 本地 Host</text>
+<text x="860.0" y="250" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">如 Linux 主机</text>
+<text x="860.0" y="277" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">仍是普通 Space 成员</text>
+<text x="525" y="415" fill="#526575" font-size="18" font-weight="400" text-anchor="middle">PeerLink 可直连或逐跳转发；图中连线是示例拓扑</text>
+<polyline points="195,485 195,375" fill="none" stroke="#007b8b" stroke-width="2"/>
+<polygon points="195,375 190.0,386.0 200.0,386.0" fill="#007b8b"/>
+<polyline points="535,485 535,445" fill="none" stroke="#8c6000" stroke-width="2"/>
+<polygon points="535,445 530.0,456.0 540.0,456.0" fill="#8c6000"/>
+<polyline points="860,485 860,445" fill="none" stroke="#526575" stroke-width="2" stroke-dasharray="7,5"/>
+<polygon points="860,445 855.0,456.0 865.0,456.0" fill="#526575"/>
+<rect x="50" y="485" width="295" height="94" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="197.5" y="515" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">Web Access</text>
+<text x="197.5" y="543" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">访问现有节点的界面</text>
+<rect x="385" y="485" width="295" height="94" rx="9" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="532.5" y="515" fill="#8c6000" font-size="22" font-weight="700" text-anchor="middle">受限 Edge</text>
+<text x="532.5" y="543" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">设备服务；无完整业务副本</text>
+<rect x="720" y="485" width="280" height="94" rx="9" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="860.0" y="515" fill="#526575" font-size="22" font-weight="700" text-anchor="middle">模型服务</text>
+<text x="860.0" y="543" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">本地推理或外部 Provider</text>
+<text x="32" y="615" fill="#526575" font-size="18" font-weight="400" text-anchor="start">浏览器本地 WASM Core 是另一种部署路径；不能与 Web Access 等同。</text>
+</svg>

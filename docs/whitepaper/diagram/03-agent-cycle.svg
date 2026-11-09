@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 570" role="img" aria-label="03  一次 Agent 交互中的状态与事实">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="570" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">03  一次 Agent 交互中的状态与事实</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">概念流程对应当前服务链；模型输出、工具执行、持久化和 UI 投影是不同阶段</text>
+<polyline points="330,175 380,175" fill="none" stroke="#007b8b" stroke-width="2"/>
+<polygon points="380,175 369.0,170.0 369.0,180.0" fill="#007b8b"/>
+<polyline points="670,175 720,175" fill="none" stroke="#007b8b" stroke-width="2"/>
+<polygon points="720,175 709.0,170.0 709.0,180.0" fill="#007b8b"/>
+<polyline points="860,235 860,325" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="860,325 865.0,314.0 855.0,314.0" fill="#16704a"/>
+<text x="910" y="285" fill="#16704a" font-size="18" font-weight="400" text-anchor="middle">工具请求</text>
+<polyline points="720,385 670,385" fill="none" stroke="#6a4ca3" stroke-width="2"/>
+<polygon points="670,385 681.0,390.0 681.0,380.0" fill="#6a4ca3"/>
+<polyline points="380,385 330,385" fill="none" stroke="#6a4ca3" stroke-width="2"/>
+<polygon points="330,385 341.0,390.0 341.0,380.0" fill="#6a4ca3"/>
+<polyline points="180,325 180,275 525,275 525,235" fill="none" stroke="#2c5f9e" stroke-width="2"/>
+<polygon points="525,235 520.0,246.0 530.0,246.0" fill="#2c5f9e"/>
+<text x="390" y="266" fill="#2c5f9e" font-size="18" font-weight="400" text-anchor="middle">继续下一次模型请求</text>
+<rect x="40" y="115" width="290" height="120" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="185.0" y="145" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">接收交互</text>
+<text x="185.0" y="173" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">消息、附件、取消状态</text>
+<text x="185.0" y="200" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">运行参数与本地执行锁</text>
+<rect x="380" y="115" width="290" height="120" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="525.0" y="145" fill="#007b8b" font-size="22" font-weight="700" text-anchor="middle">构造活动上下文</text>
+<text x="525.0" y="173" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">历史 / 摘要 / 配置 / 工具</text>
+<text x="525.0" y="200" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">Provider 组装请求</text>
+<rect x="720" y="115" width="290" height="120" rx="9" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="865.0" y="145" fill="#16704a" font-size="22" font-weight="700" text-anchor="middle">模型与流式输出</text>
+<text x="865.0" y="173" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">远程 API 或本地推理</text>
+<text x="865.0" y="200" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">文本、工具请求、错误</text>
+<rect x="720" y="325" width="290" height="120" rx="9" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.6"/>
+<text x="865.0" y="355" fill="#ac3550" font-size="22" font-weight="700" text-anchor="middle">工具准入与执行</text>
+<text x="865.0" y="383" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">AI 路径：模式 / hook / 批准</text>
+<text x="865.0" y="410" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">调用当前节点 Host 或扩展</text>
+<rect x="380" y="325" width="290" height="120" rx="9" fill="#f5f2fa" stroke="#6a4ca3" stroke-width="1.6"/>
+<text x="525.0" y="355" fill="#6a4ca3" font-size="22" font-weight="700" text-anchor="middle">持久化工具与消息事实</text>
+<text x="525.0" y="383" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">参数、结果、错误和产物引用</text>
+<text x="525.0" y="410" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">同步传递持久状态</text>
+<rect x="40" y="325" width="290" height="120" rx="9" fill="#f0f5fb" stroke="#2c5f9e" stroke-width="1.6"/>
+<text x="185.0" y="355" fill="#2c5f9e" font-size="22" font-weight="700" text-anchor="middle">完成 / 取消 / 续跑</text>
+<text x="185.0" y="383" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">可请求切换 Binding</text>
+<text x="185.0" y="410" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">进程与会话留在原节点</text>
+<text x="32" y="498" fill="#526575" font-size="18" font-weight="400" text-anchor="start">摘要是有损的上下文表示；持久消息、文件、外部副作用具有各自生命周期。</text>
+<text x="32" y="533" fill="#526575" font-size="18" font-weight="400" text-anchor="start">当前普通摘要可异步启动；不能把这张概念图解释为每次请求前同步 checkpoint。</text>
+</svg>

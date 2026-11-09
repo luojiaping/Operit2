@@ -9,7 +9,7 @@
 | [CoreNode、Space 与 Binding](core-node-space-binding-architecture.md) | 节点、空间、执行位置和跨设备续跑 |
 | [Link 与访问边界](link-access-architecture.md) | Call / Watch / Push、认证与传输职责 |
 | [路由与分发](device-net-routing-distribution.md) | 链路测量、加权路由和共享 Watch |
-| [Edge](edge-architecture.md) | 受限设备的成员、配置与服务边界 |
+| [Edge](../edge/docs/architecture.md) | 受限设备的成员、配置与服务边界 |
 | [权限与 AI 能力](permission-access-architecture.md) | 系统权限、AI 模式、工具批准和工作区检查 |
 
 源码结构以 [Core 领域结构](../core/crates/README.md) 和 [crate 边界](../core/CRATE_BOUNDARIES.md) 为准。
@@ -63,7 +63,7 @@ Compose 的执行模型与二进制协议维护在 [Compose runtime](../core/cra
 
 ## 白皮书
 
-- [中文](Operit2技术白皮书.pdf)
-- [English](Operit2-Technical-Whitepaper.pdf)
+- [中文版 2.0 PDF（2026-11-07）](Operit2技术白皮书.pdf)
+- [English（2026-09 旧版，尚未同步此次重写）](Operit2-Technical-Whitepaper.pdf)
 
 文档维护稳定的使用方式、协议和架构边界。修复过程、阶段进度、单次跑分和测试通过清单留在提交或评审记录中；可重复执行的检查入口放在对应主题文档。

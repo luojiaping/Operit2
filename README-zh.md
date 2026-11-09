@@ -1,7 +1,7 @@
 <h1 align="center"><img src="docs/assets/operit-logo.svg" width="64" alt="Operit logo" valign="middle"> Operit2</h1>
 <p align="center"><a href="README.md">English</a> · <a href="README-zh.md">简体中文</a></p>
 <p align="center"><sub>一个 Agent 核心，连接你的设备空间。</sub></p>
-<p align="center"><strong>预览版本</strong> · <a href="docs/Operit2技术白皮书.pdf">阅读技术白皮书</a></p>
+<p align="center"><strong>预览版本</strong> · <a href="docs/Operit2技术白皮书.pdf">技术白皮书（中文版 2.0）</a></p>
 
 <p align="center">
   <img src="docs/assets/operit-device-space-concept-v7.png" alt="Operit2 设备空间概念图" width="100%">
@@ -125,7 +125,7 @@ Operit2 采用从外到内逐层收紧的能力模型：
 几个必须保持的原则：
 
 - Space 成员资格不会授予其他节点读取本机文件、使用本机终端或获得管理员/root 能力；
-- API key、设备私钥、配对密钥、session 和本地平台权限默认属于节点本地，不会因为加入 Space 自动复制；
+- 模型与语音 Provider 的完整配置参与获授权的业务复制，其中可能包含 API key、密钥池与自定义请求头；OAuth 与配对状态等另有本机存储归属，静态加密和同步范围需要分别判断；
 - `Full` 只表示 AI 能力限制放宽，不表示 Host 提权，也不能创造操作系统没有的能力；
 - 应用内部的 sandbox 字段和 UI 不能冒充真实的操作系统级隔离边界；
 - 对外监听 Link 或 Web Access 前，应使用强 token、受限监听地址、TLS/防火墙和脱敏日志；

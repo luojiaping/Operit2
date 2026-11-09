@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 675" role="img" aria-label="08  信任边界与工具调用准入">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="675" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">08  信任边界与工具调用准入</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">网络信任、应用准入与操作系统隔离各有作用域，不能相互替代</text>
+<rect x="35" y="110" width="980" height="490" rx="9" fill="#ffffff" stroke="#526575" stroke-width="1.6" stroke-dasharray="8,5"/>
+<text x="55" y="145" fill="#526575" font-size="22" font-weight="700" text-anchor="start">外部隔离：设备 / 操作系统账号 / 应用沙盒 / 部署容器</text>
+<rect x="65" y="180" width="920" height="160" rx="9" fill="#ffffff" stroke="#2c5f9e" stroke-width="1.6"/>
+<text x="85" y="215" fill="#2c5f9e" font-size="21" font-weight="700" text-anchor="start">Host：文件、终端、网络、推理与设备 I/O 的实际系统权限</text>
+<polyline points="265,465 265,340" fill="none" stroke="#ac3550" stroke-width="2"/>
+<polygon points="265,340 260.0,351.0 270.0,351.0" fill="#ac3550"/>
+<polyline points="760,465 760,340" fill="none" stroke="#8c6000" stroke-width="2"/>
+<polygon points="760,340 755.0,351.0 765.0,351.0" fill="#8c6000"/>
+<rect x="90" y="465" width="350" height="100" rx="9" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.6"/>
+<text x="265.0" y="495" fill="#ac3550" font-size="22" font-weight="700" text-anchor="middle">AI 工具路径</text>
+<text x="265.0" y="523" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">能力模式 → policy / hook → 批准</text>
+<rect x="580" y="465" width="365" height="100" rx="9" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="762.5" y="495" fill="#8c6000" font-size="22" font-weight="700" text-anchor="middle">Direct / 插件 / SDK 路径</text>
+<text x="762.5" y="523" fill="#172a3a" font-size="18" font-weight="400" text-anchor="middle">可跳过 AI preflight 与 hook</text>
+<text x="525" y="300" fill="#172a3a" font-size="19" font-weight="400" text-anchor="middle">Host 不因 Full 模式或加入 Space 获得 root / 管理员权限</text>
+<text x="525" y="260" fill="#526575" font-size="18" font-weight="400" text-anchor="middle">执行范围受路径策略、工具实现、插件权限和外部隔离共同约束</text>
+<text x="32" y="638" fill="#526575" font-size="18" font-weight="400" text-anchor="start">网络入口另需检查身份、配对、Space 策略与 endpoint 授权；撤权不能收回已复制数据。</text>
+</svg>
