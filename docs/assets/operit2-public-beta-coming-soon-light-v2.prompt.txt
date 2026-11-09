@@ -1,0 +1,28 @@
+Use case: ads-marketing.
+Create a completely NEW visual style for an Operit2 upcoming public-beta promotional poster. Portrait 9:16. A finished high-quality Chinese software launch poster with excellent typography and generous whitespace.
+The one reference image is the OFFICIAL Operit icon: use its exact blue circular dragon/robot symbol faithfully as an existing brand mark. It is NOT a style reference for the whole poster.
+
+ART DIRECTION: bright, minimal, optimistic, contemporary Swiss editorial typography meets refined soft 3D product illustration. Warm-white / pearl-white background, official clear blue #3882C7 as the dominant ink and accent, very subtle pale sky-blue areas. A spacious asymmetric editorial grid with strong left-aligned type and sculptural imagery. Clean sophisticated graphic design, a gentle fine paper feeling, sharp legible Chinese characters. This should feel fresh, open, friendly, and premium. The composition must be strikingly different from a dark cinematic technology ad.
+
+COMPOSITION:
+Top: generous margin, official app icon beside a very beautifully typeset blue 'Operit2' wordmark.
+Below: a small restrained blue capsule announcing the upcoming public beta.
+Then a large memorable two-line headline in bold dark-blue modern Chinese sans serif:
+'一个 Agent 核心'
+'连接你的设备空间'
+The headline is the main typographic focus and has excellent spacing.
+Middle: an original playful but sophisticated 3D sculptural illustration on a pale light background: a slim white-and-silver laptop, an upright smartphone, and a small rounded cloud-device node connected at equal standing by one broad flowing cobalt-blue ribbon shaped into an elegant continuous path. The ribbon links devices and feels tangible like smooth matte paper / polymer. Devices are lightly floating above simple white architectural plinths, with beautiful diffuse shadows. Screens are pale-blue with the official Operit mark. Use polished studio rendering, clear spatial depth, precise silhouettes, soft daylight. Artwork supports the message of a personal device space and device cooperation. No fake detailed software screens.
+Below the illustration: a clean airy row of three concise feature captions with simple tiny blue icons.
+Bottom: reserve an empty WHITE SQUARE for a real QR code to be pasted later. It is centered horizontally near the bottom, around 22% of poster width, geometrically a perfect front-facing square. It must have a clean fine blue outline OUTSIDE the white square so the boundary is visible on the light background. The ENTIRE square interior must be completely blank solid white, with no text, no symbols, no pattern, no mark, no gradient, no paper texture. Leave comfortable clear space around it. Place the small CTA caption BELOW the square with safe bottom padding.
+
+Render ONLY these exact words, accurate Simplified Chinese and Latin letters, no other text:
+'Operit2'
+'更大范围公测 · 即将开启'
+'一个 Agent 核心'
+'连接你的设备空间'
+'跨设备协作'
+'插件 · Skills · MCP'
+'开源共建'
+'扫码关注公测动态'
+
+Avoid dark backgrounds, midnight-blue rooms, mountains, sunrise landscapes, desks, photography, glowing orbital light trails, cyberpunk, particles, glass-panel clutter, and excessive decorative icons. No actual QR code, no dates, no version numbers, no second-round wording, no promises of all-platform availability. No unrelated company logos. Do not create a mascot or redesign the official brand mark. Beautiful breathing room and mobile-screen legibility.

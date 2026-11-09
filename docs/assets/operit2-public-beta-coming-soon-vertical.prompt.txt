@@ -1,0 +1,31 @@
+Use case: ads-marketing.
+Create a finished, premium vertical Chinese promotional poster for Operit2's upcoming wider public beta. Portrait 9:16, ideally 2160 x 3840. This is a new original campaign poster, ready to share on a phone, with elegant precise Chinese typography.
+
+Input images and roles:
+Image 1 is the OFFICIAL Operit app icon and brand identity reference. Faithfully reproduce its blue circular dragon/robot mark and white rounded-square tile, without redesigning it.
+Image 2 is an EXISTING campaign poster used only as a brand / product concept reference. Create a fresh and more refined composition. Do not copy its second-round-beta wording or its actual QR code.
+
+Product positioning: open-source cross-device personal AI Agent. Phone, desktop, and cloud devices working together in a personal device space. Visually suggest exploration of device cooperation, not a centralized cloud controlling everything.
+
+Art direction: premium launch-campaign art, deep midnight navy and black with the official clear blue #3882C7 and restrained icy-cyan light. Strong editorial grid, sophisticated restrained type hierarchy, generous breathing room, extraordinarily crisp readable text, subtle luminous reflections. Cinematic photorealistic 3D scene in the middle: a beautifully lit ultrathin laptop, a smartphone, and a desktop monitor on a dark architectural desk; an understated distant cloud/node symbol above, all connected by a small number of elegant blue light trails at equal standing. Screens show the official Operit mark cleanly on dark navy, no invented detailed UI. An atmospheric blue dawn beyond the window, highly refined light, tactile metal and glass. Keep the artwork striking rather than overloaded with science-fiction particles.
+
+Layout:
+- Top centered: the official icon beside a beautifully typeset Operit2 wordmark, white letters with blue numeral 2.
+- Upper third: very large high-impact two-line Chinese announcement. First line '更大范围公测', second line '即将开启'. Clear hierarchy, intentional line spacing, the key phrase accented in blue-white.
+- Under it a smaller single or two-line positioning sentence.
+- Then a restrained evenly spaced row of three feature captions with small tasteful line icons.
+- Central roughly 40%-74% height: cinematic device scene, nicely integrated into the dark background.
+- Bottom roughly 76%-100% height is a calm dark navy area. At the BOTTOM CENTER reserve a perfectly square, completely empty pure white QR insertion area, side length about 19% of poster width, fully front-facing and geometrically square, with a subtle blue hairline border OUTSIDE it only. Position the whole square above the bottom edge with comfortable padding and with the caption underneath. The square's interior must be 100% blank pure white: no QR pattern, no icons, no cross, no writing, no placeholder label, no watermark, no shadow, no texture, no gradient. This white square is a required deliverable for a real QR code to be added later.
+- Beneath the white square add the small CTA caption.
+
+Render ONLY the following exact text, verbatim, with accurate Simplified Chinese, no extra text:
+'Operit2'
+'更大范围公测'
+'即将开启'
+'一个 Agent 核心，连接你的设备空间。'
+'跨设备协作'
+'插件 · Skills · MCP'
+'开源共建'
+'扫码关注公测动态'
+
+Constraints: no date, no version number, no second-round wording, no 'now available' claim, no unsupported platform promises, no unrelated third-party logos. No people. No fabricated screenshots. Do not render an actual QR code. The bottom empty WHITE SQUARE must remain completely unobstructed. Maintain large safe margins all around. This should feel like a polished real software product announcement, with memorable art direction and excellent legibility.

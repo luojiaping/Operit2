@@ -1,0 +1,29 @@
+Create an ORIGINAL ART-DIRECTED HAND-DRAWN POSTER for Operit2, a personal open-source cross-device AI Agent, announcing an upcoming wider public beta. Vertical 9:16.
+
+The visual quality should be that of an independent design magazine commissioning an excellent editorial illustrator. It must feel authored by a human illustrator with exceptional taste: poetic, spare, tactile, confident, sophisticated. Make an actual beautifully composed illustrated print, not a corporate product template.
+
+MEDIUM AND PALETTE:
+Warm ivory uncoated paper, visible subtle paper fibers, loose dark-navy pencil and ink contours, ultramarine / clear-blue gouache with rich uneven pigment, a very small touch of muted vermilion. Real-looking hand pressure and irregular dry-brush edges, fine pencil construction marks, a few expressive hatched shadows. Flat editorial perspective with charming controlled imperfections. Mostly paper and breathing room. Strong graphic forms, beautifully balanced asymmetry. Think carefully considered art-book cover, contemporary hand-painted poster, scanned ink-and-gouache illustration. No photorealism or 3D rendering.
+
+ILLUSTRATED CONCEPT:
+A single wandering blue ink line connects a hand-drawn phone, an open laptop, and a small cloud-device symbol, suggesting ideas and tasks moving through one's personal devices. Build these into one elegant, original, flowing illustration occupying the central and lower-middle part of the poster: the laptop is large and slightly tilted, the upright phone overlaps on another depth plane, a small cloud sits higher to the opposite side. Each device has its own space and equal standing. Hand-painted blue shapes, delicate ink keyboard strokes, sparse hatching and generous gaps make a lively, sculptural composition without realistic rendering. The connecting line is expressive and imperfect like the illustrator drew it in one gesture; its shape creates a graceful diagonal visual rhythm through the page. Screens have simple abstract blue task-note shapes and the small existing Operit mark. There is no detailed fake UI. The illustration should feel fresh, clever, light and unmistakably hand-drawn, with excellent negative-space composition.
+
+TYPE AND HIERARCHY:
+At upper left place the small existing Operit blue mark with a clean modest 'Operit2' wordmark. The supplied image is ONLY a reference for the official symbol. Preserve the recognizable blue dragon/robot silhouette, integrate it as flat ink on paper, no glossy app tile.
+A quiet small beta announcement sits near it.
+A bold oversized dark-navy two-line headline below anchors the composition. Give the Chinese letterforms the character of beautiful carefully drawn print lettering / expressive printed Chinese type with subtly tactile ink edges. Elegant, confident and exceptionally readable. NOT a bubbly handwritten font. Fine editorial spacing. Let the headline and asymmetrical illustration converse, not sit in a sequence of boxes.
+Smaller positioning copy sits near the headline.
+No panels, no pills, no feature cards, no stock-icon rows. Large margins and considered spacing.
+
+EXACT TEXT, render these words only, accurate Simplified Chinese and Latin letters:
+'Operit2'
+'更大范围公测 · 即将开启'
+'让设备，'
+'一起行动。'
+'面向个人的开源跨设备 Agent'
+'扫码关注公测动态'
+
+BOTTOM QR SPACE, CRITICAL:
+Preserve a clearly empty PERFECT SQUARE centered near the bottom for adding a real QR code later. Its side length is about 20% of the poster width. The interior is solid PURE WHITE #FFFFFF with absolutely no texture, writing, symbols, pattern or marks. Its frame is a very thin delicate blue outline that is geometrically square even though the rest of the artwork has hand-drawn contours. Give the square clean breathing room all around. Place '扫码关注公测动态' small beneath it with ample bottom padding. Nothing from the illustration enters this square. No actual QR code.
+
+Design restraint: beautiful cream paper is the dominant background; blue is purposeful and saturated, not a washed-out pastel corporate gradient. Avoid floating photorealistic devices, glossy surfaces, 3D podiums, ribbons, neon, mountain landscapes, clip art, fake calligraphy, cute mascots, dense diagrams, stickers, generic AI sparkles, or symmetrical tech-ad layouts. No dates, invented platform support, version numbers or extra text. Make the result visually memorable through drawing quality, composition and typographic taste.
