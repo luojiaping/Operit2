@@ -1,0 +1,997 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 27 and seed -6661340361479436699 with 8 workers on 8 cores with 7282MB heap and 64MB offheap memory [pid: 21480] (Windows 11 10.0 amd64, Microsoft 21.0.12.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file D:\Operit2\docs\whitepaper\v3\model\TurnHandoff.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\Naturals.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\FiniteSets.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\TLC.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TurnHandoff
+Starting... (2026-11-10 04:20:09)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-10 04:20:10.
+Error: Invariant ContOnce is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ nCut = 0
+/\ nHo = 0
+/\ cut = {}
+/\ execs = {}
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 0
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 1, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 0
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = <<{}, {}>>
+/\ cache = << [owner |-> 1, gen |-> 1, ts |-> 1, origin |-> 1, kind |-> "init", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 2: <UserSend line 176, col 3 to line 183, col 66 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 0
+/\ cut = {}
+/\ execs = {[gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1]}
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 0
+/\ lease = <<TRUE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 1, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 1
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<1, 0>>
+/\ nCrash = 0
+/\ facts = <<{}, {}>>
+/\ cache = << [owner |-> 1, gen |-> 1, ts |-> 1, origin |-> 1, kind |-> "init", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 3: <EndTurn line 188, col 3 to line 197, col 82 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 0
+/\ cut = {}
+/\ execs = {[gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1]}
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 1
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 1, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 1
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = <<{[gen |-> 1, id |-> 1]}, {}>>
+/\ cache = << [owner |-> 1, gen |-> 1, ts |-> 1, origin |-> 1, kind |-> "init", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 4: <UserSend line 176, col 3 to line 183, col 66 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 0
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 1
+/\ lease = <<TRUE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 1, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<1, 0>>
+/\ nCrash = 0
+/\ facts = <<{[gen |-> 1, id |-> 1]}, {}>>
+/\ cache = << [owner |-> 1, gen |-> 1, ts |-> 1, origin |-> 1, kind |-> "init", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 5: <AgentSwitch line 204, col 3 to line 218, col 77 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 2
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 1, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "begun",
+     tgt |-> 2,
+     exp |-> 1,
+     resume |-> TRUE,
+     hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = <<{[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]}, {}>>
+/\ cache = << [owner |-> 1, gen |-> 1, ts |-> 1, origin |-> 1, kind |-> "init", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 6: <Probe line 245, col 3 to line 252, col 100 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 2
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 1, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "probed",
+     tgt |-> 2,
+     exp |-> 1,
+     resume |-> TRUE,
+     hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = <<{[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]}, {}>>
+/\ cache = << [owner |-> 1, gen |-> 1, ts |-> 1, origin |-> 1, kind |-> "init", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 7: <PreSync line 256, col 3 to line 268, col 100 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 2
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 1, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "synced",
+     tgt |-> 2,
+     exp |-> 1,
+     resume |-> TRUE,
+     hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = << {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+   {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} >>
+/\ cache = << [owner |-> 1, gen |-> 1, ts |-> 1, origin |-> 1, kind |-> "init", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 8: <CAS line 272, col 3 to line 285, col 100 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 2
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 2, 1>>, <<0, 1, 1>>>>
+/\ msgs = {}
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 2,
+           gen |-> 2,
+           ts |-> 2,
+           origin |-> 1,
+           kind |-> "cas",
+           wm |-> {} ],
+     st |-> "committed",
+     tgt |-> 2,
+     exp |-> 1,
+     resume |-> TRUE,
+     hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = << {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+   {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} >>
+/\ cache = << [owner |-> 2, gen |-> 2, ts |-> 2, origin |-> 1, kind |-> "cas", wm |-> {}],
+   [ owner |-> 1,
+     gen |-> 1,
+     ts |-> 1,
+     origin |-> 1,
+     kind |-> "init",
+     wm |-> {} ] >>
+
+State 9: <Install line 289, col 3 to line 300, col 100 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 2
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 2, 1>>, <<0, 2, 1>>>>
+/\ msgs = {}
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 2,
+           gen |-> 2,
+           ts |-> 2,
+           origin |-> 1,
+           kind |-> "cas",
+           wm |-> {} ],
+     st |-> "installed",
+     tgt |-> 2,
+     exp |-> 1,
+     resume |-> TRUE,
+     hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = << {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+   {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} >>
+/\ cache = << [owner |-> 2, gen |-> 2, ts |-> 2, origin |-> 1, kind |-> "cas", wm |-> {}],
+   [ owner |-> 2,
+     gen |-> 2,
+     ts |-> 2,
+     origin |-> 1,
+     kind |-> "cas",
+     wm |-> {} ] >>
+
+State 10: <SendAfter line 304, col 3 to line 311, col 100 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] } >>
+/\ cont = <<0, 0>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 2
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 0
+/\ ver = <<<<0, 2, 1>>, <<0, 2, 1>>>>
+/\ msgs = { [ wm |-> {},
+    op |->
+        [ owner |-> 2,
+          gen |-> 2,
+          ts |-> 2,
+          origin |-> 1,
+          kind |-> "cas",
+          wm |-> {} ],
+    tgt |-> 2,
+    resume |-> TRUE,
+    hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+    type |-> "after",
+    dst |-> 2 ] }
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = << {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+   {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} >>
+/\ cache = << [owner |-> 2, gen |-> 2, ts |-> 2, origin |-> 1, kind |-> "cas", wm |-> {}],
+   [ owner |-> 2,
+     gen |-> 2,
+     ts |-> 2,
+     origin |-> 1,
+     kind |-> "cas",
+     wm |-> {} ] >>
+
+State 11: <Next line 461, col 6 to line 461, col 87 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1],
+  [ gen |-> 2,
+    kind |-> "cont",
+    hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+    node |-> 2 ] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] } >>
+/\ cont = <<0, 1>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 2
+/\ lease = <<FALSE, TRUE>>
+/\ nDup = 1
+/\ ver = <<<<0, 2, 1>>, <<0, 2, 1>>>>
+/\ msgs = { [ wm |-> {},
+    op |->
+        [ owner |-> 2,
+          gen |-> 2,
+          ts |-> 2,
+          origin |-> 1,
+          kind |-> "cas",
+          wm |-> {} ],
+    tgt |-> 2,
+    resume |-> TRUE,
+    hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+    type |-> "after",
+    dst |-> 2 ] }
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 2>>
+/\ nCrash = 0
+/\ facts = << {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+   {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]} >>
+/\ cache = << [owner |-> 2, gen |-> 2, ts |-> 2, origin |-> 1, kind |-> "cas", wm |-> {}],
+   [ owner |-> 2,
+     gen |-> 2,
+     ts |-> 2,
+     origin |-> 1,
+     kind |-> "cas",
+     wm |-> {} ] >>
+
+State 12: <EndTurn line 188, col 3 to line 197, col 82 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1],
+  [ gen |-> 2,
+    kind |-> "cont",
+    hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+    node |-> 2 ] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] } >>
+/\ cont = <<0, 1>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 3
+/\ lease = <<FALSE, FALSE>>
+/\ nDup = 1
+/\ ver = <<<<0, 2, 1>>, <<0, 2, 1>>>>
+/\ msgs = { [ wm |-> {},
+    op |->
+        [ owner |-> 2,
+          gen |-> 2,
+          ts |-> 2,
+          origin |-> 1,
+          kind |-> "cas",
+          wm |-> {} ],
+    tgt |-> 2,
+    resume |-> TRUE,
+    hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+    type |-> "after",
+    dst |-> 2 ] }
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 0>>
+/\ nCrash = 0
+/\ facts = << {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+   {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2], [gen |-> 2, id |-> 3]} >>
+/\ cache = << [owner |-> 2, gen |-> 2, ts |-> 2, origin |-> 1, kind |-> "cas", wm |-> {}],
+   [ owner |-> 2,
+     gen |-> 2,
+     ts |-> 2,
+     origin |-> 1,
+     kind |-> "cas",
+     wm |-> {} ] >>
+
+State 13: <Next line 461, col 6 to line 461, col 87 of module TurnHandoff>
+/\ nCut = 0
+/\ nHo = 1
+/\ cut = {}
+/\ execs = { [gen |-> 1, kind |-> "user", hist |-> {}, node |-> 1],
+  [gen |-> 1, kind |-> "user", hist |-> {[gen |-> 1, id |-> 1]}, node |-> 1],
+  [ gen |-> 2,
+    kind |-> "cont",
+    hist |-> {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+    node |-> 2 ] }
+/\ log = << { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] },
+   { [ owner |-> 1,
+       gen |-> 1,
+       ts |-> 1,
+       origin |-> 1,
+       kind |-> "init",
+       wm |-> {} ],
+     [ owner |-> 2,
+       gen |-> 2,
+       ts |-> 2,
+       origin |-> 1,
+       kind |-> "cas",
+       wm |-> {} ] } >>
+/\ cont = <<0, 2>>
+/\ accepted = <<1, 0>>
+/\ clock = <<2, 2>>
+/\ unfenced = FALSE
+/\ nFacts = 3
+/\ lease = <<FALSE, TRUE>>
+/\ nDup = 1
+/\ ver = <<<<0, 2, 1>>, <<0, 2, 1>>>>
+/\ msgs = {}
+/\ nSends = 2
+/\ downStarts = 0
+/\ stale = FALSE
+/\ ho = << [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ],
+   [ op |->
+         [ owner |-> 1,
+           gen |-> 1,
+           ts |-> 1,
+           origin |-> 1,
+           kind |-> "init",
+           wm |-> {} ],
+     st |-> "idle",
+     tgt |-> 0,
+     exp |-> 0,
+     resume |-> FALSE,
+     hist |-> {} ] >>
+/\ up = 1..2
+/\ run = <<0, 2>>
+/\ nCrash = 0
+/\ facts = << {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2]},
+   {[gen |-> 1, id |-> 1], [gen |-> 1, id |-> 2], [gen |-> 2, id |-> 3]} >>
+/\ cache = << [owner |-> 2, gen |-> 2, ts |-> 2, origin |-> 1, kind |-> "cas", wm |-> {}],
+   [ owner |-> 2,
+     gen |-> 2,
+     ts |-> 2,
+     origin |-> 1,
+     kind |-> "cas",
+     wm |-> {} ] >>
+
+283 states generated, 154 distinct states found, 30 states left on queue.
+The depth of the complete state graph search is 14.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 3 and the 95th percentile is 3).
+Finished in 03s at (2026-11-10 04:20:11)

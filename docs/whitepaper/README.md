@@ -2,6 +2,8 @@
 
 本目录保存 2026-11-07 重写的中文版 2.0 白皮书源文、技术配图及研究证据。代码基线为 `1ef788456713e0502688dc0b7928511d98b813ec`。
 
+中文版 3.0（2026-11-10，回合边界续跑与执行所有权）的源文、模型与研究记录在 [v3](v3/README.md)，阅读版为 `docs/Operit2技术白皮书-3.0.pdf`。
+
 - [正文（Markdown）](Operit2-Whitepaper-zh.md)
 - [阅读版 PDF](../Operit2技术白皮书.pdf)
 - [封面 SVG 源文件](cover.svg) / [实际 PDF 封面截图](cover-preview.png)

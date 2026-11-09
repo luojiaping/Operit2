@@ -1,0 +1,13 @@
+cur_x1_window|2|2|4|2|1|0|0|0|current|none|TRUE|FALSE|FALSE|FALSE|Mutex
+cur_x1_patched|2|2|4|2|1|0|0|0|current|none|TRUE|FALSE|FALSE|TRUE|Mutex
+cur_x2_thirdparty|3|2|4|2|1|0|0|0|current|none|FALSE|TRUE|FALSE|FALSE|Mutex
+cur_x3_duplicate|2|2|4|2|1|0|0|1|current|none|TRUE|FALSE|FALSE|FALSE|ContOnce
+cur_x4_samegen|3|2|4|2|2|0|0|0|current|none|FALSE|TRUE|FALSE|FALSE|SingleGen
+cur_x5_history|3|2|4|2|1|0|0|0|current|none|FALSE|TRUE|FALSE|FALSE|FactsComplete
+cur_x6_skew|3|3|6|2|2|1|0|0|current|none|TRUE|FALSE|TRUE|TRUE|ConvergedRoutes NoStaleStart
+cur_x7_stalecont|3|3|6|2|2|0|0|0|current|none|TRUE|FALSE|FALSE|FALSE|NoStaleStart
+fen_safe|3|3|6|2|2|1|1|1|fenced|none|TRUE|TRUE|TRUE|FALSE|ConvergedRoutes Mutex SingleGen NoStaleStart NoUnfencedCommit FactsComplete ContOnce NoProgressWhileOwnerDown
+fen_takeover_safe|3|3|6|2|2|1|1|1|fenced|user|TRUE|TRUE|TRUE|FALSE|SingleGenUnlessTakeover NoUnfencedCommit ForkOnlyAtTakeover ContOnce
+fen_takeover_mutex|3|3|6|2|2|1|1|1|fenced|user|TRUE|TRUE|TRUE|FALSE|Mutex
+fen_takeover_progress|3|3|6|2|2|1|1|1|fenced|user|TRUE|TRUE|TRUE|FALSE|NoProgressWhileOwnerDown
+cur_x7_patched|3|3|6|2|2|0|0|0|current|none|TRUE|FALSE|FALSE|TRUE|NoStaleStart Mutex ContOnce

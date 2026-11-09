@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 730" role="img" aria-label="02  现有的回合边界交接（upstream/main 0c53fae18）">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="730" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">02  现有的回合边界交接（upstream/main 0c53fae18）</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">各步骤在发起节点上依次执行，没有分布式事务包围；括注为第 5 节反例所在的窗口</text>
+<text x="250" y="108" fill="#526575" font-size="20" font-weight="700" text-anchor="middle">源端 A（owner，发起者）</text>
+<line x1="250" y1="120" x2="250" y2="660" stroke="#526575" stroke-width="1.3" stroke-dasharray="7,5"/>
+<text x="790" y="108" fill="#526575" font-size="20" font-weight="700" text-anchor="middle">目标 B</text>
+<line x1="790" y1="120" x2="790" y2="660" stroke="#526575" stroke-width="1.3" stroke-dasharray="7,5"/>
+<rect x="85.0" y="130" width="330" height="34" rx="6" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="250" y="153" fill="#526575" font-size="16" font-weight="400" text-anchor="middle">assistant 段持久提交</text>
+<rect x="85.0" y="185" width="330" height="34" rx="6" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.6"/>
+<text x="250" y="208" fill="#ac3550" font-size="16" font-weight="400" text-anchor="middle">释放本地执行保护</text>
+<rect x="85.0" y="240" width="330" height="34" rx="6" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="250" y="263" fill="#526575" font-size="16" font-weight="400" text-anchor="middle">BeforeChangeRoute：取得后立即释放</text>
+<polyline points="250,318 790,318" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="790.0,318.0 778.0,313.0 778.0,323.0" fill="#526575"/>
+<polygon points="250.0,318.0 262.0,323.0 262.0,313.0" fill="#526575"/>
+<text x="520.0" y="309.0" fill="#526575" font-size="17" font-weight="400" text-anchor="middle">提交前同步（每页 ≤512 条操作）</text>
+<rect x="85.0" y="355" width="330" height="34" rx="6" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="250" y="378" fill="#526575" font-size="16" font-weight="400" text-anchor="middle">本地比较写入 (B, g+1)，只比较 nodeId</text>
+<polyline points="250,430 790,430" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="790.0,430.0 778.0,425.0 778.0,435.0" fill="#526575"/>
+<text x="520.0" y="421.0" fill="#526575" font-size="17" font-weight="400" text-anchor="middle">即时安装 Binding（经冲突裁决）</text>
+<polyline points="250,490 790,490" fill="none" stroke="#8c6000" stroke-width="2"/>
+<polygon points="790.0,490.0 778.0,485.0 778.0,495.0" fill="#8c6000"/>
+<text x="520.0" y="481.0" fill="#8c6000" font-size="17" font-weight="400" text-anchor="middle">AfterChangeRoute（传入历史）</text>
+<rect x="625.0" y="560" width="330" height="34" rx="6" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="790" y="583" fill="#16704a" font-size="16" font-weight="400" text-anchor="middle">取得执行保护，以传入历史续跑</text>
+<rect x="625.0" y="615" width="330" height="34" rx="6" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="790" y="638" fill="#526575" font-size="16" font-weight="400" text-anchor="middle">调用保持到续跑回合发送结束</text>
+<rect x="40" y="188" width="40" height="202" rx="6" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.6"/>
+<text x="60" y="300" fill="#ac3550" font-size="18" font-weight="700" text-anchor="middle">X1</text>
+<text x="440" y="222" fill="#ac3550" font-size="15" font-weight="400" text-anchor="start">X1 窗口：本机视图仍指向 A，</text>
+<text x="440" y="242" fill="#ac3550" font-size="15" font-weight="400" text-anchor="start">执行保护已空闲</text>
+<text x="300" y="518" fill="#8c6000" font-size="15" font-weight="400" text-anchor="start">X3：响应丢失后可能被转发层重提</text>
+<text x="300" y="538" fill="#8c6000" font-size="15" font-weight="400" text-anchor="start">X7：可能在后续交接之后才到达</text>
+<text x="40" y="700" fill="#526575" font-size="16" font-weight="400" text-anchor="start">其他节点发起的切换在发起节点上执行同一过程（X2、X4、X5）；冲突次序不含代次（X6）</text>
+</svg>

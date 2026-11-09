@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 720" role="img" aria-label="04  代次隔离续跑协议 FCP 的交接时序">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="720" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">04  代次隔离续跑协议 FCP 的交接时序</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">让出发生在接受之前；目标按代次至多接受一次续跑；旧 owner 在提交时自隔离</text>
+<text x="210" y="108" fill="#526575" font-size="20" font-weight="700" text-anchor="middle">owner A（代次 g）</text>
+<line x1="210" y1="120" x2="210" y2="615" stroke="#526575" stroke-width="1.3" stroke-dasharray="7,5"/>
+<text x="640" y="108" fill="#526575" font-size="20" font-weight="700" text-anchor="middle">目标 B</text>
+<line x1="640" y1="120" x2="640" y2="615" stroke="#526575" stroke-width="1.3" stroke-dasharray="7,5"/>
+<text x="930" y="108" fill="#526575" font-size="20" font-weight="700" text-anchor="middle">其他节点 C</text>
+<line x1="930" y1="120" x2="930" y2="615" stroke="#526575" stroke-width="1.3" stroke-dasharray="7,5"/>
+<rect x="40.0" y="130" width="340" height="34" rx="6" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="210" y="153" fill="#526575" font-size="16" font-weight="400" text-anchor="middle">回合结束：仍是 (A,g) 才提交（M6）</text>
+<rect x="40.0" y="185" width="340" height="34" rx="6" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="210" y="208" fill="#16704a" font-size="16" font-weight="400" text-anchor="middle">持有保护写入 (B,g+1)（M2、M3）</text>
+<rect x="40.0" y="240" width="340" height="34" rx="6" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="210" y="263" fill="#526575" font-size="16" font-weight="400" text-anchor="middle">释放保护；本机请求转发给 B</text>
+<polyline points="210,318 640,318" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="640.0,318.0 628.0,313.0 628.0,323.0" fill="#16704a"/>
+<text x="425.0" y="309.0" fill="#16704a" font-size="17" font-weight="400" text-anchor="middle">交接消息：代次 g+1 + 事实（M4）</text>
+<rect x="470.0" y="355" width="340" height="34" rx="6" fill="#f4f6f8" stroke="#526575" stroke-width="1.6"/>
+<text x="640" y="378" fill="#526575" font-size="16" font-weight="400" text-anchor="middle">持久化事实；代次优先合并（M1）</text>
+<rect x="470.0" y="410" width="340" height="34" rx="6" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="640" y="433" fill="#16704a" font-size="16" font-weight="400" text-anchor="middle">accepted &lt; g+1 ? 接受并续跑（M5）</text>
+<polyline points="210,488 640,488" fill="none" stroke="#8c6000" stroke-width="2" stroke-dasharray="7,5"/>
+<polygon points="640.0,488.0 628.0,483.0 628.0,493.0" fill="#8c6000"/>
+<text x="425.0" y="479.0" fill="#8c6000" font-size="17" font-weight="400" text-anchor="middle">重复或迟到的交接消息</text>
+<rect x="470.0" y="523" width="340" height="34" rx="6" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="640" y="546" fill="#8c6000" font-size="16" font-weight="400" text-anchor="middle">accepted = g+1：丢弃，不再续跑</text>
+<polyline points="930,595 210,595" fill="none" stroke="#526575" stroke-width="2" stroke-dasharray="7,5"/>
+<polygon points="210.0,595.0 222.0,600.0 222.0,590.0" fill="#526575"/>
+<text x="575" y="585" fill="#526575" font-size="17" font-weight="400" text-anchor="middle">C 上的切换：转移请求只发给 owner（M2）</text>
+<text x="32" y="650" fill="#526575" font-size="16" font-weight="400" text-anchor="start">owner 不可达：默认等待（T0）；用户确认后接管（T1），写入 takeover 代次，原 owner 重连后自隔离</text>
+<text x="32" y="678" fill="#526575" font-size="16" font-weight="400" text-anchor="start">代次即隔离令牌：外部服务不检查代次，检查只发生在提交与合并两处（第 6.2 节）</text>
+</svg>

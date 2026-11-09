@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 600" role="img" aria-label="01  设备空间中的 Binding 视图">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="600" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">01  设备空间中的 Binding 视图</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">每个节点按本机视图路由；同步使视图趋同，在此之前可能不一致</text>
+<rect x="30" y="105" width="300" height="250" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="180" y="137" fill="#007b8b" font-size="21" font-weight="700" text-anchor="middle">手机 CoreNode A</text>
+<rect x="46" y="153" width="268" height="44" rx="6" fill="#fbf7ed" stroke="#8c6000" stroke-width="1.6"/>
+<text x="180" y="181" fill="#8c6000" font-size="16" font-weight="700" text-anchor="middle">视图：owner=A，gen=1（过期）</text>
+<text x="52" y="229" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">持久日志与事实：可复制</text>
+<text x="52" y="259" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">本地执行保护：进程内</text>
+<text x="52" y="289" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">暂态：在途请求、界面会话</text>
+<text x="52" y="319" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">资源：本机权限与模型</text>
+<rect x="375" y="105" width="300" height="250" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="525" y="137" fill="#007b8b" font-size="21" font-weight="700" text-anchor="middle">桌面 CoreNode B</text>
+<rect x="391" y="153" width="268" height="44" rx="6" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="525" y="181" fill="#16704a" font-size="16" font-weight="700" text-anchor="middle">视图：owner=B，gen=2</text>
+<text x="397" y="229" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">持久日志与事实：可复制</text>
+<text x="397" y="259" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">本地执行保护：进程内</text>
+<text x="397" y="289" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">暂态：PTY、WebView、MCP</text>
+<text x="397" y="319" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">资源：工作区挂载与凭据</text>
+<rect x="720" y="105" width="300" height="250" rx="9" fill="#f0f8fa" stroke="#007b8b" stroke-width="1.6"/>
+<text x="870" y="137" fill="#007b8b" font-size="21" font-weight="700" text-anchor="middle">Linux CoreNode C</text>
+<rect x="736" y="153" width="268" height="44" rx="6" fill="#f1f8f4" stroke="#16704a" stroke-width="1.6"/>
+<text x="870" y="181" fill="#16704a" font-size="16" font-weight="700" text-anchor="middle">视图：owner=B，gen=2</text>
+<text x="742" y="229" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">持久日志与事实：可复制</text>
+<text x="742" y="259" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">本地执行保护：进程内</text>
+<text x="742" y="289" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">暂态：PTY、长任务进程</text>
+<text x="742" y="319" fill="#172a3a" font-size="17" font-weight="400" text-anchor="start">资源：常在线、本机权限</text>
+<polyline points="330,230 375,230" fill="none" stroke="#526575" stroke-width="2" stroke-dasharray="7,5"/>
+<polygon points="375.0,230.0 363.0,225.0 363.0,235.0" fill="#526575"/>
+<polygon points="330.0,230.0 342.0,235.0 342.0,225.0" fill="#526575"/>
+<polyline points="675,230 720,230" fill="none" stroke="#526575" stroke-width="2" stroke-dasharray="7,5"/>
+<polygon points="720.0,230.0 708.0,225.0 708.0,235.0" fill="#526575"/>
+<polygon points="675.0,230.0 687.0,235.0 687.0,225.0" fill="#526575"/>
+<polyline points="870,355 870,420 525,420 525,358" fill="none" stroke="#16704a" stroke-width="2"/>
+<polygon points="525.0,358.0 520.0,370.0 530.0,370.0" fill="#16704a"/>
+<text x="698" y="444" fill="#16704a" font-size="17" font-weight="400" text-anchor="middle">C 上的请求：本机视图 → 转发到 B 执行</text>
+<polyline points="120,355 120,410 230,410 230,358" fill="none" stroke="#ac3550" stroke-width="2"/>
+<polygon points="230.0,358.0 225.0,370.0 235.0,370.0" fill="#ac3550"/>
+<text x="30" y="500" fill="#ac3550" font-size="17" font-weight="400" text-anchor="start">A 上的请求：本机视图仍指向 A，于是在 A 本地执行，与 B 并发（第 5 节 X1、X2 的结构）</text>
+<text x="30" y="530" fill="#526575" font-size="17" font-weight="400" text-anchor="start">虚线：持久同步（日志取并集，冲突按 createdAt、originDeviceId、sequence 裁决，代次不参与）</text>
+<text x="30" y="560" fill="#526575" font-size="17" font-weight="400" text-anchor="start">暂态资源始终留在所在节点；交接只传递持久事实与有界配置（弱迁移）</text>
+</svg>

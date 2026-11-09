@@ -1,0 +1,31 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 61 and seed -8837628212502793687 with 8 workers on 8 cores with 7282MB heap and 64MB offheap memory [pid: 5576] (Windows 11 10.0 amd64, Microsoft 21.0.12.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file D:\Operit2\docs\whitepaper\v3\model\TurnHandoff.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\Naturals.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\FiniteSets.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\TLC.tla
+Parsing file C:\Users\Administrator\AppData\Local\Temp\Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TurnHandoff
+Starting... (2026-11-10 03:37:19)
+Computing initial states...
+Computed 2 initial states...
+Computed 4 initial states...
+Finished computing initial states: 8 distinct states generated at 2026-11-10 03:37:21.
+Progress(8) at 2026-11-10 03:37:24: 131,937 states generated (131,937 s/min), 34,522 distinct states found (34,522 ds/min), 21,856 states left on queue.
+Progress(13) at 2026-11-10 03:38:24: 9,085,316 states generated (8,953,379 s/min), 2,102,370 distinct states found (2,067,848 ds/min), 822,659 states left on queue.
+Progress(15) at 2026-11-10 03:39:24: 17,655,175 states generated (8,569,859 s/min), 3,817,901 distinct states found (1,715,531 ds/min), 1,054,022 states left on queue.
+Progress(16) at 2026-11-10 03:40:24: 25,151,726 states generated (7,496,551 s/min), 5,122,026 distinct states found (1,304,125 ds/min), 895,320 states left on queue.
+Progress(20) at 2026-11-10 03:41:24: 34,444,390 states generated (9,292,664 s/min), 6,334,152 distinct states found (1,212,126 ds/min), 15,743 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 9.7E-6
+  based on the actual fingerprints:  val = 1.6E-5
+34499016 states generated, 6335440 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 21.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 14 and the 95th percentile is 3).
+Finished in 04min 08s at (2026-11-10 03:41:25)

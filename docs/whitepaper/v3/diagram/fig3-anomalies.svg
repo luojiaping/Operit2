@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 760" role="img" aria-label="03  三类异常的交错（TLC 反例的示意）">
+<style>text {font-family: SimHei, "Noto Sans SC", "Microsoft YaHei", sans-serif;}</style>
+<rect x="0" y="0" width="1050" height="760" rx="12" fill="#ffffff"/>
+<text x="32" y="42" fill="#172a3a" font-size="26" font-weight="700" text-anchor="start">03  三类异常的交错（TLC 反例的示意）</text>
+<text x="32" y="73" fill="#526575" font-size="18" font-weight="400" text-anchor="start">灰色方块：正在执行的回合；红色方块：违反性质的执行；箭头：Binding 操作的传播</text>
+<text x="32" y="120" fill="#172a3a" font-size="19" font-weight="700" text-anchor="start">X1 交接窗口（违反执行互斥）</text>
+<text x="138" y="162" fill="#526575" font-size="17" font-weight="400" text-anchor="end">A</text>
+<line x1="150" y1="156" x2="1010" y2="156" stroke="#8a99a6" stroke-width="1.2"/>
+<text x="138" y="202" fill="#526575" font-size="17" font-weight="400" text-anchor="end">B</text>
+<line x1="150" y1="196" x2="1010" y2="196" stroke="#8a99a6" stroke-width="1.2"/>
+<rect x="160" y="144" width="170" height="24" rx="4" fill="#e9edf0" stroke="#8a99a6" stroke-width="1.4"/>
+<text x="245" y="138" fill="#526575" font-size="14" font-weight="400" text-anchor="middle">回合 g1</text>
+<circle cx="340" cy="156" r="6" fill="#ac3550" stroke="#ac3550"/>
+<text x="340" y="186" fill="#ac3550" font-size="14" font-weight="400" text-anchor="middle">释放保护</text>
+<rect x="400" y="144" width="420" height="24" rx="4" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.4"/>
+<text x="610" y="138" fill="#ac3550" font-size="14" font-weight="400" text-anchor="middle">新用户消息：A 仍按本机视图执行 g1</text>
+<polyline points="520,164 520,184" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="520.0,184.0 525.0,172.0 515.0,172.0" fill="#526575"/>
+<text x="538" y="174" fill="#526575" font-size="14" font-weight="400" text-anchor="start">CAS (B,g2) + 安装</text>
+<rect x="640" y="184" width="330" height="24" rx="4" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.4"/>
+<text x="805" y="226" fill="#ac3550" font-size="14" font-weight="400" text-anchor="middle">B 以传入历史续跑 g2（不含 A 的新回合）</text>
+<text x="32" y="290" fill="#172a3a" font-size="19" font-weight="700" text-anchor="start">X4 并发切换（同一代次两个 owner，违反 S1）</text>
+<text x="138" y="332" fill="#526575" font-size="17" font-weight="400" text-anchor="end">A</text>
+<line x1="150" y1="326" x2="1010" y2="326" stroke="#8a99a6" stroke-width="1.2"/>
+<text x="138" y="372" fill="#526575" font-size="17" font-weight="400" text-anchor="end">B</text>
+<line x1="150" y1="366" x2="1010" y2="366" stroke="#8a99a6" stroke-width="1.2"/>
+<text x="138" y="412" fill="#526575" font-size="17" font-weight="400" text-anchor="end">C</text>
+<line x1="150" y1="406" x2="1010" y2="406" stroke="#8a99a6" stroke-width="1.2"/>
+<text x="170" y="318" fill="#526575" font-size="14" font-weight="400" text-anchor="start">A 空闲，两次探测都通过</text>
+<polyline points="400,332 400,354" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="400.0,354.0 405.0,342.0 395.0,342.0" fill="#526575"/>
+<text x="410" y="346" fill="#526575" font-size="14" font-weight="400" text-anchor="start">B：CAS (A,g1)→(B,g2)</text>
+<polyline points="470,332 470,394" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="470.0,394.0 475.0,382.0 465.0,382.0" fill="#526575"/>
+<text x="480" y="386" fill="#526575" font-size="14" font-weight="400" text-anchor="start">C：CAS (A,g1)→(C,g2)</text>
+<rect x="660" y="354" width="300" height="24" rx="4" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.4"/>
+<rect x="700" y="394" width="260" height="24" rx="4" fill="#fcf2f4" stroke="#ac3550" stroke-width="1.4"/>
+<text x="830" y="348" fill="#ac3550" font-size="14" font-weight="400" text-anchor="middle">B 在 g2 执行</text>
+<text x="830" y="436" fill="#ac3550" font-size="14" font-weight="400" text-anchor="middle">C 也在 g2 执行</text>
+<text x="32" y="500" fill="#172a3a" font-size="19" font-weight="700" text-anchor="start">X6 时钟偏差（代次回退与路由循环，违反收敛后可路由）</text>
+<text x="138" y="542" fill="#526575" font-size="17" font-weight="400" text-anchor="end">A 时钟=3</text>
+<line x1="150" y1="536" x2="1010" y2="536" stroke="#8a99a6" stroke-width="1.2"/>
+<text x="138" y="582" fill="#526575" font-size="17" font-weight="400" text-anchor="end">B 时钟=2</text>
+<line x1="150" y1="576" x2="1010" y2="576" stroke="#8a99a6" stroke-width="1.2"/>
+<text x="138" y="622" fill="#526575" font-size="17" font-weight="400" text-anchor="end">C 时钟=2</text>
+<line x1="150" y1="616" x2="1010" y2="616" stroke="#8a99a6" stroke-width="1.2"/>
+<polyline points="220,542 220,566" fill="none" stroke="#526575" stroke-width="2"/>
+<polygon points="220.0,566.0 225.0,554.0 215.0,554.0" fill="#526575"/>
+<text x="230" y="556" fill="#526575" font-size="14" font-weight="400" text-anchor="start">(B,g2)@3</text>
+<polyline points="420,570 420,546" fill="none" stroke="#8c6000" stroke-width="2"/>
+<polygon points="420.0,546.0 415.0,558.0 425.0,558.0" fill="#8c6000"/>
+<text x="430" y="562" fill="#8c6000" font-size="14" font-weight="400" text-anchor="start">(A,g3)@2：安装时 A 已崩溃</text>
+<text x="640" y="606" fill="#526575" font-size="14" font-weight="400" text-anchor="start">C 同步后选中 @3 的 g2；A 重启后同样选中 g2</text>
+<polyline points="820,540 820,572" fill="none" stroke="#ac3550" stroke-width="2"/>
+<polygon points="820.0,572.0 825.0,560.0 815.0,560.0" fill="#ac3550"/>
+<polyline points="860,572 860,540" fill="none" stroke="#ac3550" stroke-width="2"/>
+<polygon points="860.0,540.0 855.0,552.0 865.0,552.0" fill="#ac3550"/>
+<text x="880" y="562" fill="#ac3550" font-size="14" font-weight="400" text-anchor="start">A→B→A</text>
+<text x="32" y="700" fill="#526575" font-size="16" font-weight="400" text-anchor="start">各轨迹的完整步骤见第 5.2 节；参数见附录 B。图为示意，横轴不表示真实时间比例</text>
+<text x="32" y="730" fill="#526575" font-size="16" font-weight="400" text-anchor="start">最小补丁 HoldLease 消除 X1，但 X4、X6 与 X7 在打补丁后依然出现</text>
+</svg>
