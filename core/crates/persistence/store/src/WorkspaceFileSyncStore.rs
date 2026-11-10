@@ -17,6 +17,7 @@ use crate::RuntimeFileSyncStore::{
 use crate::SyncOperationStore::{SyncOperation, SyncOperationStore};
 
 type Inventory = BTreeMap<String, FileStamp>;
+const MANAGED_ROOTS: [&str; 3] = ["workspaces", RUNTIME_CHAT_OUTPUTS_DIR_PATH, LEGACY_CHAT_ATTACHMENTS_DIR_PATH];
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct FileStamp {
@@ -78,8 +79,14 @@ impl WorkspaceFileSyncStore {
 
     /// Shared roots use one scanner, policy evaluator and transport protocol.
     pub fn manages(path: &str) -> bool {
-        ["workspaces", RUNTIME_CHAT_OUTPUTS_DIR_PATH, LEGACY_CHAT_ATTACHMENTS_DIR_PATH].iter()
+        MANAGED_ROOTS.iter()
             .any(|root| path.starts_with(&format!("{root}/")))
+    }
+
+    /// Includes managed descendants and ancestors whose mutation can change managed files.
+    pub fn affectedBy(path: &str) -> bool {
+        Self::manages(path) || MANAGED_ROOTS.iter()
+            .any(|root| path == *root || root.starts_with(&format!("{path}/")))
     }
 
     /// Scans only the managed root; mounted VFS directories are not consulted.
@@ -163,7 +170,7 @@ impl WorkspaceFileSyncStore {
         }
         let mut current = Inventory::new();
         let mut large = Inventory::new();
-        for root in ["workspaces", RUNTIME_CHAT_OUTPUTS_DIR_PATH, LEGACY_CHAT_ATTACHMENTS_DIR_PATH] {
+        for root in MANAGED_ROOTS {
             let Some(exists) = self.scanRead(self.host.exists(root), root, &mut skipped)? else { continue; };
             if !exists {
                 if state.files.keys().any(|path| path.starts_with(&format!("{root}/"))) {
@@ -222,6 +229,16 @@ impl WorkspaceFileSyncStore {
                 let Some(bytes) = self.scanRead(readLimitedForScan(self.host.as_ref(), path, limit), path, &mut skipped)? else { continue; };
                 let Some(modifiedAt) = self.scanRead(self.host.modifiedAt(path), path, &mut skipped)? else { continue; };
                 if bytes.len() as i64 != stamp.size || Some(modifiedAt) != stamp.modifiedAt { return Err(format!("File changed during synchronization: {path}")); }
+                // A verified file can replace an old directory, or a new child can
+                // replace an old file. Publish those tombstones before the upsert.
+                let replaced: Vec<_> = state.files.keys().filter(|previous|
+                    previous.starts_with(&format!("{path}/")) || path.starts_with(&format!("{previous}/"))
+                ).cloned().collect();
+                for previous in replaced {
+                    files.recordDeletion(&previous)?;
+                    state.files.remove(&previous);
+                    changes += 1;
+                }
                 files.recordSnapshot(path, &bytes, false)?;
                 changes += 1;
             }
@@ -238,10 +255,14 @@ impl WorkspaceFileSyncStore {
         Ok(changes)
     }
 
-    /// Skips only permission failures and records the protected inventory prefix.
+    /// Retains prior inventory when access is denied or a file disappears during scanning.
     fn scanRead<T>(&self, result: HostResult<T>, path: &str, skipped: &mut Vec<String>) -> Result<Option<T>, String> {
         match result {
             Ok(value) => Ok(Some(value)),
+            Err(error) if error.kind == HostErrorKind::NotFound => {
+                skipped.push(path.to_string());
+                Ok(None)
+            }
             Err(error) if error.kind == HostErrorKind::PermissionDenied => {
                 operit_util::AppLogger::AppLogger::w("WorkspaceFileSyncStore",
                     &format!("Skipping inaccessible workspace path {path}; retaining prior sync state: {error}"));
@@ -540,7 +561,7 @@ fn preserveSkipped(current: &mut Inventory, previous: &Inventory, skipped: &[Str
 
 /// Returns the stable app-managed directory owning one file.
 pub fn managedDirectory(path: &str) -> Result<String, String> {
-    for root in ["workspaces", RUNTIME_CHAT_OUTPUTS_DIR_PATH, LEGACY_CHAT_ATTACHMENTS_DIR_PATH] {
+    for root in MANAGED_ROOTS {
         if let Some(relative) = path.strip_prefix(&format!("{root}/")) {
             let name = relative.split('/').next().filter(|s| !s.is_empty()).ok_or("Missing managed directory")?;
             return Ok(format!("{root}/{name}"));
