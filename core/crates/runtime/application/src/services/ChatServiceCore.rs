@@ -1,3 +1,4 @@
+use crate::plugins::toolpkg::ToolPkgMessageTransformBridge::ToolPkgMessageTransformBridge;
 use operit_tools::tools::packTool::RuntimePackageManager::RuntimePackageManager;
 use crate::core::chat::AIMessageManager::AIMessageManager;
 use crate::data::preferences::ApiPreferences::ApiPreferences;
@@ -30,7 +31,7 @@ use crate::ui::features::chat::webview::workspace::WorkspaceBackupManager::{
 use crate::ui::features::chat::webview::workspace::WorkspaceUtils;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use operit_host_api::FileSystemHost;
+use operit_vfs::VisualFileSystem::VisualFileSystem;
 use operit_host_api::TimeUtils::currentTimeMillis;
 use operit_link::{
     CoreEvent, CoreEventKind, CoreEventStream, CoreStream, CoreStreamSource, CoreValue,
@@ -61,8 +62,8 @@ use operit_store::PreferencesDataStore::{
     combine2, combine4, combine5, mutableStateFlow, MutableStateFlow, StateFlow,
 };
 use operit_store::RuntimeStorageHost::defaultRuntimeStorageHost;
-use operit_tools::files::PathMapper::PathMapper;
-use operit_tools::files::VisualFileSystem::VisualFileSystem;
+use operit_vfs::VfsPath;
+
 use operit_tools::runtime_support::CoreRouteResumeContext;
 use operit_tools::tools::skill_runtime::SkillRepository::SkillRepository;
 use operit_tools::tools::AIToolHandler::AIToolHandler;
@@ -236,7 +237,7 @@ impl PendingChatQueueStore {
 }
 
 pub struct ChatServiceCore {
-    fileSystemHost: Arc<dyn FileSystemHost>,
+    filesystem: Arc<VisualFileSystem>,
     pub selectionMode: ChatSelectionMode,
     /// Carries the factory-authored slot supported by the current plugin send contract.
     pub(crate) chatInputRuntime: Option<operit_plugin_sdk::js_sdk::chat::ChatRuntime>,
@@ -256,7 +257,7 @@ pub struct ChatServiceCore {
 
 impl ChatServiceCore {
     /// Creates a chat service core for the selected chat target mode.
-    pub fn new(selectionMode: ChatSelectionMode, fileSystemHost: Arc<dyn FileSystemHost>) -> Self {
+    pub fn new(selectionMode: ChatSelectionMode, filesystem: Arc<VisualFileSystem>) -> Self {
         let chatInputRuntime = Some(match selectionMode {
             ChatSelectionMode::FOLLOW_GLOBAL => operit_plugin_sdk::js_sdk::chat::ChatRuntime::Main,
             ChatSelectionMode::LOCAL_ONLY => operit_plugin_sdk::js_sdk::chat::ChatRuntime::Floating,
@@ -264,7 +265,7 @@ impl ChatServiceCore {
         Self::newWithPendingQueueStore(
             selectionMode,
             chatInputRuntime,
-            fileSystemHost,
+            filesystem,
             Arc::new(PendingChatQueueStore::new()),
         )
     }
@@ -273,11 +274,11 @@ impl ChatServiceCore {
     pub(crate) fn newWithPendingQueueStore(
         selectionMode: ChatSelectionMode,
         chatInputRuntime: Option<operit_plugin_sdk::js_sdk::chat::ChatRuntime>,
-        fileSystemHost: Arc<dyn FileSystemHost>,
+        filesystem: Arc<VisualFileSystem>,
         pendingQueueStore: Arc<PendingChatQueueStore>,
     ) -> Self {
         let mut core = Self {
-            fileSystemHost,
+            filesystem,
             selectionMode: selectionMode.clone(),
             chatInputRuntime,
             enhancedAiService: None,
@@ -313,7 +314,7 @@ impl ChatServiceCore {
         let _ = bindingKey;
         let context = self.runtimeToolHandler().getContext();
         let storage = context.runtimeStorageHost.clone().ok_or("Local inference requires runtime storage")?;
-        super::LocalLlmService::executeLocalLlm(storage, modelBinding, requestJson, settingsJson).await
+        super::LocalLlmService::executeLocalLlm(context, modelBinding, requestJson, settingsJson).await
     }
 
     /// Clones the plugin execution host before releasing the borrowed chat core.
@@ -372,28 +373,6 @@ impl ChatServiceCore {
         self.pendingQueueStore.stateFlow()
     }
 
-    /// Reports whether the specified chat is currently unable to accept a new turn.
-    fn isChatQueueBlocked(&self, chatId: &str) -> bool {
-        let activeStreamingChatIds = self
-            .messageProcessingDelegate
-            .activeStreamingChatIdsFlow()
-            .value();
-        if activeStreamingChatIds.contains(chatId) {
-            return true;
-        }
-        let inputProcessingStateByChatId = self
-            .messageProcessingDelegate
-            .inputProcessingStateByChatIdFlow()
-            .value();
-        match inputProcessingStateByChatId.get(chatId) {
-            Some(InputProcessingState::Idle)
-            | Some(InputProcessingState::Completed)
-            | Some(InputProcessingState::Error { .. })
-            | None => false,
-            Some(_) => true,
-        }
-    }
-
     /// Marks an existing queue as blocked when a new turn starts for its chat.
     fn markPendingQueueBlocked(&mut self, chatId: &str) {
         let mut queueStateByChatId = self.pendingQueueStateFlow().value();
@@ -411,7 +390,7 @@ impl ChatServiceCore {
     fn initializeDelegates(&mut self) {
         self.chatHistoryDelegate = ChatHistoryDelegate::new(self.selectionMode.clone());
         self.messageProcessingDelegate = MessageProcessingDelegate::default();
-        self.messageProcessingDelegate.fileSystemHost = Some(self.fileSystemHost.clone());
+        self.messageProcessingDelegate.filesystem = Some(self.filesystem.as_ref().clone());
         let summaryCancellationDelegate = self.messageProcessingDelegate.clone_for_core();
         self.chatHistoryDelegate.setBeforeDestructiveHistoryMutation(move |chatId| {
             summaryCancellationDelegate.cancelSummaryTasks(Some(&chatId));
@@ -487,7 +466,7 @@ impl ChatServiceCore {
             text: text.to_string(), selectionStart, selectionEnd,
             hasAttachments: attachmentCount > 0, attachmentCount: attachmentCount as i32,
             attachments, replyToMessageTimestamp,
-            isProcessing: self.messageProcessingDelegate.isChatLoading(chatId.to_string()),
+            isProcessing: self.messageProcessingDelegate.isChatProcessing(chatId),
             inputStyle: "Runtime".to_string(), source: "Runtime".to_string(),
             submitSource: "Send".to_string(), eventName: eventName.to_string(),
         }
@@ -504,21 +483,23 @@ impl ChatServiceCore {
             attachments.len(), Some(attachments.to_vec()), replyToMessageTimestamp, eventName)
     }
 
-    /// Dispatches count-only input notifications honestly and exposes notification failures to the host log.
+    /// Captures count-only input notifications before releasing Holder for plugin callbacks.
     #[allow(non_snake_case)]
-    pub async fn dispatchChatInputChanged(
+    pub fn dispatchChatInputChanged(
         &self, chatIdOverride: Option<String>, messageText: String, selectionStart: i32,
         selectionEnd: i32, attachmentCount: usize,
-    ) {
-        let hookChatId = match self.inputChatId(chatIdOverride) {
-            Ok(id) => id,
-            Err(error) => { AppLogger::e("ChatInputHook", &error); return; }
-        };
-        if let Err(error) = ToolPkgChatInputHookBridge::dispatchRegisteredChatInputHooks(
-            self.buildChatInputHookContext(&hookChatId, &messageText, selectionStart, selectionEnd,
-                attachmentCount, None, None, CHAT_INPUT_EVENT_INPUT_CHANGED),
-        ).await {
-            AppLogger::e("ChatInputHook", &error);
+    ) -> impl std::future::Future<Output = ()> + 'static {
+        let context = self.inputChatId(chatIdOverride).map(|chatId|
+            self.buildChatInputHookContext(&chatId, &messageText, selectionStart, selectionEnd,
+                attachmentCount, None, None, CHAT_INPUT_EVENT_INPUT_CHANGED));
+        async move {
+            let context = match context {
+                Ok(context) => context,
+                Err(error) => { AppLogger::e("ChatInputHook", &error); return; }
+            };
+            if let Err(error) = ToolPkgChatInputHookBridge::dispatchRegisteredChatInputHooks(context).await {
+                AppLogger::e("ChatInputHook", &error);
+            }
         }
     }
 
@@ -534,22 +515,22 @@ impl ChatServiceCore {
         Ok(self.buildChatInputHookContextAtEnd(&chatId, &text, &attachments, replyToMessageTimestamp, CHAT_INPUT_EVENT_SUBMIT_REQUESTED))
     }
 
-    /// Resolves the real reply target and dispatches submit hooks strictly before any host sends or clears input.
+    /// Captures validated input under Holder and dispatches hooks after releasing it so plugins can send.
     #[allow(non_snake_case)]
-    pub async fn dispatchChatInputSubmitRequested(
+    pub fn dispatchChatInputSubmitRequested(
         &self, chatIdOverride: Option<String>, messageText: String, selectionStart: i32,
         selectionEnd: i32, attachments: Vec<AttachmentInfo>, replyToMessageTimestamp: Option<i64>,
-    ) -> Result<serde_json::Value, String> {
-        let hookChatId = self.inputChatId(chatIdOverride)?;
-        if let Some(timestamp) = replyToMessageTimestamp {
-            self.chatHistoryDelegate.chatHistoryManager.loadChatMessageVariant(&hookChatId, timestamp, 0)
-                .map_err(|error| error.to_string())?;
+    ) -> impl std::future::Future<Output = Result<serde_json::Value, String>> + 'static {
+        let context = self.inputChatId(chatIdOverride).and_then(|chatId| {
+            let mut context = self.prepareChatInputSubmit(chatId, messageText, attachments, replyToMessageTimestamp)?;
+            context.selectionStart = selectionStart;
+            context.selectionEnd = selectionEnd;
+            Ok(context)
+        });
+        async move {
+            let decision = ToolPkgChatInputHookBridge::dispatchRegisteredChatInputHooks(context?).await?;
+            Ok(serializeChatInputHookResult(decision))
         }
-        let decision = ToolPkgChatInputHookBridge::dispatchRegisteredChatInputHooks(
-            self.buildChatInputHookContext(&hookChatId, &messageText, selectionStart, selectionEnd,
-                attachments.len(), Some(attachments), replyToMessageTimestamp, CHAT_INPUT_EVENT_SUBMIT_REQUESTED),
-        ).await?;
-        Ok(serializeChatInputHookResult(decision))
     }
 
     /// Accepts a host-authored message through the same native turn pipeline and exposes immediate errors explicitly.
@@ -837,7 +818,7 @@ impl ChatServiceCore {
                 participantId: Some(resumeContext.participantId.clone()),
                 promptFunctionType: resumeContext.promptFunctionType.clone(),
                 defaultModelBinding: support
-                    .modelBindingForFunction(support.dataDir()?, FunctionType::CHAT)?,
+                    .modelBindingForFunction(FunctionType::CHAT)?,
                 defaultTtsConfigId: support.defaultTtsConfigId()?,
             })
             .await?;
@@ -960,7 +941,7 @@ impl ChatServiceCore {
         messageId: i64,
         suppressNextAutoDequeue: bool,
     ) -> Option<PendingQueueMessageItem> {
-        let shouldSuppressAutoDequeue = suppressNextAutoDequeue && self.isChatQueueBlocked(&chatId);
+        let shouldSuppressAutoDequeue = suppressNextAutoDequeue && self.messageProcessingDelegate.isChatProcessing(&chatId);
         let mut queueStateByChatId = self.pendingQueueStateFlow().value();
         let queueState = queueStateByChatId.get_mut(&chatId)?;
         let messageIndex = queueState
@@ -997,7 +978,7 @@ impl ChatServiceCore {
         &mut self,
         chatId: String,
     ) -> Option<PendingQueueMessageItem> {
-        if self.isChatQueueBlocked(&chatId) {
+        if self.messageProcessingDelegate.isChatProcessing(&chatId) {
             return None;
         }
         let mut queueStateByChatId = self.pendingQueueStateFlow().value();
@@ -1054,6 +1035,32 @@ impl ChatServiceCore {
         let handler = self.runtimeToolHandler();
         for event in &mut events { handler.decorateToolDisplayEvent(event); }
         events
+    }
+
+    /// Observes enabled transform handlers and their explicitly invalidated settings.
+    pub fn messageTransformRevisionFlow(&self) -> StateFlow<i64> {
+        ToolPkgMessageTransformBridge::revisionFlow()
+    }
+
+    /// Projects a client-owned display snapshot and releases the receiver before invoking presentation plugins.
+    pub fn projectMessageForDisplay(
+        &self, chatId: String, message: ChatMessage,
+    ) -> impl std::future::Future<Output = Result<ChatMessage, String>> + 'static {
+        let pending = self.projectMessagesForDisplay(chatId, vec![message]);
+        async move { pending.await?.into_iter().next().ok_or_else(|| "Display projection returned no message".into()) }
+    }
+
+    /// Projects exact client snapshots with one depth lookup and one preparation per plugin.
+    pub fn projectMessagesForDisplay(
+        &self, chatId: String, mut messages: Vec<ChatMessage>,
+    ) -> impl std::future::Future<Output = Result<Vec<ChatMessage>, String>> + 'static {
+        for message in &mut messages { message.contentStream = None; }
+        let depths = if !messages.is_empty() && ToolPkgMessageTransformBridge::hasDisplayHooks() { self.chatHistoryDelegate.chatHistoryManager
+            .loadChatMessageDepths(&chatId, &messages.iter().map(|message| message.timestamp).collect::<Vec<_>>())
+            .map_err(|error| error.to_string()) } else { Ok(vec![0; messages.len()]) };
+        async move {
+            ToolPkgMessageTransformBridge::transformDisplayBatch(&chatId, messages, depths?).await
+        }
     }
 
     /// Observes committed XML render hook changes so existing message nodes can re-render.
@@ -1149,7 +1156,7 @@ impl ChatServiceCore {
             chatExtension: None,
             participantId: None,
             promptFunctionType: PromptFunctionType::CHAT,
-            defaultModelBinding: support.modelBindingForFunction(support.dataDir()?,FunctionType::CHAT)?,
+            defaultModelBinding: support.modelBindingForFunction(FunctionType::CHAT)?,
             defaultTtsConfigId: support.defaultTtsConfigId()?,
         }).await?;
         self.chatHistoryDelegate
@@ -1190,7 +1197,7 @@ impl ChatServiceCore {
             participantId,
             promptFunctionType: PromptFunctionType::CHAT,
             defaultModelBinding: support
-                .modelBindingForFunction(support.dataDir()?, FunctionType::CHAT)?,
+                .modelBindingForFunction(FunctionType::CHAT)?,
             defaultTtsConfigId: support.defaultTtsConfigId()?,
         })
         .await
@@ -1359,6 +1366,16 @@ impl ChatServiceCore {
         let editedMessage = ChatMessage {
             parts: editedParts,
             ..message
+        };
+        let depth = self.chatHistoryDelegate.chatHistoryManager
+            .loadChatMessageLocatorPreviews(chatId.clone(), String::new())
+            .expect("message depth query must succeed").iter()
+            .filter(|item| item.timestamp > messageTimestamp).count() as i32;
+        let editedMessage = match ToolPkgMessageTransformBridge::transform(
+            &chatId, editedMessage, "before_persist", depth, true,
+        ).await {
+            Ok(message) => message,
+            Err(error) => { AppLogger::e("ChatServiceCore", &error); return false; }
         };
         self.chatHistoryDelegate
             .addMessageToChat(editedMessage, Some(chatId.clone()));
@@ -1695,7 +1712,7 @@ impl ChatServiceCore {
         chatId: String,
         name: String,
     ) -> Result<String, String> {
-        PathMapper::workspacePath(&name)?;
+        VfsPath::workspacePath(&name)?;
         let workspacePath =
             WorkspaceUtils::createAndGetDefaultWorkspace(name.clone(), Some("blank".to_string()))?;
         let folderName = operit_model::Workspace::Workspace::folderNameFromPath(&workspacePath)?;
@@ -1765,7 +1782,7 @@ impl ChatServiceCore {
         newWorkspace: String,
         newTitle: String,
     ) {
-        let newWorkspace = PathMapper::normalizeWorkspaceBindingPath(&newWorkspace).expect(
+        let newWorkspace = VfsPath::normalizeWorkspaceBindingPath(&newWorkspace).expect(
             "ChatServiceCore.renameWorkspaceAndChat requires a workspace path that maps to VFS",
         );
         self.chatHistoryDelegate
@@ -2156,11 +2173,11 @@ impl ChatServiceCore {
             return;
         }
 
-        let screenshotBytes = match self.fileSystemHost.readFileBytes(&screenshotPath) {
+        let screenshotBytes = match self.filesystem.readFileBytes(&screenshotPath) {
             Ok(bytes) => bytes,
             Err(error) => {
                 self.messageProcessingDelegate
-                    .showToast(format!("添加屏幕内容失败: {}", error.message));
+                    .showToast(format!("添加屏幕内容失败: {}", error.to_string()));
                 return;
             }
         };
@@ -2196,10 +2213,10 @@ impl ChatServiceCore {
         self.messageProcessingDelegate
             .showToast("已添加屏幕内容".to_string());
 
-        if let Err(error) = self.fileSystemHost.deleteFile(&screenshotPath, false) {
+        if let Err(error) = self.filesystem.deleteFile(&screenshotPath, false) {
             AppLogger::w(
                 "ChatServiceCore",
-                &format!("cannot remove captured screenshot: {}", error.message),
+                &format!("cannot remove captured screenshot: {}", error.to_string()),
             );
         }
     }
@@ -2362,13 +2379,13 @@ impl ChatServiceCore {
     /// Adds a workspace mention as an in-memory plain-text attachment.
     #[allow(non_snake_case)]
     fn attachWorkspaceMentionInternal(&mut self, relativePath: &str) -> Result<String, String> {
-        let normalizedRelativePath = PathMapper::normalizeRelativePath(relativePath)?;
+        let normalizedRelativePath = VfsPath::normalizeRelativePath(relativePath)?;
         if normalizedRelativePath.is_empty() {
             return Err("无法添加工作区引用: 路径为空".to_string());
         }
         let workspaceRoot = self.currentWorkspaceRoot()?;
         let vfs = self.vfsForWorkspace()?;
-        let targetPath = PathMapper::joinVfsPath(&workspaceRoot, &normalizedRelativePath)?;
+        let targetPath = VfsPath::joinVfsPath(&workspaceRoot, &normalizedRelativePath)?;
         let targetInfo = vfs.fileExists(&targetPath)?;
         if !targetInfo.exists {
             return Err("工作区路径不存在".to_string());
@@ -2421,17 +2438,7 @@ impl ChatServiceCore {
     /// Creates a VFS instance for chat workspace attachment reads.
     #[allow(non_snake_case)]
     fn vfsForWorkspace(&self) -> Result<VisualFileSystem, String> {
-        let runtimeStorageHost = defaultRuntimeStorageHost();
-        let runtimeStoreRoot = runtimeStorageHost.runtimeRootDir().ok_or_else(|| {
-            "RuntimeStorageHost runtime root is not configured for workspace mentions".to_string()
-        })?;
-        let workspaceCollectionRoot = runtimeStorageHost.workspaceRootDir().ok_or_else(|| {
-            "RuntimeStorageHost workspace root is not configured for workspace mentions".to_string()
-        })?;
-        Ok(VisualFileSystem::new(
-            self.fileSystemHost.clone(),
-            PathMapper::new(runtimeStoreRoot, workspaceCollectionRoot, runtimeStorageHost.clone()),
-        ))
+        self.runtimeToolHandler().getContext().vfs()
     }
 
     /// Requires a real chat before allocating any persistent attachment files.
@@ -2469,7 +2476,7 @@ impl ChatServiceCore {
             return Err("Uploaded attachment does not belong to this runtime".to_string());
         }
         let stored = self
-            .fileSystemHost
+            .filesystem
             .fileExists(&attachment.filePath)
             .map_err(|error| error.to_string())?;
         if !stored.exists || stored.isDirectory || stored.size != attachment.fileSize {
@@ -2480,7 +2487,7 @@ impl ChatServiceCore {
         if !super::AttachmentTransferManager::isSelectedAttachment(&attachment, &chatId)? {
             return Err("Attachment must be imported into the current chat file directory before registration".into());
         }
-        let resolved = self.vfsForWorkspace()?.resolvePath(&attachment.fileToolPath())?.nativePath()?;
+        let resolved = self.vfsForWorkspace()?.resolveResourcePath(None, &attachment.fileToolPath())?;
         if resolved != attachment.filePath {
             return Err("Attachment VFS locator does not match its stored file".into());
         }
@@ -2565,10 +2572,7 @@ impl ChatServiceCore {
         let Some(chatId) = self.chatHistoryDelegate.currentChatIdFlow().value() else {
             return false;
         };
-        self.messageProcessingDelegate
-            .activeStreamingChatIdsFlow()
-            .value()
-            .contains(&chatId)
+        self.messageProcessingDelegate.isChatLoading(chatId)
     }
 
     /// Returns whether older messages exist beyond the current display window.
@@ -3453,6 +3457,7 @@ pub(crate) fn getMimeTypeFromPath(path: &Path) -> &'static str {
         Some("gif") => "image/gif",
         Some("webp") => "image/webp",
         Some("heic") => "image/heic",
+        Some("heif") => "image/heif",
         Some("txt") => "text/plain",
         Some("json") => "application/json",
         Some("xml") => "application/xml",
@@ -3582,6 +3587,7 @@ fn authorizeChatImage(messages: &[ChatMessage], id: &str) -> Result<(), String> 
 #[cfg(test)]
 mod chat_deletion_tests {
     use super::*;
+    use crate::services::core::MessageProcessingDelegate::ChatExecutionState;
     use operit_host_native_filesystem::PosixFileSystemHost;
     use operit_host_native_storage::NativeRuntimeStorageHost;
     use operit_model::ChatEntity::ChatEntity;
@@ -3590,7 +3596,7 @@ mod chat_deletion_tests {
     use operit_store::RuntimeStorePaths::RuntimeStorePaths;
     use operit_store::db::AppDatabase::AppDatabase;
     use operit_store::sync::SqlChatSyncStore::SqlChatSyncStore;
-    use operit_util::RuntimeStoreRoot::{setDefaultRuntimeStoreRootConfig, RuntimeStoreRootConfig};
+
     use operit_util::stream::HotStream::mutable_shared_stream;
     use crate::services::core::MessageProcessingDelegate::ChatRuntime;
 
@@ -3633,28 +3639,33 @@ mod chat_deletion_tests {
         let runtimeRoot = root.join("runtime");
         let workspaceRoot = root.join("workspaces");
         std::fs::create_dir_all(&runtimeRoot).unwrap();
-        setDefaultRuntimeStoreRootConfig(RuntimeStoreRootConfig::new(runtimeRoot.clone(), workspaceRoot.clone()));
+
         let host = Arc::new(NativeRuntimeStorageHost::new(runtimeRoot.clone(), workspaceRoot.clone()));
         setDefaultRuntimeStorageHost(host.clone());
-        setDefaultRuntimeSqliteHost(host);
-        let database = AppDatabase::getDatabase(RuntimeStorePaths::new(runtimeRoot, workspaceRoot)).unwrap();
+        setDefaultRuntimeSqliteHost(host.clone());
+        let database = AppDatabase::getDatabase(RuntimeStorePaths::default()).unwrap();
         for id in ["deleted-chat", "live-chat"] {
             database.chatDao().insertChat(ChatEntity::new(id.into(), id.into(), 1)).unwrap();
         }
-        let mut core = ChatServiceCore::new(ChatSelectionMode::FOLLOW_GLOBAL, Arc::new(PosixFileSystemHost::new()));
+        let filesystem = VisualFileSystem::fromStorage(Arc::new(PosixFileSystemHost::new()), host).unwrap();
+        let mut core = ChatServiceCore::new(ChatSelectionMode::FOLLOW_GLOBAL, Arc::new(filesystem));
         core.chatHistoryDelegate.openChatHistory("deleted-chat".into(), true).unwrap();
         let deletedFlow = core.chatHistoryDelegate.chatMessageFlowForChat("deleted-chat".into());
         core.chatHistoryDelegate.chatMessageFlowsByChatId.lock().unwrap()["deleted-chat"].set_value(vec![
             ChatMessage::new_with_markdown_timestamp("ai".into(), "partial output".into(), 123)
         ]);
         let mut streams = Vec::new();
+        let observer = core.messageProcessingDelegate.clone_for_core();
         for id in ["deleted-chat", "live-chat"] {
             let stream = SharedAiResponseStream::new_ordered(mutable_shared_stream(usize::MAX), mutable_shared_stream(usize::MAX));
             let mut runtime = ChatRuntime::new();
             runtime.activeTurnId = 7;
-            runtime.isLoading = true;
             runtime.responseStream = Some(stream.clone());
             core.messageProcessingDelegate.chatRuntimes.lock().unwrap().insert(id.into(), runtime);
+            core.messageProcessingDelegate.setChatExecutionStateForTest(id.into(), ChatExecutionState {
+                isLoading: true,
+                inputProcessingState: InputProcessingState::Processing { message: "processing".into() },
+            });
             core.pendingQueueStateFlow().update(|queues| { queues.insert(id.into(), PendingChatQueueState::new()); });
             core.chatHistoryDelegate.chatConfigurationsFlow.update(|configs| {
                 configs.insert(id.into(), operit_providers::runtime_support::ChatConfigurationDisplayResult {
@@ -3663,14 +3674,18 @@ mod chat_deletion_tests {
             });
             streams.push(stream);
         }
-        core.messageProcessingDelegate.refreshActiveStreamingChatIds();
         assert_eq!(core.activeStreamingChatIds().len(), 2);
+        assert!(observer.isChatLoading("deleted-chat".into()));
+        assert!(observer.isChatProcessing("deleted-chat"));
         assert!(SqlChatSyncStore::default().unwrap().deleteChat("deleted-chat").unwrap());
 
         core.applySynchronizedChatDeletion("deleted-chat".into()).await.unwrap();
         core.applySynchronizedChatDeletion("deleted-chat".into()).await.unwrap();
 
         assert_eq!(core.activeStreamingChatIds(), vec!["live-chat".to_string()]);
+        assert!(!observer.isChatLoading("deleted-chat".into()));
+        assert!(!observer.isChatProcessing("deleted-chat"));
+        assert!(observer.isChatLoading("live-chat".into()));
         let runtimes = core.messageProcessingDelegate.chatRuntimes.lock().unwrap();
         assert_eq!(runtimes["deleted-chat"].activeTurnId, 8);
         assert!(runtimes["deleted-chat"].responseStream.is_none());
@@ -3687,6 +3702,23 @@ mod chat_deletion_tests {
         assert!(core.chatHistoryDelegate.chatHistoryManager.loadChatHistory("deleted-chat".into()).unwrap().is_none());
         drop(runtimes);
 
+        // A summary occupies the chat after streaming resources have finished.
+        core.messageProcessingDelegate.setChatExecutionStateForTest("live-chat".into(), ChatExecutionState {
+            isLoading: false,
+            inputProcessingState: InputProcessingState::Summarizing { message: "summarizing".into() },
+        });
+        assert!(!observer.isChatLoading("live-chat".into()));
+        assert!(observer.isChatProcessing("live-chat"));
+        assert!(observer.activeStreamingChatIdsFlow().value().is_empty());
+        assert!(matches!(observer.inputProcessingStateByChatIdFlow().value()["live-chat"], InputProcessingState::Summarizing { .. }));
+        core.messageProcessingDelegate.finishChatExecution("live-chat".into(), InputProcessingState::Completed);
+        assert!(!observer.isChatProcessing("live-chat"));
+
+        let runtimeCount = observer.chatRuntimes.lock().unwrap().len();
+        assert!(!observer.isChatLoading("missing-chat".into()));
+        assert!(!observer.isChatProcessing("missing-chat"));
+        assert_eq!(observer.chatRuntimes.lock().unwrap().len(), runtimeCount);
+
         // Reuse the same native fixture: the production history manager is process-wide.
         // A completed source turn must hand its lease to the route lifecycle.
         for id in ["route-chat", "other-chat"] {
@@ -3696,7 +3728,6 @@ mod chat_deletion_tests {
         let other = database.store().beginChatExecution("other-chat").unwrap();
         let mut turn = ChatRuntime::new();
         turn.activeTurnId = 7;
-        turn.isLoading = true;
         turn.executionLease = Some(source.clone());
         core.messageProcessingDelegate.chatRuntimes.lock().unwrap().insert("route-chat".into(), turn);
 

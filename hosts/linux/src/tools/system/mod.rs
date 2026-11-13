@@ -25,6 +25,16 @@ impl LinuxSystemOperationHost {
 }
 
 impl SystemOperationHost for LinuxSystemOperationHost {
+    /// Selects the existing Linux portable application package.
+    fn applicationUpdateTarget(
+        &self,
+    ) -> HostResult<Option<operit_host_api::ApplicationUpdateTarget>> {
+        Ok(Some(operit_host_api::ApplicationUpdateTarget {
+            installTiming: operit_host_api::AppInstallTiming::Immediate,
+            arch: std::env::consts::ARCH.into(),
+            package: operit_host_api::ApplicationUpdatePackage::LinuxTarGz,
+        }))
+    }
     fn getSystemLanguageCode(&self) -> HostResult<String> {
         get_linux_system_language_code()
     }
@@ -71,8 +81,11 @@ impl SystemOperationHost for LinuxSystemOperationHost {
         get_linux_system_setting(namespace, setting)
     }
 
-    fn installApp(&self, path: &str) -> HostResult<AppOperationData> {
-        packages::install(path)
+    /// Installs a VFS file reference using the requested platform execution timing.
+    fn installApp(&self, source: &dyn operit_host_api::FileSource, timing: operit_host_api::AppInstallTiming) -> HostResult<AppOperationData> {
+        timing.requireImmediate()?;
+        let path = source.nativePath()?;
+        packages::install(&path)
     }
 
     fn uninstallApp(&self, packageName: &str) -> HostResult<AppOperationData> {
@@ -118,17 +131,26 @@ impl SystemOperationHost for LinuxSystemOperationHost {
         get_linux_device_info()
     }
 
+    /// Writes image bytes through the selected VFS capability and removes native staging.
+    fn captureScreenshotTo(&self, target: &dyn operit_host_api::FileTarget) -> HostResult<()> {
+        let path = self.captureScreenshot()?;
+        let bytes = std::fs::read(&path).map_err(|error| operit_host_api::HostError::new(error.to_string()))?;
+        let written = target.writeBytes(&bytes);
+        std::fs::remove_file(&path).map_err(|error| operit_host_api::HostError::new(error.to_string()))?;
+        written
+    }
+
     fn captureScreenshot(&self) -> HostResult<String> {
         capture_linux_screenshot()
     }
 
     fn recognizeText(
         &self,
-        imagePath: &str,
+        imagePath: &dyn operit_host_api::FileSource,
         language: OCRLanguage,
         quality: OCRQuality,
     ) -> HostResult<String> {
-        recognize_linux_text(imagePath, language, quality)
+        recognize_linux_text(&imagePath.nativePath()?, language, quality)
     }
 }
 

@@ -16,7 +16,7 @@ fn runtime_paths() -> &'static operit_store::RuntimeStorePaths::RuntimeStorePath
         setDefaultRuntimeSqliteHost, setDefaultRuntimeStorageHost,
     };
     use operit_store::RuntimeStorePaths::RuntimeStorePaths;
-    use operit_util::RuntimeStoreRoot::{setDefaultRuntimeStoreRootConfig, RuntimeStoreRootConfig};
+
     use std::sync::{Arc, OnceLock};
     static PATHS: OnceLock<RuntimeStorePaths> = OnceLock::new();
     PATHS.get_or_init(|| {
@@ -25,17 +25,14 @@ fn runtime_paths() -> &'static operit_store::RuntimeStorePaths::RuntimeStorePath
         let runtime = root.join("runtime");
         let workspaces = root.join("workspaces");
         std::fs::create_dir_all(&runtime).unwrap();
-        setDefaultRuntimeStoreRootConfig(RuntimeStoreRootConfig::new(
-            runtime.clone(),
-            workspaces.clone(),
-        ));
+
         let storage = Arc::new(NativeRuntimeStorageHost::new(
             runtime.clone(),
             workspaces.clone(),
         ));
         setDefaultRuntimeStorageHost(storage.clone());
         setDefaultRuntimeSqliteHost(storage);
-        RuntimeStorePaths::new(runtime, workspaces)
+        RuntimeStorePaths::default()
     })
 }
 
@@ -44,9 +41,13 @@ fn asset_runtime(
 ) -> std::sync::Arc<operit_runtime::services::ToolRuntimeSupportService::RuntimeToolSupport> {
     use std::sync::Arc;
     runtime_paths();
-    let filesystem = Arc::new(operit_host_native_filesystem::PosixFileSystemHost::new());
+    let host = operit_host_api::HostManager::HostManager::withFileSystemHost(Arc::new(
+        operit_host_native_filesystem::PosixFileSystemHost::new(),
+    ))
+    .withRuntimeStorageHost(operit_store::RuntimeStorageHost::defaultRuntimeStorageHost());
+    let filesystem = Arc::new(host.vfs().unwrap());
     operit_runtime::services::ToolRuntimeSupportService::ToolRuntimeSupportService::create(
-        operit_host_api::HostManager::HostManager::new(),
+        host,
         Arc::new(tokio::sync::Mutex::new(
             operit_runtime::core::chat::ChatRuntimeHolder::ChatRuntimeHolder::new(filesystem),
         )),
@@ -113,9 +114,9 @@ fn package_builder_examples_reuse_archives_without_losing_files() {
         "examples/packages/buildin/character_cards/package.json",
     ] {
         assert!(
-            BUNDLED_EXTERNAL_SKILL_ASSETS
-                .iter()
-                .any(|asset| { asset.skill_name == "PackageBuilder" && asset.path == required }),
+            BUNDLED_EXTERNAL_SKILL_ASSETS.iter().any(|asset| {
+                asset.skill_name == "PackageBuilder" && asset.path == required
+            }),
             "source-only skill file must remain available: {required}"
         );
     }
@@ -132,16 +133,18 @@ fn invalid_shared_package_assets_report_errors() {
     };
     assert!(corrupt.readBytes().is_err());
     let missing = RuntimeBundledExternalSkillPackageAsset {
-        archive: BUNDLED_EXTERNAL_PLUGIN_ASSETS.iter()
+        archive: BUNDLED_EXTERNAL_PLUGIN_ASSETS
+            .iter()
             .find(|package| package.name == "deepseek_dafeiyu.toolpkg")
-            .unwrap().bytes,
+            .unwrap()
+            .bytes,
         member: "this-member-does-not-exist.bin",
         ..corrupt
     };
     assert!(missing.readBytes().is_err());
 }
 
-/// Installs the real skill through the shared CLI/App service without installing any plugin.
+/// Installs the built-in skill hidden by default, restores its files, and preserves user visibility.
 #[test]
 fn shared_skill_install_restores_complete_examples_without_plugin_installation() {
     use operit_host_native_filesystem::PosixFileSystemHost;
@@ -149,21 +152,44 @@ fn shared_skill_install_restores_complete_examples_without_plugin_installation()
     use std::sync::Arc;
 
     let paths = runtime_paths().clone();
-    let filesystem = Arc::new(PosixFileSystemHost::new());
+    let host = operit_host_api::HostManager::HostManager::withFileSystemHost(Arc::new(
+        PosixFileSystemHost::new(),
+    ))
+    .withRuntimeStorageHost(operit_store::RuntimeStorageHost::defaultRuntimeStorageHost());
+    let filesystem = Arc::new(host.vfs().unwrap());
     let support = asset_runtime();
-    let manager = SkillManager::new(paths, filesystem);
-    assert!(manager
+    let manager = SkillManager::new(paths, filesystem.clone());
+    assert_eq!(support.builtinSkillNames(), &["PackageBuilder"]);
+    assert!(!manager
         .getBundledExternalSkillCandidates(support.as_ref())
         .iter()
         .any(|skill| skill.name == "PackageBuilder"));
-    let skill = manager
-        .importBundledExternalSkill("PackageBuilder", support.as_ref())
+    let repository =
+        operit_tools::tools::skill_runtime::SkillRepository::SkillRepository::getInstance(
+            &host,
+            support.clone(),
+        );
+    let (mut skills, errors) = repository.getAvailableSkillPackagesSnapshot();
+    assert!(errors.is_empty(), "{errors:?}");
+    let skill = skills.remove("PackageBuilder").unwrap();
+    assert_eq!(skill.name, "PackageBuilder");
+    assert_eq!(skill.directory.file_name().unwrap(), "PackageBuilder");
+    assert_eq!(repository.readSkillDisplayName(&skill).unwrap(), "Operit 插件开发套件");
+    let record = operit_store::ExtensionStore::ExtensionStore::default()
+        .record("skill", &skill.name)
         .unwrap();
+    assert_eq!(record.settings["builtin"], true);
+    assert!(!support.isSkillVisibleToAi(&skill.name));
     for asset in BUNDLED_EXTERNAL_SKILL_ASSETS
         .iter()
         .filter(|asset| asset.skill_name == "PackageBuilder")
     {
-        assert!(std::fs::read(skill.directory.join(asset.path)).unwrap() == asset.bytes);
+        assert!(
+            filesystem
+                .readFileBytes(&skill.directory.join(asset.path).to_string_lossy())
+                .unwrap()
+                == asset.bytes
+        );
     }
     for asset in BUNDLED_EXTERNAL_SKILL_PACKAGE_ASSETS
         .iter()
@@ -173,7 +199,9 @@ fn shared_skill_install_restores_complete_examples_without_plugin_installation()
             .join("../../../../plugins")
             .join(asset.path.strip_prefix("examples/").unwrap());
         assert!(
-            std::fs::read(skill.directory.join(asset.path)).unwrap()
+            filesystem
+                .readFileBytes(&skill.directory.join(asset.path).to_string_lossy())
+                .unwrap()
                 == std::fs::read(source).unwrap()
         );
     }
@@ -181,4 +209,53 @@ fn shared_skill_install_restores_complete_examples_without_plugin_installation()
         .getBundledExternalSkillCandidates(support.as_ref())
         .iter()
         .any(|skill| skill.name == "PackageBuilder"));
+    support.setSkillVisibleToAi(&skill.name, true).unwrap();
+    assert!(manager.ensureBuiltinSkills(support.as_ref()).is_empty());
+    assert!(support.isSkillVisibleToAi(&skill.name));
+    support.setSkillVisibleToAi(&skill.name, false).unwrap();
+    assert!(manager.ensureBuiltinSkills(support.as_ref()).is_empty());
+    assert!(!support.isSkillVisibleToAi(&skill.name));
+    assert_eq!(repository.bundledSkillNeedsUpdate(&skill).unwrap(), Some(false));
+
+    // Legacy installations have the stable name but no builtin/source metadata or version.
+    let legacy = "---\nname: PackageBuilder\ndescription: Legacy package builder\n---\n# PackageBuilder\n";
+    filesystem.writeFile(&skill.skillFile.to_string_lossy(), legacy, false).unwrap();
+    let store = operit_store::ExtensionStore::ExtensionStore::default();
+    store.setSettings("skill", &skill.name, serde_json::json!({"visible": true})).unwrap();
+    assert!(manager.ensureBuiltinSkills(support.as_ref()).is_empty());
+    assert_eq!(repository.readSkillDisplayName(&skill).unwrap(), "PackageBuilder");
+    assert_eq!(repository.bundledSkillNeedsUpdate(&skill).unwrap(), Some(true));
+    let stale = skill.directory.join("obsolete-reference.md");
+    filesystem.writeFile(&stale.to_string_lossy(), "old instructions", false).unwrap();
+    let updated = repository.importBundledExternalSkill(&skill.name).unwrap();
+    assert_eq!(updated.directory, skill.directory);
+    assert_eq!(repository.readSkillDisplayName(&updated).unwrap(), "Operit 插件开发套件");
+    assert!(repository.isSkillVisibleToAi(&skill.name));
+    assert!(!filesystem.fileExists(&stale.to_string_lossy()).unwrap().exists);
+    assert_eq!(repository.bundledSkillNeedsUpdate(&updated).unwrap(), Some(false));
+
+    // Type definitions and compressed example resources are independently updateable.
+    let types = updated.directory.join("types/toolpkg.d.ts");
+    filesystem.writeFile(&types.to_string_lossy(), "old declarations", false).unwrap();
+    assert_eq!(repository.bundledSkillNeedsUpdate(&updated).unwrap(), Some(true));
+    repository.setSkillVisibleToAi(&skill.name, false).unwrap();
+    repository.importBundledExternalSkill(&skill.name).unwrap();
+    assert!(!repository.isSkillVisibleToAi(&skill.name));
+    assert_eq!(repository.bundledSkillNeedsUpdate(&updated).unwrap(), Some(false));
+    let resource = BUNDLED_EXTERNAL_SKILL_PACKAGE_ASSETS.iter()
+        .find(|asset| asset.skill_name == skill.name).unwrap();
+    filesystem.deleteFile(&updated.directory.join(resource.path).to_string_lossy(), false).unwrap();
+    assert_eq!(repository.bundledSkillNeedsUpdate(&updated).unwrap(), Some(true));
+    repository.importBundledExternalSkill(&skill.name).unwrap();
+    assert_eq!(repository.bundledSkillNeedsUpdate(&updated).unwrap(), Some(false));
+
+    // Explicit updates preserve space ownership as well as visibility.
+    store.moveScope("skill", &skill.name, "space").unwrap();
+    let shared = repository.getAvailableSkillPackages().remove(&skill.name).unwrap();
+    filesystem.writeFile(&shared.skillFile.to_string_lossy(), legacy, false).unwrap();
+    let updated = repository.importBundledExternalSkill(&skill.name).unwrap();
+    assert_eq!(updated.directory, shared.directory);
+    assert_eq!(store.record("skill", &skill.name).unwrap().scope, "space");
+    assert!(!repository.isSkillVisibleToAi(&skill.name));
+    assert_eq!(repository.bundledSkillNeedsUpdate(&updated).unwrap(), Some(false));
 }

@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{Map, Value};
 
 use operit_host_api::HostManager::HostManager;
-use operit_tools::files::VisualFileSystem::VisualFileSystem;
+use operit_host_api::TimeUtils::tryCurrentTimeMillisU128;
+use operit_vfs::VisualFileSystem::VisualFileSystem;
 use operit_tools::tools::mcp::MCPManager::MCPManager;
 use operit_tools::tools::mcp::MCPToolParameter::MCPToolParameter;
 use operit_tools::tools::ToolExecutionLimits::ToolExecutionLimits;
@@ -44,7 +44,7 @@ impl ImageSaveTarget {
         let turn = turn?;
         let storage = host.runtimeStorageHost.clone()?;
         let directory = turn.fileDirectory(storage.clone()).ok()??;
-        match VisualFileSystem::fromContext(host) {
+        match (host).vfs() {
             Ok(vfs) => Some(Self { vfs, directory }),
             Err(error) => {
                 AppLogger::w(TAG, &format!("MCP image persistence unavailable: {error}"));
@@ -55,11 +55,8 @@ impl ImageSaveTarget {
 
     /// Writes image bytes under the target directory and returns the VFS path.
     fn save(&self, extension: &str, bytes: &[u8]) -> Result<String, String> {
-        let timestampMs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis())
-            .unwrap_or_default();
-        let fileName = format!("mcp-{timestampMs}-{}", uuid::Uuid::new_v4().simple());
+        let timestampMs = tryCurrentTimeMillisU128()?;
+        let fileName = format!("mcp-{timestampMs}-{}.{extension}", uuid::Uuid::new_v4().simple());
         let path = format!("{}/{}", self.directory.trim_end_matches('/'), fileName);
         self.vfs.writeFileBytes(&path, bytes).map(|()| path)
     }
@@ -473,7 +470,8 @@ impl AsyncToolExecutor for MCPToolExecutor {
         })
     }
 
-    fn invokeAndStreamAsync<'a>(&'a mut self, tool: &'a AITool, context: &'a crate::ToolExecutionManager::ToolInvocationContext) -> ToolInvocationFuture<'a> {
+    /// Executes an independent request through the owning resource services.
+    fn invokeAndStreamAsync<'a>(&'a self, tool: &'a AITool, context: &'a crate::ToolExecutionManager::ToolInvocationContext) -> ToolInvocationFuture<'a> {
         Box::pin(async move {
             let saveTarget = ImageSaveTarget::resolve(&self.host, context.turnSnapshot());
             vec![self.invoke(tool, saveTarget.as_ref()).await]
@@ -496,7 +494,7 @@ mod tests {
     use std::sync::Arc;
 
     /// Standard 1x1 PNG payload used to exercise real image registration.
-    const ONE_PIXEL_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const ONE_PIXEL_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==";
 
     fn executor() -> MCPToolExecutor {
         MCPToolExecutor::new(
@@ -750,10 +748,8 @@ mod tests {
             .and_then(|rest| rest.split(')').next())
             .unwrap_or_default()
             .to_string();
-        assert!(
-            vfsPath.starts_with("/operitapp/workspaces/ws1/mcp-"),
-            "path: {vfsPath}"
-        );
+        assert!(vfsPath.starts_with("/operitapp/workspaces/ws1/mcp-"), "path: {vfsPath}");
+        assert_eq!(std::path::Path::new(&vfsPath).extension().unwrap(), "png");
         let persisted = std::fs::read(fixture.persistedPath(&vfsPath)).expect("persisted image file");
         assert_eq!(persisted, STANDARD.decode(ONE_PIXEL_PNG_BASE64).unwrap());
         let id = result
@@ -787,6 +783,7 @@ mod tests {
             .and_then(|rest| rest.split(';').next())
             .unwrap_or_default()
             .to_string();
+        assert_eq!(std::path::Path::new(&vfsPath).extension().unwrap(), "png");
         let persisted = std::fs::read(fixture.persistedPath(&vfsPath)).expect("persisted image file");
         assert_eq!(persisted, STANDARD.decode(ONE_PIXEL_PNG_BASE64).unwrap());
     }

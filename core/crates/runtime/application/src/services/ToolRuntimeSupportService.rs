@@ -41,7 +41,7 @@ use crate::data::preferences::EnvPreferences::EnvPreferences;
 use crate::data::preferences::SkillVisibilityPreferences::SkillVisibilityPreferences;
 use crate::plugins::BuiltinPluginAssets::{BUILTIN_PLUGIN_ASSETS, BUNDLED_EXTERNAL_PLUGIN_ASSETS};
 use crate::plugins::BundledExternalSkillAssets::{
-    BundledSkillPackage, BUNDLED_EXTERNAL_SKILL_ASSETS, BUNDLED_EXTERNAL_SKILL_PACKAGE_ASSETS,
+    BundledSkillPackage, BUILTIN_SKILL_NAMES, BUNDLED_EXTERNAL_SKILL_ASSETS, BUNDLED_EXTERNAL_SKILL_PACKAGE_ASSETS,
 };
 use crate::services::TtsPlaybackService::TtsPlaybackService;
 
@@ -384,7 +384,7 @@ impl ToolRuntimeSupport for RuntimeToolSupport {
                     description: package.description.resolve(false),
                 })
                 .collect();
-            let (skillPackages, errors) = SkillManager::fromDefaultPaths(manager.fileSystemHost())
+            let (skillPackages, errors) = SkillManager::fromDefaultPaths(manager.filesystem())
                 .getAvailableSkillsSnapshot();
             if !errors.is_empty() {
                 return Err(serde_json::to_string(&errors).map_err(|error| error.to_string())?);
@@ -513,10 +513,7 @@ impl ToolRuntimeSupport for RuntimeToolSupport {
     #[allow(non_snake_case)]
     fn aiVisibleSkillPackages(&self) -> Vec<RuntimeSkillCatalogEntry> {
         SkillManager::fromDefaultPaths(
-            self.hostManager
-                .fileSystemHost
-                .clone()
-                .expect("ToolRuntimeSupportService requires a FileSystemHost"),
+            Arc::new(self.hostManager.vfs().expect("ToolRuntimeSupportService requires VFS")),
         )
         .getAvailableSkills()
         .into_iter()
@@ -556,7 +553,13 @@ impl ToolRuntimeSupport for RuntimeToolSupport {
         runtimeBundledExternalPluginAssets()
     }
 
-    /// Returns bundled external skill assets owned by the runtime.
+    /// Returns built-in skills that are installed without enabling AI visibility.
+    #[allow(non_snake_case)]
+    fn builtinSkillNames(&self) -> &'static [&'static str] {
+        BUILTIN_SKILL_NAMES
+    }
+
+    /// Returns bundled skill assets owned by the runtime.
     #[allow(non_snake_case)]
     fn bundledExternalSkillAssets(&self) -> &'static [RuntimeBundledExternalSkillAsset] {
         runtimeBundledExternalSkillAssets()
@@ -658,7 +661,7 @@ impl ToolRuntimeSupport for RuntimeToolSupport {
         Ok(holder
             .cores
             .values()
-            .any(|core| core.activeStreamingChatIds().iter().any(|id| id == chatId)))
+            .any(|core| core.messageProcessingDelegate.isChatProcessing(chatId)))
     }
 
     /// Switches the main chat only after its registered configuration owner has resolved the actual binding.

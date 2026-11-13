@@ -64,9 +64,10 @@ pub(crate) struct PeerSyncStatus {
 
 /// Per-peer scheduling state behind the change-gated synchronization floor.
 ///
-/// Every cycle probes each storage-granted member with the cheap `syncClockDigest`
-/// RPC and runs the expensive exchanges (Space projection, control log,
-/// business replication, blobs) only when something actually changed for that
+/// Direct pairings first probe their bounded, pairing-authorized snapshot header.
+/// Only matching Space authority may proceed to the cheap `syncClockDigest`
+/// RPC. Expensive exchanges (Space projection, control log,
+/// business replication, blobs) run only when something actually changed for that
 /// peer: the remote clock moved, the local synchronized-state summary moved
 /// since the last completed pass, or a previous pass failed and its backoff
 /// elapsed. Space records advance the journal clock, so every snapshot
@@ -90,7 +91,7 @@ struct PeerSyncGate {
     /// Business failures keep receiving new data without arming connection failure backoff.
     pendingWork: bool,
     /// A deterministic failure is attempted again only after either peer's state changes.
-    failedState: Option<(Result<String, String>, Result<String, String>)>,
+    failedState: Option<((Result<String, String>, Result<String, String>), String)>,
 }
 
 impl PeerSyncGate {
@@ -416,31 +417,37 @@ impl SpacePersistenceSyncService {
         let localStateSummary = self.localStateSummary().await?;
         let mut cycleDecisions = BTreeMap::<String, bool>::new();
         let membershipBeforeExchange = self.state.spaceStore.space()?.members.into_iter().collect::<BTreeSet<_>>();
-        for peerNodeId in services.peers().outboundPeerNodeIds().map_err(|error| error.to_string())? {
+        // An authenticated carrier is duplex. The listener must reconcile its
+        // inbound peers too before using the old member projection for routing.
+        for peerNodeId in services.peers().pairedPeers().map_err(|error| error.to_string())?.into_iter().map(|peer| peer.nodeId) {
             if !activePeers.contains(&peerNodeId) { continue; }
             match control.nodeIsDisconnected(&peerNodeId) {
                 Ok(false) => {},
                 Ok(true) => continue,
                 Err(error) => { errors.push(format!("Peer {peerNodeId} connection policy: {error}")); continue; }
             }
-            if !self
-                .peerPassRequired(&peerNodeId, &localStateSummary, &mut cycleDecisions)
-                .await
-            {
-                continue;
-            }
             let (projection, networkFailure) = classifySync(crate::fault_isolation::operation(&format!("Peer {peerNodeId} Space projection"),
-                self.exchangePairedDeviceSpaceProjection(&peerNodeId))).await;
-            if let Err(error) = projection {
-                self.recordPeerFailure(&peerNodeId, networkFailure).await;
-                cycleDecisions.insert(peerNodeId.clone(), false);
-                errors.push(format!("CoreNode {peerNodeId} Space projection exchange: {error}"));
-                continue;
-            }
+                async {
+                    if !self.pairedPeerPassRequired(&peerNodeId, &localStateSummary, &mut cycleDecisions).await? {
+                        return Ok(None);
+                    }
+                    self.exchangePairedDeviceSpaceProjection(&peerNodeId).await.map(Some)
+                })).await;
+            let sameSpace = match projection {
+                Ok(Some(sameSpace)) => sameSpace,
+                Ok(None) => continue,
+                Err(error) => {
+                    self.recordPeerFailure(&peerNodeId, networkFailure, &error).await;
+                    cycleDecisions.insert(peerNodeId.clone(), false);
+                    errors.push(format!("CoreNode {peerNodeId} Space projection exchange: {error}"));
+                    continue;
+                }
+            };
             // A paired peer outside the Space membership has no business
             // replication pass; the projection exchange was its whole pass.
-            if !membershipBeforeExchange.contains(&peerNodeId) {
+            if !sameSpace || !membershipBeforeExchange.contains(&peerNodeId) {
                 self.recordPeerPassCompleted(&peerNodeId, false).await?;
+                cycleDecisions.insert(peerNodeId.clone(), false);
             }
         }
         let space = self.state.spaceStore.space()?;
@@ -544,7 +551,7 @@ impl SpacePersistenceSyncService {
                 }
             }
             Err(error) => {
-                self.recordPeerFailure(&targetNodeId, networkFailure).await;
+                self.recordPeerFailure(&targetNodeId, networkFailure, error).await;
                 let retryAt = self.state.peerGates.lock().map_err(|error| error.to_string())?
                     .get(&targetNodeId).filter(|gate| gate.consecutiveFailures > 0).map(|gate| gate.nextFullSyncAllowedAt);
                 operit_util::AppLogger::AppLogger::w("SpacePersistenceSyncService", &format!(
@@ -559,7 +566,7 @@ impl SpacePersistenceSyncService {
         result.map(|_| ())
     }
 
-    /// Executes authority, preferences and authorized business replication in order.
+    /// Exchanges preferences after the business receipts so those receipts cannot acknowledge unsent edits.
     async fn synchronizePeer(&self, targetNodeId: &str, limit: usize, force: bool) -> Result<bool, String> {
         if !self.state.nodeRouter.nodeIsReachable(targetNodeId)? {
             return Err(syncLinkError(operit_link::CoreLinkError::new("CORE_NODE_UNREACHABLE", format!(
@@ -627,6 +634,13 @@ impl SpacePersistenceSyncService {
             control.projectPeerControlOperations(targetNodeId, &remote)?;
             self.applyRemovedMemberEffects(&remote)?;
         }
+        // Business receipts include the preference mutation boundary. Capture
+        // them before exchanging preferences: an edit counted by a receipt must
+        // still reach the peer, while later edits reopen the existing gate.
+        let businessReplication = if self.storageReplicationAllowed(targetNodeId)? {
+            self.validateReachableDeviceSpace(targetNodeId).await?;
+            Box::pin(self.synchronizeDomains(targetNodeId, limit, &SYNC_DOMAINS)).await?
+        } else { false };
         // Small device-owned preferences are available to every admitted member;
         // their clocks and payloads are separate from business replica clocks.
         let preferenceStore = operit_store::DevicePreferencesStore::DevicePreferencesStore::new(self.state.localRuntime.runtimeStorageHost());
@@ -653,10 +667,7 @@ impl SpacePersistenceSyncService {
             }
             preferenceStore.merge(&preferences)?;
         }
-        // Admission is not a storage grant. Business replication requires both endpoints to provide storage.
-        if !self.storageReplicationAllowed(targetNodeId)? { return Ok(false); }
-        self.validateReachableDeviceSpace(targetNodeId).await?;
-        self.synchronizeDomains(targetNodeId, limit, &SYNC_DOMAINS).await
+        Ok(businessReplication)
     }
 
     /// Applies the local effects of removals that just reached this device
@@ -687,6 +698,33 @@ impl SpacePersistenceSyncService {
             self.state.localRuntime.runtimeStorageHost(), RUNTIME_SYNC_DIR_PATH);
         store.publishPreferenceOutboxes().map_err(|e|e.to_string())?;
         store.synchronizationSummary().map(|digest|format!("digest:{digest}")).map_err(|e|e.to_string())
+    }
+
+    /// Checks pairing-authorized authority metadata before any Space-scoped clock probe.
+    async fn pairedPeerPassRequired(
+        &self,
+        peer: &str,
+        localStateSummary: &str,
+        cycleDecisions: &mut BTreeMap<String, bool>,
+    ) -> Result<bool, String> {
+        if self.state.peerGates.lock().map_err(|error| error.to_string())?
+            .get(peer).is_some_and(|gate| !gate.backoffElapsed(currentTimeMillis())) {
+            cycleDecisions.insert(peer.to_owned(), false);
+            return Ok(false);
+        }
+        let header: crate::NodeSpaceService::space_projection::SnapshotHeader = callRemoteService(
+            &self.state.nodeRouter, peer, crate::NodeSpaceService::NODE_SPACE_TARGET,
+            "snapshotHeader", Value::Null).await?;
+        let local = self.state.spaceStore.space()?;
+        let manifest = NetworkControlStore::new(self.state.localRuntime.runtimeStorageHost())?
+            .spaceControlManifest(&local.spaceId)?;
+        if header.space != local || !header.departures.is_empty() || header.controlRevision != manifest.revision {
+            // A changed authority boundary must be reconciled through the pairing.
+            // A scoped clock RPC here would reject the very exit that repairs it.
+            cycleDecisions.insert(peer.to_owned(), true);
+            return Ok(true);
+        }
+        Ok(self.peerPassRequired(peer, localStateSummary, cycleDecisions).await)
     }
 
     /// Decides once per cycle whether this cycle must run a full synchronization
@@ -734,7 +772,7 @@ impl SpacePersistenceSyncService {
             let (probe, networkFailure) = classifySync(self.probeRemoteClockSummary(targetNodeId)).await;
             match probe {
                 Ok(summary) => {
-                    if gate.failedState.as_ref() == Some(&(Ok(localStateSummary.to_owned()), Ok(summary.clone()))) {
+                    if gate.failedState.as_ref().map(|(state, _)| state) == Some(&(Ok(localStateSummary.to_owned()), Ok(summary.clone()))) {
                         cycleDecisions.insert(targetNodeId.to_string(), false);
                         return false;
                     }
@@ -752,8 +790,8 @@ impl SpacePersistenceSyncService {
                 // once the peer answers again, the retry converges and the
                 // gate returns to probing.
                 Err(error) => {
-                    if gate.failedState.as_ref() == Some(&(Ok(localStateSummary.to_owned()), Err(error.clone()))) { return false; }
-                    self.recordPeerFailure(targetNodeId, networkFailure).await;
+                    if gate.failedState.as_ref().map(|(state, _)| state) == Some(&(Ok(localStateSummary.to_owned()), Err(error.clone()))) { return false; }
+                    self.recordPeerFailure(targetNodeId, networkFailure, &error).await;
                     operit_util::AppLogger::AppLogger::w("SpacePersistenceSyncService", &format!(
                         "sync_gate.probe_failed target={targetNodeId} networkFailure={networkFailure} retryDelayMs={} error={error}",
                         if networkFailure { peerFullSyncBackoffMs(gate.consecutiveFailures.saturating_add(1)) } else { 0 }));
@@ -806,7 +844,7 @@ impl SpacePersistenceSyncService {
         let gate = gates.get(&target).ok_or_else(||CoreLinkError::internal("Synchronization gate missing"))?;
         if let Err(error) = result { return Err(CoreLinkError::new(if gate.consecutiveFailures > 0 { "PEER_SYNC_NETWORK_FAILED" } else { "PEER_SYNC_CORRECTION_FAILED" }, error)); }
         if gate.consecutiveFailures > 0 { return Err(CoreLinkError::new("PEER_SYNC_NETWORK_FAILED", "Peer synchronization is waiting for connection")); }
-        if gate.failedState.is_some() { return Err(CoreLinkError::new("PEER_SYNC_CORRECTION_FAILED", "Peer synchronization requires changed data or an explicit request")); }
+        if let Some((_, error)) = &gate.failedState { return Err(CoreLinkError::new("PEER_SYNC_CORRECTION_FAILED", error.clone())); }
         Ok(PeerSyncStatus { local: gate.lastLocalStateSummary.clone(), remote: gate.lastRemoteClockSummary.clone(), pending: gate.pendingWork,
             progress: self.peerProgress(&target) })
     }
@@ -822,12 +860,12 @@ impl SpacePersistenceSyncService {
     }
 
     /// Only transport faults arm retries; deterministic failures wait for changed state or an explicit request.
-    async fn recordPeerFailure(&self, target: &str, network: bool) {
+    async fn recordPeerFailure(&self, target: &str, network: bool, error: &str) {
         if network { self.recordPeerPassFailed(target); return; }
         let state = (self.localStateSummary().await, self.probeRemoteClockSummary(target).await);
         if let Ok(mut gates) = self.state.peerGates.lock() {
             let gate = gates.entry(target.to_owned()).or_default();
-            gate.failedState = Some(state);
+            gate.failedState = Some((state, error.to_owned()));
             gate.pendingWork = false;
             gate.consecutiveFailures = 0;
             gate.nextFullSyncAllowedAt = 0;

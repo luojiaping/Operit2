@@ -592,6 +592,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "color_quant"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
 name = "compact_str"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -951,7 +957,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1253,6 +1259,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gif"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
+dependencies = [
+ "color_quant",
+ "weezl",
+]
+
+[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1379,6 +1395,12 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "heic-rs"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8883c3bfa6b4ff19a40e52a6dc051c5612cbe21bf408fc6d4875e8dfd777cb66"
 
 [[package]]
 name = "hermit-abi"
@@ -1518,7 +1540,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -1743,12 +1765,25 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "color_quant",
+ "gif",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png",
  "tiff",
  "zune-core",
  "zune-jpeg",
+]
+
+[[package]]
+name = "image-webp"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
+dependencies = [
+ "byteorder-lite",
+ "quick-error",
 ]
 
 [[package]]
@@ -2297,7 +2332,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "operit-cli"
-version = "2.0.0-preview.30"
+version = "2.0.0-preview.34"
 dependencies = [
  "arboard",
  "async-trait",
@@ -2316,6 +2351,7 @@ dependencies = [
  "operit-host-api",
  "operit-host-data-rescue",
  "operit-host-linux-native",
+ "operit-host-local-inference",
  "operit-host-macos-native",
  "operit-host-native-common",
  "operit-host-windows-native",
@@ -2329,6 +2365,7 @@ dependencies = [
  "operit-store",
  "operit-tools",
  "operit-util",
+ "operit-vfs",
  "qrcode",
  "rand_core 0.6.4",
  "ratatui",
@@ -2358,6 +2395,7 @@ dependencies = [
  "operit-store",
  "operit-tools",
  "operit-util",
+ "operit-vfs",
  "reqwest",
  "serde",
  "serde_json",
@@ -2409,14 +2447,8 @@ dependencies = [
 name = "operit-host-api"
 version = "0.1.0"
 dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "http",
- "http-body-util",
- "js-sys",
- "serde",
- "serde_json",
+ "operit-host-contract",
+ "operit-vfs",
 ]
 
 [[package]]
@@ -2430,6 +2462,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "operit-host-api",
  "operit-host-native-common",
  "operit-host-native-plugin-sdk-ipc",
@@ -2441,6 +2474,20 @@ dependencies = [
  "tungstenite",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "operit-host-contract"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "http",
+ "http-body-util",
+ "js-sys",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2474,6 +2521,7 @@ dependencies = [
  "image",
  "libc",
  "operit-host-api",
+ "operit-host-local-inference",
  "operit-host-native-common",
  "operit-host-native-plugin-sdk-ipc",
  "portable-pty",
@@ -2489,13 +2537,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "operit-host-local-inference"
+version = "0.1.0"
+dependencies = [
+ "cmake",
+ "operit-host-contract",
+ "operit-local-models",
+ "operit-util",
+ "serde_json",
+]
+
+[[package]]
 name = "operit-host-macos-native"
 version = "0.1.0"
 dependencies = [
  "operit-host-api",
  "operit-host-apple-native",
+ "operit-host-local-inference",
  "operit-host-native-common",
  "operit-host-native-plugin-sdk-ipc",
+ "serde_json",
  "tokio",
 ]
 
@@ -2531,7 +2592,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
- "operit-host-api",
+ "operit-host-contract",
  "zip",
 ]
 
@@ -2577,7 +2638,7 @@ name = "operit-host-native-storage"
 version = "0.1.0"
 dependencies = [
  "fs2",
- "operit-host-api",
+ "operit-host-contract",
  "rusqlite",
  "uuid",
  "windows-sys 0.59.0",
@@ -2588,6 +2649,7 @@ name = "operit-host-native-terminal"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "libc",
  "operit-host-api",
  "operit-host-native-scheduler",
  "portable-pty",
@@ -2605,6 +2667,7 @@ dependencies = [
  "ignore",
  "image",
  "operit-host-api",
+ "operit-host-local-inference",
  "operit-host-native-common",
  "operit-host-native-plugin-sdk-ipc",
  "portable-pty",
@@ -2662,9 +2725,9 @@ name = "operit-local-models"
 version = "2.0.0-preview.17"
 dependencies = [
  "bzip2-rs",
- "cmake",
  "operit-host-api",
  "operit-util",
+ "operit-vfs",
  "serde",
  "serde_bytes",
  "serde_json",
@@ -2744,6 +2807,7 @@ dependencies = [
  "operit-plugin-sdk-macros",
  "operit-plugin-theme",
  "operit-util",
+ "operit-vfs",
  "regex",
  "serde",
  "serde_bytes",
@@ -2828,6 +2892,7 @@ dependencies = [
  "operit-store",
  "operit-tools",
  "operit-util",
+ "operit-vfs",
  "regex",
  "serde",
  "serde_json",
@@ -2892,6 +2957,7 @@ dependencies = [
  "operit-store",
  "operit-tools",
  "operit-util",
+ "operit-vfs",
  "serde",
  "serde_json",
  "tokio",
@@ -2946,7 +3012,7 @@ dependencies = [
 
 [[package]]
 name = "operit-runtime"
-version = "2.0.0-preview.30"
+version = "2.0.0-preview.34"
 dependencies = [
  "aes",
  "async-trait",
@@ -2955,6 +3021,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.2.17",
+ "heic-rs",
  "image",
  "js-sys",
  "json5",
@@ -2973,6 +3040,7 @@ dependencies = [
  "operit-store",
  "operit-tools",
  "operit-util",
+ "operit-vfs",
  "regex",
  "reqwest",
  "rmp-serde",
@@ -3037,6 +3105,7 @@ dependencies = [
  "operit-rslink-runtime",
  "operit-store",
  "operit-util",
+ "operit-vfs",
  "regex",
  "serde",
  "serde_bytes",
@@ -3054,14 +3123,29 @@ dependencies = [
 name = "operit-util"
 version = "2.0.0-preview.17"
 dependencies = [
+ "base64",
  "chrono",
  "flate2",
+ "heic-rs",
+ "image",
  "operit-host-api",
+ "operit-vfs",
  "regex",
  "serde",
  "serde_json",
  "tokio",
+ "uuid",
  "zip",
+]
+
+[[package]]
+name = "operit-vfs"
+version = "0.1.0"
+dependencies = [
+ "operit-host-contract",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3408,7 +3492,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3445,7 +3529,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.59.0",
 ]
@@ -3742,7 +3826,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4217,10 +4301,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.2",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5028,7 +5112,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
