@@ -70,7 +70,7 @@ def publish(dist: Path, repo: str, draft: bool, notes: str | None = None,
             gh("release", "edit", tag, "--repo", repo, "--notes-file", str(notes_path))
         for asset in assets:
             gh("release", "upload", tag, str(asset), "--repo", repo, "--clobber")
-        remote = json.loads(gh("api", f"repos/{repo}/releases/tags/{tag}"))
+        remote = json.loads(gh("release", "view", tag, "--repo", repo, "--json", "assets"))
         published = {asset["name"]: asset for asset in remote["assets"]}
         if set(published) != {asset.name for asset in assets}:
             raise ValueError("Draft contains unexpected or missing assets; inspect the draft before retrying")

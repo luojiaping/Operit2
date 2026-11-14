@@ -35,7 +35,7 @@ class IncrementalPublishTests(unittest.TestCase):
         self.calls.append(args)
         if args[:2] == ("release", "list"):
             return "[]"
-        if args[0] == "api" and "/releases/tags/" in args[1]:
+        if args[:2] == ("release", "view"):
             return json.dumps(self.remote)
         if args[0] == "api":
             return "true"
