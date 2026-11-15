@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "operit-runtime"
-version = "2.0.0-preview.34"
+version = "2.0.0-preview.37"
 dependencies = [
  "aes",
  "async-trait",
@@ -1625,6 +1625,7 @@ dependencies = [
  "js-sys",
  "json5",
  "md-5",
+ "operit-data-rescue",
  "operit-edge-contract",
  "operit-host-api",
  "operit-js-bridge",
@@ -1729,6 +1730,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "uuid",
  "zip",

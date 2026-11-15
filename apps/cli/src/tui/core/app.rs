@@ -2428,9 +2428,9 @@ impl OperitTui {
             return Ok(());
         };
         let (tx, rx) = mpsc::channel::<FullUpdateDownloadMessage>();
-        let package_url = release_info.downloadUrl.clone();
-        let package_file_name = release_info.assetName.clone();
+        let release_info = release_info.clone();
         let update_target = crate::cli::host_ops::cli_update_target()?;
+        let current_asset = update_target.assetNameForVersion(env!("CARGO_PKG_VERSION"))?;
         prompt.progress_rx = Some(rx);
         prompt.download_state = FullUpdateDownloadState::Downloading {
             stage: FullUpdateStage::DownloadingPackage,
@@ -2442,10 +2442,11 @@ impl OperitTui {
         self.status_message = text.downloading_full_update_package().to_string();
         tokio::spawn(async move {
             let progress_tx = tx.clone();
-            let result = operit_util::GithubReleaseUtil::GithubReleaseUtil::downloadAndPrepareFullUpdateWithProgress(
-                package_url,
-                package_file_name,
+            let result = operit_util::IncrementalUpdate::prepareUpdate(
+                release_info,
+                current_asset,
                 &context,
+                operit_host_api::HttpDownloadControl::new(),
                 move |event| {
                     let _ = progress_tx.send(FullUpdateDownloadMessage::Progress(event));
                 },
@@ -3460,6 +3461,10 @@ impl OperitTui {
         let return_to_hub = modal.returnToHub;
         let transports = plan.transports.clone();
         let config = PeerHostConfig {
+            discovery: match self.networkControl.localHostConfig() {
+                Ok(config) => config.and_then(|config| config.discovery),
+                Err(error) => { self.set_listener_error(error); return; }
+            },
             bindAddress: plan.bindAddress.clone(),
             transports: transports.clone(),
             discoveryEnabled: plan.discoveryEnabled,
@@ -3474,7 +3479,7 @@ impl OperitTui {
             self.set_listener_error(error);
             return;
         }
-        if !transports.is_empty() {
+        if !transports.is_empty() || config.discovery.is_some() {
             if let Err(error) = self.networkControl.startListening(transports.clone()).await {
                 self.set_listener_error(error);
                 return;

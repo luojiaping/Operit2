@@ -894,6 +894,16 @@ fn androidOnboardingRequirements() -> Vec<HostOnboardingRequirement> {
             action: HostRequirementAction::OpenSystemSettings,
         },
         HostOnboardingRequirement {
+            id: "android.accessibility".to_string(),
+            title: "UI 自动化".to_string(),
+            description: "可选。点击授予以安装内置的 UI 自动化配套包，再到系统无障碍设置中启用 Operit2 Accessibility。"
+                .to_string(),
+            capabilityIds: vec![],
+            isRequired: false,
+            status: HostRequirementStatus::Missing,
+            action: HostRequirementAction::HostManaged,
+        },
+        HostOnboardingRequirement {
             id: "android.shizuku".to_string(),
             title: "Shizuku".to_string(),
             description: "可选。需先启动 Shizuku 或 Sui；授权后 Operit 可以使用支持 Shizuku 的 Android 系统能力。"
@@ -3306,6 +3316,13 @@ pub struct ApplicationUpdateTarget {
     pub installTiming: AppInstallTiming,
 }
 
+/// Selects one authoritative package source without probing alternate providers on failure.
+pub enum ApplicationUpdateBase {
+    InstalledPackage(Box<dyn FileSource>),
+    RetainedPackage,
+    Unavailable,
+}
+
 /// Controls when a platform installer may modify files used by the current process.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AppInstallTiming {
@@ -3327,6 +3344,10 @@ impl AppInstallTiming {
 pub mod UiAutomation;
 
 pub trait SystemOperationHost: Send + Sync {
+    /// Selects the platform's package source; desktop installers use node-local retained packages.
+    fn applicationUpdateBase(&self) -> HostResult<ApplicationUpdateBase> {
+        Ok(ApplicationUpdateBase::RetainedPackage)
+    }
     /// Reports the running application's distribution; None disables in-app updates.
     fn applicationUpdateTarget(&self) -> HostResult<Option<ApplicationUpdateTarget>> {
         Ok(None)
@@ -3545,11 +3566,11 @@ mod tests {
         assert_eq!(raw, structured);
     }
 
-    /// Verifies that Android privilege choices are optional onboarding items.
+    /// Verifies that Android privilege and accessibility choices remain optional.
     #[test]
     fn androidPrivilegeOnboardingRequirementsAreOptional() {
         let descriptor = HostEnvironmentDescriptor::android();
-        for id in ["android.shizuku", "android.root"] {
+        for id in ["android.shizuku", "android.root", "android.accessibility"] {
             let requirement = descriptor
                 .onboardingRequirements
                 .iter()

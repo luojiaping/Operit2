@@ -674,7 +674,7 @@
     }
   },
   "settingsModelApiKeyPool": "API Key 池",
-  "settingsModelApiKeyPoolDescription": "给同一个模型配置准备多个 Key，用于多 Key 轮换。",
+  "settingsModelApiKeyPoolDescription": "持续使用健康的 Key；遇到鉴权、额度、限流或临时故障时切换，并跳过冷却中的 Key。",
   "settingsModelApiKeyPoolCount": "{count} 个 Key",
   "@settingsModelApiKeyPoolCount": {
     "placeholders": {
@@ -683,11 +683,20 @@
       }
     }
   },
-  "settingsModelApiKeyPoolEmpty": "还没有 Key。添加后，运行时会按当前配置使用 Key 池。",
+  "settingsModelApiKeyPoolEmpty": "Key 池为空，请添加 Key 后再启用。",
   "settingsModelAddApiKey": "添加 Key",
   "settingsModelEditApiKey": "编辑 Key",
   "settingsModelApiKeyName": "Key 名称",
   "settingsModelApiKeyEnabled": "启用这个 Key",
+  "settingsModelPoolAddSingle": "添加当前单 Key",
+  "settingsModelPoolPaste": "每行粘贴一个 Key，可批量添加。",
+  "settingsModelPoolNoEligible": "请至少启用一个非空且未标记为不可用的 Key。",
+  "settingsModelPoolUntested": "未测试",
+  "settingsModelPoolAvailable": "可用",
+  "settingsModelPoolUnavailable": "不可用",
+  "settingsModelPoolClearMarks": "重置 Key 状态",
+  "settingsModelPoolTest": "测试未检测的 Key",
+  "settingsModelPoolNeedsModel": "保存供应商并添加模型后，即可测试 Key。",
   "settingsModelProviderId": "供应商 ID",
   "settingsModelProvidersSection": "LLM 供应商",
   "settingsModelProviderType": "供应商类型",
@@ -2153,6 +2162,14 @@
   "settingsPeerPortMode": "端口分配方式",
   "settingsPeerPortModeFixed": "固定监听地址和端口",
   "settingsPeerPortModeAutomatic": "自动分配端口",
+  "settingsPeerNetworkDiscoveryHelp": "跨网络发现需要共同的目录地址和组密钥。要由本机提供目录，请留空目录地址并设置组密钥。",
+  "settingsPeerDiscoveryDirectory": "发现目录地址（可选）",
+  "settingsPeerDiscoveryGroup": "发现组密钥",
+  "settingsPeerDiscoveryGenerateKey": "生成新的发现组密钥",
+  "settingsPeerDiscoveryCopyKey": "复制发现组密钥",
+  "settingsPeerDiscoveryPort": "目录监听端口",
+  "settingsPeerDiscoveryPortHelp": "仅目录设备使用此端口；其他设备使用目录地址中的端口。",
+  "settingsPeerNetworkDiscoveryInvalid": "请检查发现设置：目录为不含路径的 HTTP(S) 地址，密钥为 16–128 字节；本机提供目录时，监听端口应为 1–65535。",
   "settingsPeerAdvanced": "高级选项",
   "settingsPeerDiscoveryUnavailable": "当前 Host 不支持在局域网广播监听服务。支持的协议仍可通过地址直接连接。",
   "settingsPeerTransportUnavailable": "当前 Host 不支持 {transport} 监听。",
@@ -2548,5 +2565,40 @@
   "settingsAppearanceDeviceFonts": "设备字体",
   "settingsAppearanceChooseDeviceFont": "选择设备字体",
   "settingsAppearanceNoDeviceFonts": "没有匹配的设备字体",
-  "settingsAppearanceDeviceFontPreview": "字体预览：你好，世界\nThe quick brown fox · 0123456789"
+  "settingsAppearanceDeviceFontPreview": "字体预览：你好，世界\nThe quick brown fox · 0123456789",
+  "workspaceFileRename": "重命名",
+  "workspaceFileCopy": "复制",
+  "workspaceFileCut": "剪切",
+  "workspaceFilePaste": "粘贴",
+  "workspaceFileName": "名称",
+  "workspaceFileInvalidName": "请输入有效名称，不能包含路径分隔符。",
+  "workspaceDeleteFolderTitle": "删除文件夹？",
+  "workspaceDeleteFolderMessage": "确定删除“{name}”及其全部内容？此操作无法撤销。",
+  "@workspaceDeleteFolderMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "workspaceFileOperationFailed": "文件操作失败：{error}",
+  "@workspaceFileOperationFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "workspaceFileCopyName": "{name}（副本 {index}）",
+  "@workspaceFileCopyName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "workspaceFileSaving": "文件正在保存，请保存完成后重试。"
 }

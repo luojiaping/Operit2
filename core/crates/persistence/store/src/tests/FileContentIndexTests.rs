@@ -15,7 +15,7 @@ impl Node {
 impl Drop for Node { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
 
 fn collect(files: &RuntimeFileSyncStore) {
-    files.syncOperationStore.withJournal(|journal| journal.collect_file_blobs(files.storageHost.as_ref(), ROOT, i64::MAX)).unwrap();
+    files.syncOperationStore.withJournal(|journal| journal.collect_blobs(files.storageHost.as_ref(), ROOT, i64::MAX, None)).unwrap();
 }
 
 fn legacy(host: &dyn RuntimeStorageHost, origin: &str, sequence: i64, bytes: &[u8]) -> SyncOperation {
@@ -140,13 +140,20 @@ fn externally_changed_files_never_serve_the_previous_hash() {
     files.writeBytes(FILE, b"before").unwrap();
     let reference = RuntimeFileSyncReference { contentHash: contentHash(b"before"), size: 6 };
     let modified_at = host.modifiedAt(FILE).unwrap();
-    host.writeBytes(FILE, b"external edit").unwrap();
     host.setModifiedAt(FILE, modified_at + 1000).unwrap();
-    assert!(!files.hasBlob(&reference).unwrap());
-    assert!(files.readBlobChunk(&reference.contentHash, 0, 64).is_err());
+    assert!(files.hasBlob(&reference).unwrap(), "metadata changes cannot invalidate identical content");
+    assert_eq!(files.readBlobChunk(&reference.contentHash, 0, 3).unwrap(), b"bef");
+    host.writeBytes(FILE, b"external edit").unwrap();
+    host.setModifiedAt(FILE, modified_at + 2000).unwrap();
+    assert_eq!(files.readBlobChunk(&reference.contentHash, 3, 3).unwrap(), b"ore", "an active transfer retains its original bytes");
     files.writeBytes(FILE, b"external edit").unwrap();
+    collect(&files);
+    assert!(!files.hasBlob(&reference).unwrap(), "unreferenced expired carriers are collected");
     let reference = RuntimeFileSyncReference { contentHash: contentHash(b"external edit"), size: 13 };
-    assert_eq!(files.readBlob(&reference).unwrap(), b"external edit");
+    host.writeBytes(FILE, b"changed content").unwrap();
+    host.setModifiedAt(FILE, modified_at + 3000).unwrap();
+    assert!(!files.hasBlob(&reference).unwrap(), "changed bytes cannot serve the old hash");
+    assert!(files.readBlob(&reference).is_err());
     files.delete(FILE).unwrap();
     assert!(!files.hasBlob(&reference).unwrap());
 }
@@ -167,4 +174,42 @@ fn upgrade_preserves_legacy_blobs_when_live_files_cannot_replace_them() {
         collect(&files);
         assert!(!host.exists(&files.blobStoragePath(&reference).unwrap()).unwrap());
     }
+}
+
+#[test]
+fn blob_sweep_keeps_sql_roots_and_active_transfers_then_reclaims_replaced_initializers() {
+    let node = Node::new();
+    let host = node.host();
+    let files = RuntimeFileSyncStore::new(host.clone(), ROOT);
+    let path = "runtime/owner.sqlite".to_owned();
+    let mut database = host.openTransactionDatabase(&path).unwrap();
+    database.executeBatch("CREATE TABLE _operit_transaction_initialization(original TEXT);
+        CREATE TABLE _operit_log(payload TEXT);
+        CREATE TABLE sync_sql_operations(opId TEXT);").unwrap();
+    let current = files.storeJsonBlob(&serde_json::json!({"initialize":"current"})).unwrap();
+    let history = files.storeJsonBlob(&serde_json::json!({"operation":"retained"})).unwrap();
+    let orphan = files.storeJsonBlob(&serde_json::json!({"snapshot":"obsolete"})).unwrap();
+    for (table, reference) in [("_operit_transaction_initialization", &current),("_operit_log", &history)] {
+        database.execute(&format!("INSERT INTO {table} VALUES(?1)"), vec![operit_host_api::SqliteValue::Text(serde_json::to_string(reference).unwrap())]).unwrap();
+    }
+    let sweep = |now| files.syncOperationStore.withJournal(|journal|
+        journal.collect_blobs(host.as_ref(), ROOT, now, Some(std::slice::from_ref(&path)))).unwrap();
+    let blob = |reference: &RuntimeFileSyncReference| format!("{ROOT}/blobs/{}", reference.contentHash);
+    // An old file being read by a peer is protected even when it has no durable owner.
+    host.setModifiedAt(&blob(&orphan), 0).unwrap();
+    files.readBlobChunk(&orphan.contentHash, 0, 1).unwrap();
+    sweep(operit_host_api::TimeUtils::tryCurrentTimeMillis().unwrap());
+    assert!(host.exists(&blob(&orphan)).unwrap());
+    sweep(i64::MAX);
+    assert!(!host.exists(&blob(&orphan)).unwrap());
+    assert!(host.exists(&blob(&current)).unwrap());
+    assert!(host.exists(&blob(&history)).unwrap());
+    // The next initializer atomically replaces the previous root; no unbounded snapshot history remains.
+    database.execute("DELETE FROM _operit_transaction_initialization", vec![]).unwrap();
+    let replacement = files.storeJsonBlob(&serde_json::json!({"initialize":"replacement"})).unwrap();
+    database.execute("INSERT INTO _operit_transaction_initialization VALUES(?1)",vec![operit_host_api::SqliteValue::Text(serde_json::to_string(&replacement).unwrap())]).unwrap();
+    sweep(i64::MAX);
+    assert!(!host.exists(&blob(&current)).unwrap());
+    assert!(host.exists(&blob(&replacement)).unwrap());
+    assert!(host.exists(&blob(&history)).unwrap());
 }

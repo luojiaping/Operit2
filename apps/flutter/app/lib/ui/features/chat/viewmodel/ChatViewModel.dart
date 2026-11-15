@@ -482,8 +482,12 @@ class ChatViewModel {
     if (nodeId != null && nodeId.isNotEmpty) {
       buffer.write('node_id="${escape.convert(nodeId)}" ');
     }
-    if (['/app/', '/operitapp/', '/mnt/', '/virtual/']
-        .any(toolPath.startsWith)) {
+    if ([
+      '/app/',
+      '/operitapp/',
+      '/mnt/',
+      '/virtual/',
+    ].any(toolPath.startsWith)) {
       buffer.write('path="${escape.convert(toolPath)}" ');
     }
     if (attachment.fileSize > 0) {
@@ -509,6 +513,7 @@ class ChatViewModel {
     return _chat.clearToastEvent();
   }
 
+  /// Reads global message positions and bounded previews through the dedicated index API.
   Future<List<ChatMessageLocatorPreview>> loadChatMessageLocatorPreviews(
     String chatId,
     String query,
@@ -663,6 +668,20 @@ class ChatViewModel {
       relativePath: relativePath,
     );
     return entries;
+  }
+
+  Future<void> mutateWorkspaceFile(
+    WorkspaceFileOperation operation,
+    String path,
+    String? destinationPath,
+  ) async {
+    final chatId = await _requiredCurrentChatId();
+    await clients.servicesWorkspaceService.mutateWorkspaceFile(
+      chatId: chatId,
+      operation: operation.name,
+      relativePath: path,
+      destinationPath: destinationPath,
+    );
   }
 
   /// Lists workspace entries ranked for the active @ mention query.

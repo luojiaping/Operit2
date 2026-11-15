@@ -16,10 +16,16 @@ class WorkspaceFileBrowserContent extends StatefulWidget {
     required this.rootRelativePath,
     required this.onListWorkspaceFiles,
     required this.onOpenFile,
+    this.protectWorkspaceRoots = false,
+    this.onMutateWorkspaceFile,
+    this.fileClipboard,
     this.onSelectCurrentDirectory,
     this.onPickLocalDirectory,
   });
 
+  final WorkspaceFileMutation? onMutateWorkspaceFile;
+  final WorkspaceFileClipboard? fileClipboard;
+  final bool protectWorkspaceRoots;
   final String rootLabel;
   final String rootRelativePath;
   final Future<List<WorkspaceFileEntry>> Function(String path)
@@ -119,6 +125,10 @@ class _WorkspaceFileBrowserContentState
                     rootEntries: _entriesFuture!,
                     onListDirectory: _listTreeDirectory,
                     onOpenFile: widget.onOpenFile,
+                    onMutate: widget.onMutateWorkspaceFile,
+                    clipboard: widget.fileClipboard,
+                    protectWorkspaceRoots: widget.protectWorkspaceRoots,
+                    onFilesChanged: () => setState(_loadCurrentPath),
                   )
                 : FutureBuilder<List<WorkspaceFileEntry>>(
                     future: _entriesFuture,
@@ -227,14 +237,18 @@ class _WorkspaceFileBrowserContentState
 
   /// Requests entries for the current path only after validating its namespace.
   void _loadCurrentPath() {
-    if (!_directorySelectionEnabled &&
-        !_isWorkspaceRelativePath(_currentPath)) {
-      _entriesFuture = Future<List<WorkspaceFileEntry>>.error(
-        StateError('工作区目录路径必须是相对路径'),
-      );
-      return;
-    }
-    _entriesFuture = widget.onListWorkspaceFiles(_currentPath);
+    final entries = Future<List<WorkspaceFileEntry>>.sync(() {
+      if (!_directorySelectionEnabled &&
+          !_isWorkspaceRelativePath(_currentPath)) {
+        throw StateError('工作区目录路径必须是相对路径');
+      }
+      return widget.onListWorkspaceFiles(_currentPath);
+    });
+    // A refresh can fail before the next frame attaches the tree/FutureBuilder,
+    // or be replaced before it is rendered. Observe errors immediately while
+    // keeping the original result available to the listing's error and retry UI.
+    entries.ignore();
+    _entriesFuture = entries;
   }
 
   Future<List<WorkspaceFileEntry>> _listTreeDirectory(String path) {

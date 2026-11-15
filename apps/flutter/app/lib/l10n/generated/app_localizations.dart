@@ -2609,7 +2609,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsModelApiKeyPoolDescription.
   ///
   /// In en, this message translates to:
-  /// **'Prepare multiple keys for one model profile so runtime can rotate between them.'**
+  /// **'Keep using a healthy key. Switch on authentication, quota, rate limit, or temporary failures; cooling keys are skipped.'**
   String get settingsModelApiKeyPoolDescription;
 
   /// No description provided for @settingsModelApiKeyPoolCount.
@@ -2621,7 +2621,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsModelApiKeyPoolEmpty.
   ///
   /// In en, this message translates to:
-  /// **'No keys yet. Add keys and this profile will use the key pool.'**
+  /// **'No keys yet. Add a key before enabling this pool.'**
   String get settingsModelApiKeyPoolEmpty;
 
   /// No description provided for @settingsModelAddApiKey.
@@ -2647,6 +2647,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enable this key'**
   String get settingsModelApiKeyEnabled;
+
+  /// No description provided for @settingsModelPoolAddSingle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add current single key'**
+  String get settingsModelPoolAddSingle;
+
+  /// No description provided for @settingsModelPoolPaste.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste one key per line to add several at once.'**
+  String get settingsModelPoolPaste;
+
+  /// No description provided for @settingsModelPoolNoEligible.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable at least one nonempty key that is not marked unavailable.'**
+  String get settingsModelPoolNoEligible;
+
+  /// No description provided for @settingsModelPoolUntested.
+  ///
+  /// In en, this message translates to:
+  /// **'Untested'**
+  String get settingsModelPoolUntested;
+
+  /// No description provided for @settingsModelPoolAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Available'**
+  String get settingsModelPoolAvailable;
+
+  /// No description provided for @settingsModelPoolUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get settingsModelPoolUnavailable;
+
+  /// No description provided for @settingsModelPoolClearMarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset key health'**
+  String get settingsModelPoolClearMarks;
+
+  /// No description provided for @settingsModelPoolTest.
+  ///
+  /// In en, this message translates to:
+  /// **'Test untested keys'**
+  String get settingsModelPoolTest;
+
+  /// No description provided for @settingsModelPoolNeedsModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Save the provider and add a model before testing keys.'**
+  String get settingsModelPoolNeedsModel;
 
   /// No description provided for @settingsModelProviderId.
   ///
@@ -7464,6 +7518,54 @@ abstract class AppLocalizations {
   /// **'Automatic port'**
   String get settingsPeerPortModeAutomatic;
 
+  /// No description provided for @settingsPeerNetworkDiscoveryHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'For discovery across routed networks, configure a shared directory and group key. To host the directory, leave the address empty and set a group key.'**
+  String get settingsPeerNetworkDiscoveryHelp;
+
+  /// No description provided for @settingsPeerDiscoveryDirectory.
+  ///
+  /// In en, this message translates to:
+  /// **'Discovery directory (optional)'**
+  String get settingsPeerDiscoveryDirectory;
+
+  /// No description provided for @settingsPeerDiscoveryGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Discovery group key'**
+  String get settingsPeerDiscoveryGroup;
+
+  /// No description provided for @settingsPeerDiscoveryGenerateKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate new group key'**
+  String get settingsPeerDiscoveryGenerateKey;
+
+  /// No description provided for @settingsPeerDiscoveryCopyKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy group key'**
+  String get settingsPeerDiscoveryCopyKey;
+
+  /// No description provided for @settingsPeerDiscoveryPort.
+  ///
+  /// In en, this message translates to:
+  /// **'Directory listener port'**
+  String get settingsPeerDiscoveryPort;
+
+  /// No description provided for @settingsPeerDiscoveryPortHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Only used on the directory host. Other devices use the port in the directory URL.'**
+  String get settingsPeerDiscoveryPortHelp;
+
+  /// No description provided for @settingsPeerNetworkDiscoveryInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the discovery settings: use an HTTP(S) origin without a path, a shared key of 16–128 bytes, and a nonzero port when hosting the directory.'**
+  String get settingsPeerNetworkDiscoveryInvalid;
+
   /// No description provided for @settingsPeerAdvanced.
   ///
   /// In en, this message translates to:
@@ -8843,6 +8945,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The quick brown fox · 0123456789\n字体预览：你好，世界'**
   String get settingsAppearanceDeviceFontPreview;
+
+  /// No description provided for @workspaceFileRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get workspaceFileRename;
+
+  /// No description provided for @workspaceFileCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get workspaceFileCopy;
+
+  /// No description provided for @workspaceFileCut.
+  ///
+  /// In en, this message translates to:
+  /// **'Cut'**
+  String get workspaceFileCut;
+
+  /// No description provided for @workspaceFilePaste.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste'**
+  String get workspaceFilePaste;
+
+  /// No description provided for @workspaceFileName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get workspaceFileName;
+
+  /// No description provided for @workspaceFileInvalidName.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid name without path separators.'**
+  String get workspaceFileInvalidName;
+
+  /// No description provided for @workspaceDeleteFolderTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete folder?'**
+  String get workspaceDeleteFolderTitle;
+
+  /// No description provided for @workspaceDeleteFolderMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete “{name}” and all its contents? This cannot be undone.'**
+  String workspaceDeleteFolderMessage(String name);
+
+  /// No description provided for @workspaceFileOperationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'File operation failed: {error}'**
+  String workspaceFileOperationFailed(String error);
+
+  /// No description provided for @workspaceFileCopyName.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} (copy {index})'**
+  String workspaceFileCopyName(String name, int index);
+
+  /// No description provided for @workspaceFileSaving.
+  ///
+  /// In en, this message translates to:
+  /// **'This file is being saved. Please try again when saving finishes.'**
+  String get workspaceFileSaving;
 }
 
 class _AppLocalizationsDelegate

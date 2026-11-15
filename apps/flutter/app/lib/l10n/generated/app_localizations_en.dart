@@ -1415,7 +1415,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsModelApiKeyPoolDescription =>
-      'Prepare multiple keys for one model profile so runtime can rotate between them.';
+      'Keep using a healthy key. Switch on authentication, quota, rate limit, or temporary failures; cooling keys are skipped.';
 
   @override
   String settingsModelApiKeyPoolCount(int count) {
@@ -1424,7 +1424,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsModelApiKeyPoolEmpty =>
-      'No keys yet. Add keys and this profile will use the key pool.';
+      'No keys yet. Add a key before enabling this pool.';
 
   @override
   String get settingsModelAddApiKey => 'Add key';
@@ -1437,6 +1437,36 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsModelApiKeyEnabled => 'Enable this key';
+
+  @override
+  String get settingsModelPoolAddSingle => 'Add current single key';
+
+  @override
+  String get settingsModelPoolPaste =>
+      'Paste one key per line to add several at once.';
+
+  @override
+  String get settingsModelPoolNoEligible =>
+      'Enable at least one nonempty key that is not marked unavailable.';
+
+  @override
+  String get settingsModelPoolUntested => 'Untested';
+
+  @override
+  String get settingsModelPoolAvailable => 'Available';
+
+  @override
+  String get settingsModelPoolUnavailable => 'Unavailable';
+
+  @override
+  String get settingsModelPoolClearMarks => 'Reset key health';
+
+  @override
+  String get settingsModelPoolTest => 'Test untested keys';
+
+  @override
+  String get settingsModelPoolNeedsModel =>
+      'Save the provider and add a model before testing keys.';
 
   @override
   String get settingsModelProviderId => 'Provider ID';
@@ -4210,6 +4240,33 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPeerPortModeAutomatic => 'Automatic port';
 
   @override
+  String get settingsPeerNetworkDiscoveryHelp =>
+      'For discovery across routed networks, configure a shared directory and group key. To host the directory, leave the address empty and set a group key.';
+
+  @override
+  String get settingsPeerDiscoveryDirectory => 'Discovery directory (optional)';
+
+  @override
+  String get settingsPeerDiscoveryGroup => 'Discovery group key';
+
+  @override
+  String get settingsPeerDiscoveryGenerateKey => 'Generate new group key';
+
+  @override
+  String get settingsPeerDiscoveryCopyKey => 'Copy group key';
+
+  @override
+  String get settingsPeerDiscoveryPort => 'Directory listener port';
+
+  @override
+  String get settingsPeerDiscoveryPortHelp =>
+      'Only used on the directory host. Other devices use the port in the directory URL.';
+
+  @override
+  String get settingsPeerNetworkDiscoveryInvalid =>
+      'Check the discovery settings: use an HTTP(S) origin without a path, a shared key of 16–128 bytes, and a nonzero port when hosting the directory.';
+
+  @override
   String get settingsPeerAdvanced => 'Advanced options';
 
   @override
@@ -5027,4 +5084,45 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsAppearanceDeviceFontPreview =>
       'The quick brown fox · 0123456789\n字体预览：你好，世界';
+
+  @override
+  String get workspaceFileRename => 'Rename';
+
+  @override
+  String get workspaceFileCopy => 'Copy';
+
+  @override
+  String get workspaceFileCut => 'Cut';
+
+  @override
+  String get workspaceFilePaste => 'Paste';
+
+  @override
+  String get workspaceFileName => 'Name';
+
+  @override
+  String get workspaceFileInvalidName =>
+      'Enter a valid name without path separators.';
+
+  @override
+  String get workspaceDeleteFolderTitle => 'Delete folder?';
+
+  @override
+  String workspaceDeleteFolderMessage(String name) {
+    return 'Delete “$name” and all its contents? This cannot be undone.';
+  }
+
+  @override
+  String workspaceFileOperationFailed(String error) {
+    return 'File operation failed: $error';
+  }
+
+  @override
+  String workspaceFileCopyName(String name, int index) {
+    return '$name (copy $index)';
+  }
+
+  @override
+  String get workspaceFileSaving =>
+      'This file is being saved. Please try again when saving finishes.';
 }

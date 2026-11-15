@@ -82,14 +82,24 @@ abstract class StageOperitAndroidJniLibraries : Sync() {
     abstract val outputDirectory: DirectoryProperty
 }
 
+/** Embeds the signed companion APK produced by the matching Android build. */
+abstract class StageOperitAccessibilityApk : Sync() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val apkDirectory: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+}
+
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 localProperties.load(FileInputStream(localPropertiesFile))
-
-// Reads a required signing property from local.properties.
-fun requiredLocalProperty(name: String): String =
-    localProperties.getProperty(name)
-        ?: throw GradleException("Missing Android release signing property: $name")
+val accessibilityProviderVersion = Properties().apply {
+    layout.projectDirectory.file("../../../../../tools/android-accessibility/version.properties")
+        .asFile.inputStream().use { load(it) }
+}
 
 data class OperitRustTarget(
     val flutterPlatform: String,
@@ -144,10 +154,11 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file(requiredLocalProperty("RELEASE_STORE_FILE"))
-            storePassword = requiredLocalProperty("RELEASE_STORE_PASSWORD")
-            keyAlias = requiredLocalProperty("RELEASE_KEY_ALIAS")
-            keyPassword = requiredLocalProperty("RELEASE_KEY_PASSWORD")
+            // Debug builds do not require release credentials during project configuration.
+            storeFile = localProperties.getProperty("RELEASE_STORE_FILE")?.let { file(it) }
+            storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD")
+            keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS")
+            keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
         }
     }
 
@@ -165,6 +176,7 @@ android {
         manifestPlaceholders["operitAppLabel"] = if (operitExternalRuntime) "Operit2 (Module)" else "Operit2"
         manifestPlaceholders["operitShortcuts"] = if (operitExternalRuntime) "@xml/module_shortcuts" else "@xml/shortcuts"
         buildConfigField("boolean", "OPERIT_EXTERNAL_RUNTIME", operitExternalRuntime.toString())
+        buildConfigField("int", "OPERIT_ACCESSIBILITY_VERSION_CODE", accessibilityProviderVersion.getProperty("versionCode"))
         manifestPlaceholders["operitAppCoreEnabled"] = (!operitExternalRuntime).toString()
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -225,6 +237,29 @@ androidComponents {
         val assets = variant.sources.assets
             ?: throw GradleException("Android variant ${variant.name} has no asset sources")
         assets.addGeneratedSourceDirectory(stagedAssets) { it.outputDirectory }
+        val companionBuildType = mapOf<String?, String>("debug" to "debug", "profile" to "debug", "release" to "release")
+            .getValue(variant.buildType)
+        val companionApk = configurations.create("${variant.name}AccessibilityApk") {
+            isCanBeConsumed = false
+            isCanBeResolved = true
+        }
+        dependencies.add(companionApk.name, dependencies.project(mapOf(
+            "path" to ":accessibilityCompanion",
+            "configuration" to "${companionBuildType}Apk",
+        )))
+        val stagedCompanion = tasks.register<StageOperitAccessibilityApk>(
+            "stageOperitAccessibilityApk" + variant.name.replaceFirstChar { it.uppercase() },
+        ) {
+            dependsOn(companionApk)
+            apkDirectory.set(layout.dir(provider { companionApk.singleFile }))
+            from(apkDirectory) {
+                include("*.apk")
+                into("companions")
+                rename { "operit-accessibility.apk" }
+            }
+            into(outputDirectory)
+        }
+        assets.addGeneratedSourceDirectory(stagedCompanion) { it.outputDirectory }
     }
 }
 
