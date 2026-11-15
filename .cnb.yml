@@ -112,6 +112,41 @@
             attachments:
               - ./tools/release/dist/operit2-app-android-arm64-v8a.apk
 
+        # The attachments store has no download API, so the APK is also
+        # published as a repo release asset (presigned upload + verify)
+        # using the pipeline's own token. Scripts and the server can then
+        # fetch it from -/releases/download/<tag>/<asset>.
+        - name: publish-apk
+          timeout: 10m
+          script: |
+            apk="tools/release/dist/operit2-app-android-arm64-v8a.apk"
+            [ -f "$apk" ] || { echo "apk missing"; exit 1; }
+            if [ -z "${CNB_TOKEN:-}" ]; then echo "CNB_TOKEN not set; skip release publish"; exit 0; fi
+            repo="${CNB_REPO:-luojiaping/Operit2}"
+            api="https://api.cnb.cool"
+            sha="$(git rev-parse HEAD 2>/dev/null || echo "${CNB_COMMIT_ID:-unknown}")"
+            short="${sha:0:8}"
+            tag="dev-auto-$short"
+            asset="operit2-dev-$short.apk"
+            rid="$(curl -fsS -H "Authorization: Bearer $CNB_TOKEN" "$api/$repo/-/releases/tags/$tag" 2>/dev/null \
+              | python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
+            if [ -z "$rid" ]; then
+              rid="$(curl -fsS -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "content-type: application/json" \
+                -d "{\"tag_name\":\"$tag\",\"name\":\"Dev auto build $short\",\"prerelease\":true,\"make_latest\":\"false\",\"target_commitish\":\"$sha\"}" \
+                "$api/$repo/-/releases" \
+                | python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))')"
+            fi
+            [ -n "$rid" ] || { echo "no release id"; exit 1; }
+            size="$(stat -c%s "$apk")"
+            up="$(curl -fsS -X POST -H "Authorization: Bearer $CNB_TOKEN" -H "content-type: application/json" \
+              -d "{\"asset_name\":\"$asset\",\"size\":$size,\"overwrite\":true}" \
+              "$api/$repo/-/releases/$rid/asset-upload-url")"
+            upload_url="$(printf '%s' "$up" | python3 -c 'import json,sys;print(json.load(sys.stdin)["upload_url"])')"
+            verify_url="$(printf '%s' "$up" | python3 -c 'import json,sys;print(json.load(sys.stdin)["verify_url"])')"
+            curl -fsS -X PUT --data-binary "@$apk" "$upload_url"
+            curl -fsS -X POST -H "Authorization: Bearer $CNB_TOKEN" "$verify_url"
+            echo "published $asset under release $tag"
+
   api_trigger_android: *android-apk
 
   web_trigger_linux_app: &linux-app
