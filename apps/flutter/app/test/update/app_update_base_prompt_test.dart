@@ -5,6 +5,7 @@ import 'package:operit2/core/logging/ClientLogger.dart';
 import 'package:operit2/core/update/AppUpdateController.dart';
 import 'package:operit2/core/update/AppUpdateModels.dart';
 import 'package:operit2/data/preferences/UserPreferencesManager.dart';
+import 'package:operit2/ui/common/OperitLogoMark.dart';
 import 'package:operit2/ui/features/settings/about/AboutOperitScreen.dart';
 import 'package:operit2/ui/features/update/AppUpdateBadge.dart';
 import 'package:operit2/ui/features/update/AppUpdateDialog.dart';
@@ -15,6 +16,7 @@ class _Backend extends AppUpdateBackend {
   bool fullAvailable = true;
   bool rejectBase = false;
   bool hasUpdate = true;
+  bool failCheck = false;
   int plans = 0, downloads = 0, imports = 0;
   AppUpdateMode transfer = AppUpdateMode.needsBase;
   Completer<void>? verification;
@@ -31,13 +33,16 @@ class _Backend extends AppUpdateBackend {
 
   /// Models a newer release without initiating a package transfer.
   @override
-  Future<AppUpdateRelease?> check() async => hasUpdate
-      ? AppUpdateRelease(
-          currentVersion: '2.0.0-preview.35',
-          version: '2.0.0-preview.36',
-          releasePageUrl: Uri.parse('https://example.com/release'),
-        )
-      : null;
+  Future<AppUpdateRelease?> check() async {
+    if (failCheck) throw StateError('HTTP 403: Forbidden');
+    return hasUpdate
+        ? AppUpdateRelease(
+            currentVersion: '2.0.0-preview.35',
+            version: '2.0.0-preview.36',
+            releasePageUrl: Uri.parse('https://example.com/release'),
+          )
+        : null;
+  }
 
   /// Records the initial decision boundary.
   @override
@@ -68,6 +73,7 @@ class _Backend extends AppUpdateBackend {
   Future<String> download(
     AppUpdateRelease release,
     AppUpdateProgress progress, {
+    void Function()? onSelectingSource,
     void Function()? onReconstructing,
   }) async {
     downloads++;
@@ -223,7 +229,45 @@ void main() {
   );
 
   testWidgets(
-    'about removes persistent import and shows newer version through logo and update action',
+    'about exposes a failed check and retries without starting a download',
+    (tester) async {
+      PackageInfo.setMockInitialValues(
+        appName: 'Operit2',
+        packageName: 'app.operit',
+        version: '2.0.0',
+        buildNumber: '43',
+        buildSignature: '',
+      );
+      final backend = _Backend()..failCheck = true;
+      final controller = AppUpdateController(backend: backend);
+      await controller.check();
+      await tester.pumpWidget(
+        _app(
+          AppUpdateScope(
+            controller: controller,
+            child: const AboutOperitScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('检查更新失败，点击重试'), findsOneWidget);
+      expect(controller.error, contains('403'));
+      backend.failCheck = false;
+      await tester.tap(find.text('检查更新'));
+      await tester.pumpAndSettle();
+      expect(find.text('检查更新失败，点击重试'), findsNothing);
+      expect(find.text('发现新版本 2.0.0-preview.36'), findsWidgets);
+      expect(find.byType(AppUpdateDialog), findsOneWidget);
+      expect(backend.downloads, 0);
+      Navigator.of(tester.element(find.byType(AppUpdateDialog))).pop();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'about keeps the logo centered without an indicator and uses a settings update row',
     (tester) async {
       PackageInfo.setMockInitialValues(
         appName: 'Operit2',
@@ -245,14 +289,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('从安装包更新'), findsNothing);
       expect(find.byKey(const ValueKey('app-update-logo')), findsNothing);
+      expect(find.text('检查更新'), findsOneWidget);
+      expect(find.byType(FilledButton), findsNothing);
+      final logoBefore = tester.getRect(find.byType(OperitLogoMark));
       backend.hasUpdate = true;
       await controller.check(force: true);
       await tester.pumpAndSettle();
-      expect(find.text('更新至 2.0.0-preview.36'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('app-update-logo')));
+      expect(tester.getRect(find.byType(OperitLogoMark)), logoBefore);
+      expect(find.byKey(const ValueKey('app-update-badge')), findsNothing);
+      expect(find.text('发现新版本 2.0.0-preview.36'), findsOneWidget);
+      await tester.tap(find.text('检查更新'));
       await tester.pumpAndSettle();
       expect(find.byType(AppUpdateDialog), findsOneWidget);
       expect(controller.phase, AppUpdatePhase.awaitingBase);
+      Navigator.of(tester.element(find.byType(AppUpdateDialog))).pop();
+      await tester.pumpAndSettle();
       await tester.pumpWidget(const SizedBox());
       controller.dispose();
     },

@@ -40,6 +40,7 @@ class AppUpdateController extends ChangeNotifier {
   bool get busy => switch (phase) {
     AppUpdatePhase.planning ||
     AppUpdatePhase.validatingBase ||
+    AppUpdatePhase.selectingSource ||
     AppUpdatePhase.reconstructing ||
     AppUpdatePhase.downloading ||
     AppUpdatePhase.preparing ||
@@ -68,6 +69,7 @@ class AppUpdateController extends ChangeNotifier {
       phase = release == null ? AppUpdatePhase.idle : AppUpdatePhase.available;
     } catch (exception, stack) {
       // Network failure must not interrupt startup or erase an already known update.
+      error = exception.toString();
       phase = release == null ? AppUpdatePhase.idle : AppUpdatePhase.available;
       ClientLogger.w(
         'Application update check failed',
@@ -196,7 +198,7 @@ class AppUpdateController extends ChangeNotifier {
     if (packageReceipt == null) {
       receivedBytes = 0;
       totalBytes = null;
-      phase = AppUpdatePhase.downloading;
+      phase = AppUpdatePhase.selectingSource;
       _emit();
       packageReceipt = await _backend.download(
         release!,
@@ -204,6 +206,12 @@ class AppUpdateController extends ChangeNotifier {
           phase = AppUpdatePhase.downloading;
           receivedBytes = received;
           totalBytes = total;
+          _emit();
+        },
+        onSelectingSource: () {
+          phase = AppUpdatePhase.selectingSource;
+          receivedBytes = 0;
+          totalBytes = null;
           _emit();
         },
         onReconstructing: () {
@@ -253,7 +261,8 @@ class AppUpdateController extends ChangeNotifier {
 
   /// Cancels active download or reconstruction through the same Core token.
   Future<void> cancelDownload() async {
-    if (phase != AppUpdatePhase.downloading &&
+    if (phase != AppUpdatePhase.selectingSource &&
+        phase != AppUpdatePhase.downloading &&
         phase != AppUpdatePhase.reconstructing) {
       return;
     }
