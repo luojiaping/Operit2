@@ -1,5 +1,6 @@
 use crate::core::application::ApplicationUpdate::{
     ApplicationUpdatePlan, ApplicationUpdateInfo, ApplicationUpdateInstallResult, ApplicationUpdateProgress,
+    ApplicationUpdateNetwork,
 };
 use crate::core::chat::AIMessageManager::AIMessageManager;
 use crate::core::chat::ChatRuntimeHolder::ChatRuntimeHolder;
@@ -373,9 +374,6 @@ impl OperitApplication {
         );
         self.dispatchPluginLoading()?;
         crate::services::ModelCatalogService::startKeepingFresh();
-        if let Err(error) = super::ApplicationUpdate::cleanupCache(&self.hostManager) {
-            AppLogger::e("ApplicationUpdateCache", &error);
-        }
         self.initialized = true;
         AppLogger::i(
             "OperitApplication",
@@ -796,13 +794,18 @@ impl OperitApplication {
         &self,
     ) -> impl std::future::Future<Output = Result<Option<ApplicationUpdateInfo>, String>> + 'static {
         let manager = self.applicationUpdate.clone();
-        let host = self.hostManager.systemOperationHost.clone();
-        async move { manager.check(host).await }
+        let context = self.hostManager.clone();
+        async move { manager.check(context).await }
     }
 
     /// Observes host download progress without exposing URLs or native file paths.
     pub fn applicationUpdateProgressFlow(&self) -> StateFlow<ApplicationUpdateProgress> {
         self.applicationUpdate.progress()
+    }
+
+    /// Observes local connectivity and network cost without platform logic in clients.
+    pub fn applicationUpdateNetworkFlow(&self) -> StateFlow<ApplicationUpdateNetwork> {
+        crate::services::RuntimeEventIngressService::RuntimeEventIngressService::updateNetworkFlow()
     }
 
     /// Downloads the selected release and returns an opaque native receipt.
@@ -1034,14 +1037,11 @@ impl OperitApplication {
         let schema = PreferenceSpaceMerge::schema();
         let pending = journal.pendingOperations().map_err(|e|e.to_string())?;
         let registry = self.transactionRegistry(&schema,&pending)?;
-        let (operations,failures) = registry.export(&receipt,&domains,limit)?;
+        let mut inventory = include_progress.then(Default::default);
+        let (operations,failures) = registry.export(&receipt,&domains,limit,inventory.as_mut())?;
         errors.extend(failures);
-        let (remaining,progress_errors) = if include_progress {
-            match registry.inventory(&receipt,&domains) {
-                Ok((ids,failures)) => ((failures.is_empty() && errors.is_empty()).then_some(ids.len()),failures),
-                Err(error) => (None,vec![error]),
-            }
-        } else { (None,vec![]) };
+        let (ids,progress_errors) = inventory.unwrap_or_default();
+        let remaining = (include_progress && progress_errors.is_empty() && errors.is_empty()).then_some(ids.len());
         let owners = operations.iter().map(|op|registry.target(op).map(|path|(op.opId.clone(),path)))
             .collect::<Result<BTreeMap<_,_>,_>>()?;
         let files = self.runtimeFileSyncStore()?;
