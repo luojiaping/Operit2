@@ -16,7 +16,7 @@
           by:
             - .cnb/android/Dockerfile
             - apps/flutter/app/.fvmrc
-            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - hosts/common/operit-host-local-inference/native/PatchMnnBuild.cmake
             - tools/android-runtime/fetch_sources.sh
             - tools/android-runtime/build_android_tools_wsl.sh
             - tools/android-runtime/build_alpine_rootfs_wsl.sh
@@ -25,7 +25,7 @@
           versionBy:
             - .cnb/android/Dockerfile
             - apps/flutter/app/.fvmrc
-            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - hosts/common/operit-host-local-inference/native/PatchMnnBuild.cmake
             - tools/android-runtime/fetch_sources.sh
             - tools/android-runtime/build_android_tools_wsl.sh
             - tools/android-runtime/build_alpine_rootfs_wsl.sh
@@ -125,11 +125,11 @@
           by:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
-            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - hosts/common/operit-host-local-inference/native/PatchMnnBuild.cmake
           versionBy:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
-            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - hosts/common/operit-host-local-inference/native/PatchMnnBuild.cmake
         volumes:
           - /root/.cargo:copy-on-write
           - /root/.pub-cache:copy-on-write
@@ -173,11 +173,11 @@
           by:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
-            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - hosts/common/operit-host-local-inference/native/PatchMnnBuild.cmake
           versionBy:
             - .cnb/linux/Dockerfile
             - apps/flutter/app/.fvmrc
-            - core/crates/provider/local-model/native/PatchMnnBuild.cmake
+            - hosts/common/operit-host-local-inference/native/PatchMnnBuild.cmake
         volumes:
           - /root/.cargo:copy-on-write
           - ./apps/cli/target:copy-on-write

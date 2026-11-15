@@ -84,7 +84,7 @@ RUN mkdir -p /opt/musl-sysroot/usr \
 # FetchContent through OPERIT_MNN_SOURCE instead. The source-dir override skips
 # FetchContent's PATCH_COMMAND, so run PatchMnnBuild.cmake against the tree.
 ARG MNN_VERSION=3.6.1
-COPY core/crates/provider/local-model/native/PatchMnnBuild.cmake /opt/operit-native/PatchMnnBuild.cmake
+COPY hosts/common/operit-host-local-inference/native/PatchMnnBuild.cmake /opt/operit-native/PatchMnnBuild.cmake
 RUN curl -fsSL "https://codeload.github.com/alibaba/MNN/zip/refs/tags/${MNN_VERSION}" \
         -o /tmp/mnn.zip \
     && echo "93d60848879e68be554c247afe376657630a30652a7d8ec713e9e7d1bbf69260  /tmp/mnn.zip" \
