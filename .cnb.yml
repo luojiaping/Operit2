@@ -121,32 +121,58 @@
           script: |
             apk="tools/release/dist/operit2-app-android-arm64-v8a.apk"
             [ -f "$apk" ] || { echo "apk missing"; exit 1; }
-            TOKEN="${CNB_TOKEN:-${CNB_API_TOKEN:-}}"
-            [ -n "$TOKEN" ] || { echo "no pipeline API token; skip release publish"; exit 1; }
-            repo="${CNB_REPO:-luojiaping/Operit2}"
-            api="https://api.cnb.cool"
-            sha="$(git rev-parse HEAD 2>/dev/null || echo "${CNB_COMMIT_ID:-unknown}")"
-            short="$(printf '%.8s' "$sha")"
-            tag="dev-auto-$short"
-            asset="operit2-dev-$short.apk"
-            rid="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$api/$repo/-/releases/tags/$tag" 2>/dev/null \
-              | python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
-            if [ -z "$rid" ]; then
-              rid="$(curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
-                -d "{\"tag_name\":\"$tag\",\"name\":\"Dev auto build $short\",\"prerelease\":true,\"make_latest\":\"false\",\"target_commitish\":\"$sha\"}" \
-                "$api/$repo/-/releases" \
-                | python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))')"
-            fi
-            [ -n "$rid" ] || { echo "no release id"; exit 1; }
-            size="$(stat -c%s "$apk")"
-            up="$(curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
-              -d "{\"asset_name\":\"$asset\",\"size\":$size,\"overwrite\":true}" \
-              "$api/$repo/-/releases/$rid/asset-upload-url")"
-            upload_url="$(printf '%s' "$up" | python3 -c 'import json,sys;print(json.load(sys.stdin)["upload_url"])')"
-            verify_url="$(printf '%s' "$up" | python3 -c 'import json,sys;print(json.load(sys.stdin)["verify_url"])')"
-            curl -fsS -X PUT --data-binary "@$apk" "$upload_url"
-            curl -fsS -X POST -H "Authorization: Bearer $TOKEN" "$verify_url"
-            echo "published $asset under release $tag"
+            [ -n "${CNB_TOKEN:-}" ] || { echo "no CNB_TOKEN in pipeline env"; exit 1; }
+            exec python3 - "$apk" <<'PYEOF'
+            import json, os, sys, urllib.error, urllib.request
+
+            apk_path = sys.argv[1]
+            token = os.environ["CNB_TOKEN"]
+            repo = os.environ.get("CNB_REPO_SLUG") or "luojiaping/Operit2"
+            api = (os.environ.get("CNB_API_ENDPOINT") or "https://api.cnb.cool").rstrip("/")
+            sha = os.environ.get("CNB_BRANCH_SHA") or "unknown"
+            short = sha[:8]
+            tag = f"dev-auto-{short}"
+            asset = f"operit2-dev-{short}.apk"
+            base = f"{api}/{repo}/-/releases"
+
+            def call(method, url, body=None, data=None, content_type="application/json"):
+                headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+                payload = None
+                if body is not None:
+                    payload = json.dumps(body).encode()
+                    headers["Content-Type"] = content_type
+                elif data is not None:
+                    payload = data
+                    headers["Content-Type"] = "application/octet-stream"
+                request = urllib.request.Request(url, data=payload, headers=headers, method=method)
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    raw = response.read()
+                    return json.loads(raw) if raw else {}
+
+            release_id = ""
+            try:
+                release_id = str(call("GET", f"{base}/tags/{tag}").get("id") or "")
+            except Exception:
+                pass
+            if not release_id:
+                created = call("POST", base, body={
+                    "tag_name": tag, "name": f"Dev auto build {short}",
+                    "prerelease": True, "make_latest": "false", "target_commitish": sha,
+                })
+                release_id = str(created.get("id") or "")
+            if not release_id:
+                raise SystemExit(f"no release id for {tag}")
+            print(f"release {tag} id={release_id}", flush=True)
+
+            size = os.path.getsize(apk_path)
+            up = call("POST", f"{base}/{release_id}/asset-upload-url",
+                      body={"asset_name": asset, "size": size, "overwrite": True})
+            upload_url, verify_url = up["upload_url"], up["verify_url"]
+            with open(apk_path, "rb") as stream:
+                call("PUT", upload_url, data=stream.read())
+            call("POST", verify_url)
+            print(f"published {asset} under release {tag}", flush=True)
+            PYEOF
 
   api_trigger_android: *android-apk
 
