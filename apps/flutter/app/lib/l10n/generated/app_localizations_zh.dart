@@ -1315,6 +1315,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsModelApiKey => 'API Key';
 
   @override
+  String get settingsModelShowApiKey => '显示 API Key';
+
+  @override
+  String get settingsModelHideApiKey => '隐藏 API Key';
+
+  @override
   String get settingsModelCodexLogin => 'ChatGPT 登录';
 
   @override
@@ -4241,7 +4247,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deviceSpaceMemberNotPaired => '空间成员 · 未直连';
 
   @override
-  String get deviceSpaceMemberPaired => '空间成员 · 已直连';
+  String get deviceSpaceMemberPaired => '空间成员 · 已配对';
 
   @override
   String get deviceSpacePairedOnly => '已配对';
