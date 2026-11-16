@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
 import android.os.Binder
+import android.os.DeadObjectException
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -131,6 +132,14 @@ class AndroidTerminalPrivileges private constructor(private val context: Context
                 }
             }
             return response
+        } catch (error: DeadObjectException) {
+            if (service === binder) service = null
+            // The owning process is gone. Never send this session's PID to a replacement service.
+            return when (operation) {
+                "poll" -> JSONObject().put("exitCode", -1)
+                "close" -> JSONObject()
+                else -> throw error
+            }
         } finally {
             if (operation == "close") sessions.remove(handle)
             reply.recycle()
