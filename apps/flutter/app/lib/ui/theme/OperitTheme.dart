@@ -7,9 +7,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:operit_ui/operit_ui.dart';
+import 'package:fvp/fvp.dart' show FvpCreateCancelledException;
 import 'package:video_player/video_player.dart';
 
 import '../../core/errors/UnhandledErrorReporter.dart';
+import '../../core/host/AppToastController.dart';
 import '../../core/logging/ClientLogger.dart';
 import '../../core/runtime/RuntimeBootstrapManager.dart';
 import '../../data/preferences/UserPreferencesManager.dart';
@@ -26,6 +28,7 @@ import '../window/DesktopWindowChrome.dart';
 import 'OperitThemeAssets.dart';
 import 'ThemeAppearanceErrorScreen.dart';
 import 'ThemeCircularRevealHost.dart';
+import 'ThemeVideoAssetLoader.dart';
 
 class OperitTheme extends StatefulWidget {
   /// Creates one themed Flutter application root.
@@ -65,12 +68,16 @@ class _OperitThemeState extends State<OperitTheme> {
   final ApplicationZoomPreferences _zoomPreferences =
       const ApplicationZoomPreferences();
   final ThemeAssetStore _themeAssets = ThemeAssetStore();
+  final ThemeAssetDiagnostics _assetDiagnostics = ThemeAssetDiagnostics();
+  ThemePreferenceSnapshot? _assetSnapshot;
+  int _assetRevision = 0;
   double _zoom = 1.0;
   Future<void> _zoomSave = Future<void>.value();
   StreamSubscription<LongPastedTextInputSettings>? _longPasteSubscription;
   late final OperitThemeController _controller = OperitThemeController(
     onChanged: () {
       if (mounted) {
+        _syncAssetContext();
         setState(() {});
       }
     },
@@ -96,6 +103,7 @@ class _OperitThemeState extends State<OperitTheme> {
     _controller.setInitialThemePreferenceSnapshot(
       widget.initialThemePreferenceSnapshot,
     );
+    _syncAssetContext();
     // Each engine prepares its synchronized appearance before mounting the app.
     _runtimeUiReady = false;
     if (_runtimeManager.runtimeConfigured) {
@@ -109,8 +117,19 @@ class _OperitThemeState extends State<OperitTheme> {
     _stopRuntimeStartupStatusPolling();
     _runtimeManager.removeListener(_handleRuntimeBootstrapChanged);
     _controller.dispose();
+    _assetDiagnostics.dispose();
     _cancelPreferenceSubscriptions();
     super.dispose();
+  }
+
+  void _syncAssetContext() {
+    final snapshot = _controller.themePreferenceSnapshot;
+    if (_assetSnapshot != null && mapEquals(_assetSnapshot!.toJson(), snapshot.toJson())) return;
+    _assetSnapshot = snapshot;
+    _assetDiagnostics.updateContext(
+      themeRevision: ++_assetRevision,
+      activeReferences: _themeAssetReferences(snapshot),
+    );
   }
 
   /// Synchronizes the theme lifecycle with runtime configuration changes.
@@ -119,6 +138,7 @@ class _OperitThemeState extends State<OperitTheme> {
       _runtimeGeneration++;
       _stopRuntimeStartupStatusPolling();
       _controller.dispose();
+      _syncAssetContext();
       _cancelPreferenceSubscriptions();
       setState(() {
         _runtimeUiReady = false;
@@ -288,6 +308,7 @@ class _OperitThemeState extends State<OperitTheme> {
                     excluding: !activeThemeReady && !showUnconfiguredApp,
                     child: ThemeAssetScope(
                       resolver: _themeAssets,
+                      diagnostics: _assetDiagnostics,
                       child: _OperitMaterialApp(
                         themeMode: themeMode,
                         themePreferenceSnapshot:
@@ -299,6 +320,7 @@ class _OperitThemeState extends State<OperitTheme> {
                         zoomShortcutsEnabled:
                             runtimeReady && _runtimeStartCompleted,
                         onZoomChanged: _changeZoom,
+                        assetDiagnostics: _assetDiagnostics,
                         child: widget.child,
                       ),
                     ),
@@ -366,6 +388,7 @@ class _OperitMaterialApp extends StatelessWidget {
     required this.zoom,
     required this.zoomShortcutsEnabled,
     required this.onZoomChanged,
+    required this.assetDiagnostics,
     required this.child,
   });
 
@@ -375,6 +398,7 @@ class _OperitMaterialApp extends StatelessWidget {
   final double zoom;
   final bool zoomShortcutsEnabled;
   final ValueChanged<double> onZoomChanged;
+  final ThemeAssetDiagnostics assetDiagnostics;
   final Widget child;
 
   /// Builds the themed application and process-wide host overlays.
@@ -421,7 +445,10 @@ class _OperitMaterialApp extends StatelessWidget {
           shortcutsEnabled: zoomShortcutsEnabled,
           onZoomChanged: onZoomChanged,
           child: AppToastHost(
-            child: MacNoticeScaffoldMessenger(child: appContent),
+            child: ThemeAssetNoticeHost(
+              diagnostics: assetDiagnostics,
+              child: MacNoticeScaffoldMessenger(child: appContent),
+            ),
           ),
         );
       },
@@ -445,6 +472,181 @@ class _OperitMaterialApp extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Displays recoverable resource failures without replacing the application.
+class ThemeAssetNoticeHost extends StatefulWidget {
+  const ThemeAssetNoticeHost({
+    super.key,
+    required this.diagnostics,
+    required this.child,
+    this.inline = false,
+  });
+
+  final ThemeAssetDiagnostics diagnostics;
+  final Widget child;
+  final bool inline;
+
+  @override
+  State<ThemeAssetNoticeHost> createState() => _ThemeAssetNoticeHostState();
+}
+
+class _ThemeAssetNoticeHostState extends State<ThemeAssetNoticeHost> {
+  final Set<String> _shown = {};
+  final Map<String, int> _notices = {};
+  bool _scheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.diagnostics.addListener(_schedule);
+    _schedule();
+  }
+
+  @override
+  void didUpdateWidget(covariant ThemeAssetNoticeHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.diagnostics, widget.diagnostics)) {
+      oldWidget.diagnostics.removeListener(_schedule);
+      widget.diagnostics.addListener(_schedule);
+      _dismissNotices();
+      _shown.clear();
+    }
+    if (oldWidget.inline != widget.inline) _dismissNotices();
+    _schedule();
+  }
+
+  String _noticeKey(ThemeAssetFailure failure) =>
+      '${failure.key}|${widget.diagnostics.retryEpoch(failure.reference)}';
+
+  void _schedule() {
+    if (!mounted || _scheduled) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      if (!mounted) return;
+      final l10n = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
+      final failures = widget.diagnostics.failures;
+      final current = failures.map(_noticeKey).toSet();
+      _shown.retainAll(current);
+      for (final key in _notices.keys.toList()) {
+        if (!current.contains(key)) {
+          AppToastController.instance.dismiss(_notices.remove(key)!);
+        }
+      }
+      for (final failure in failures) {
+        final key = _noticeKey(failure);
+        if (!_shown.add(key)) continue;
+        ClientLogger.w(failure.details, tag: 'ThemeResource', error: failure);
+        if (!widget.inline) {
+          _notices[key] = AppToastController.instance.show(
+            _themeAssetFailureMessage(l10n, failure, widget.diagnostics),
+            // Keep recovery available while a copied/synchronized file arrives.
+            duration: const Duration(minutes: 5),
+            actionLabel: l10n.settingsAppearanceAssetRetry,
+            onAction: () {
+              if (mounted) widget.diagnostics.retry(failure.reference);
+            },
+          );
+        }
+      }
+      if (widget.inline) setState(() {});
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  void _dismissNotices() {
+    for (final id in _notices.values) {
+      AppToastController.instance.dismiss(id);
+    }
+    _notices.clear();
+  }
+
+  @override
+  void dispose() {
+    widget.diagnostics.removeListener(_schedule);
+    _dismissNotices();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final failures = widget.diagnostics.failures;
+    final failure = failures.isEmpty ? null : failures.first;
+    final l10n = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
+    final colors = Theme.of(context).colorScheme;
+    // This parent is stable even as notices appear, disappear, or are retried.
+    return Stack(
+      children: [
+        widget.child,
+        if (widget.inline && failure != null)
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: 8,
+            child: Material(
+              color: colors.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(
+                      _themeAssetFailureMessage(l10n, failure, widget.diagnostics),
+                      style: TextStyle(color: colors.onErrorContainer),
+                    )),
+                    TextButton(
+                      onPressed: () => widget.diagnostics.retry(failure.reference),
+                      child: Text(l10n.settingsAppearanceAssetRetry),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+String _themeAssetFailureMessage(
+  AppLocalizations l10n,
+  ThemeAssetFailure failure,
+  ThemeAssetDiagnostics diagnostics,
+) {
+  final reference = ThemeAssetFailure.safeReference(failure.reference)
+      .replaceAll('\\', '/').split('/').last;
+  final extension = reference.split('.').last.toLowerCase();
+  final video = failure.stage == ThemeAssetStage.videoOpen ||
+      failure.stage == ThemeAssetStage.playback ||
+      const {'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi'}.contains(extension);
+  final message = failure.retainedPrevious
+      ? l10n.settingsAppearanceAssetPreviousRetained(reference)
+      : failure.purpose == ThemeAssetPurpose.bubble
+      ? l10n.settingsAppearanceAssetBubbleFailed(reference)
+      : video
+      ? l10n.settingsAppearanceAssetVideoFailed(reference)
+      : l10n.settingsAppearanceAssetBackgroundFailed(reference);
+  return diagnostics.retryEpoch(failure.reference) == 0
+      ? message
+      : '$message ${l10n.settingsAppearanceAssetReimportHint}';
+}
+
+Set<String> _themeAssetReferences(ThemePreferenceSnapshot snapshot) {
+  final references = <String>{};
+  void add(String? reference) {
+    if (reference != null && reference.isNotEmpty) references.add(reference);
+  }
+  if (snapshot.useBackgroundImage) add(snapshot.backgroundImageUri);
+  if (snapshot.bubbleUserUseImage) add(snapshot.bubbleUserImageUri);
+  if (snapshot.bubbleAiUseImage) add(snapshot.bubbleAiImageUri);
+  if (snapshot.inputUseImage) add(snapshot.inputImageUri);
+  for (final entry in snapshot.toJson().entries) {
+    if (entry.key.endsWith('Asset') && entry.value is String) {
+      add(entry.value as String);
+    }
+  }
+  return references;
 }
 
 /// Observes and edits the ordinary synchronized appearance configuration.
@@ -887,6 +1089,10 @@ class _OperitThemePreviewState extends State<OperitThemePreview> {
     onChanged: () {},
   );
   final _assets = ThemeAssetStore();
+  final _assetDiagnostics = ThemeAssetDiagnostics();
+  PreparedThemeVisual? _boundVisual;
+  ThemeAssetResolver? _boundRuntime;
+  int _assetRevision = 0;
   Future<void>? _preparation;
   late ThemeAssetResolver _resolver;
 
@@ -918,13 +1124,20 @@ class _OperitThemePreviewState extends State<OperitThemePreview> {
   /// Rebinds appearance while retaining any existing font preparation future.
   void _prepare({bool prepareFonts = true}) {
     final visual = widget.visual;
-    _resolver = visual == null
-        ? widget.assets ?? _assets
-        : _PreviewAssetResolver(
-            visual: visual.resources,
-            runtime: widget.assets ?? _assets,
-          );
+    final runtime = widget.assets ?? _assets;
+    if (_boundRuntime == null ||
+        !identical(_boundVisual, visual) || !identical(_boundRuntime, runtime)) {
+      _resolver = visual == null
+          ? runtime
+          : _PreviewAssetResolver(visual: visual.resources, runtime: runtime);
+      _boundVisual = visual;
+      _boundRuntime = runtime;
+    }
     final snapshot = visual?.snapshot(widget.snapshot) ?? widget.snapshot;
+    _assetDiagnostics.updateContext(
+      themeRevision: ++_assetRevision,
+      activeReferences: _themeAssetReferences(snapshot),
+    );
     _controller.setInitialThemePreferenceSnapshot(snapshot);
     if (visual != null) {
       for (final font in [
@@ -953,6 +1166,7 @@ class _OperitThemePreviewState extends State<OperitThemePreview> {
   @override
   void dispose() {
     _controller.dispose();
+    _assetDiagnostics.dispose();
     super.dispose();
   }
 
@@ -984,6 +1198,7 @@ class _OperitThemePreviewState extends State<OperitThemePreview> {
           controller: _controller,
           child: ThemeAssetScope(
             resolver: _resolver,
+            diagnostics: _assetDiagnostics,
             child: Theme(
               data: buildOperitThemeData(
                 _seedColorScheme(brightness, snapshot),
@@ -992,10 +1207,12 @@ class _OperitThemePreviewState extends State<OperitThemePreview> {
                 fontFamilyFallback: _fontFamilyFallback(snapshot),
               ),
               child: Builder(
-                builder: (context) => DefaultTextStyle(
-                  style: Theme.of(context).textTheme.bodyMedium!,
-                  child: IgnorePointer(
-                    child: ExcludeFocus(child: widget.child),
+                builder: (context) => ThemeAssetNoticeHost(
+                  diagnostics: _assetDiagnostics,
+                  inline: true,
+                  child: DefaultTextStyle(
+                    style: Theme.of(context).textTheme.bodyMedium!,
+                    child: IgnorePointer(child: ExcludeFocus(child: widget.child)),
                   ),
                 ),
               ),
@@ -1183,7 +1400,7 @@ class OperitThemeBackground extends StatelessWidget {
       media: hasMedia
           ? _ThemeBackgroundMedia(
               key: ValueKey<String>(
-                '${themePreferenceSnapshot.backgroundMediaType}|$mediaPath',
+                themePreferenceSnapshot.backgroundMediaType,
               ),
               mediaPath: mediaPath,
               mediaType: themePreferenceSnapshot.backgroundMediaType,
@@ -1222,7 +1439,13 @@ class _ThemeBackgroundMedia extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final media = mediaType == UserPreferencesManager.MEDIA_TYPE_VIDEO
-        ? _VideoThemeBackground(mediaPath: mediaPath, muted: muted, loop: loop)
+        ? _VideoThemeBackground(
+            mediaPath: mediaPath,
+            muted: muted,
+            loop: loop,
+            resolver: ThemeAssetScope.of(context),
+            diagnostics: ThemeAssetScope.diagnosticsOf(context),
+          )
         : ThemeAssetImage(storagePath: mediaPath, fit: BoxFit.cover);
     return ThemeBackgroundMedia(
       opacity: opacity,
@@ -1238,11 +1461,15 @@ class _VideoThemeBackground extends StatefulWidget {
     required this.mediaPath,
     required this.muted,
     required this.loop,
+    required this.resolver,
+    required this.diagnostics,
   });
 
   final String mediaPath;
   final bool muted;
   final bool loop;
+  final ThemeAssetResolver resolver;
+  final ThemeAssetDiagnostics? diagnostics;
 
   /// Creates the video state that owns the runtime asset controller.
   @override
@@ -1250,75 +1477,180 @@ class _VideoThemeBackground extends StatefulWidget {
 }
 
 class _VideoThemeBackgroundState extends State<_VideoThemeBackground> {
-  VideoPlayerController? _controller;
-  int _loadToken = 0;
+  ThemeVideoAssetLoader? _activeLoader;
+  ThemeVideoAssetLoader? _pendingLoader;
+  ThemeAssetResolver? _boundResolver;
+  ThemeAssetDiagnostics? _boundDiagnostics;
+  ThemeAssetFailure? _lastFailure;
+  String? _boundReference;
+  Future<void> _settingsUpdate = Future<void>.value();
+  int _retryEpoch = -1;
 
   /// Starts loading the runtime video asset when the widget mounts.
   @override
   void initState() {
     super.initState();
-    unawaited(_loadController());
+    _synchronizeRequest();
+  }
+
+  /// Only a retry of this reference renews an otherwise unchanged video.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _synchronizeRequest();
   }
 
   /// Updates playback settings or reloads bytes when the video asset changes.
   @override
   void didUpdateWidget(covariant _VideoThemeBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.mediaPath != widget.mediaPath) {
-      unawaited(_loadController());
-      return;
-    }
-    final controller = _controller;
-    if (controller == null) {
-      return;
-    }
-    if (oldWidget.loop != widget.loop) {
-      unawaited(controller.setLooping(widget.loop));
-    }
-    if (oldWidget.muted != widget.muted) {
-      unawaited(controller.setVolume(widget.muted ? 0 : 1));
+    _synchronizeRequest();
+    if (oldWidget.loop != widget.loop || oldWidget.muted != widget.muted) {
+      // Settings errors are observed, including when an older successful video
+      // remains visible while its replacement is being prepared.
+      _settingsUpdate = _settingsUpdate.then((_) => _updatePlaybackSettings());
     }
   }
 
-  /// Creates and starts a controller from imported runtime asset bytes.
-  Future<void> _loadController() async {
-    final token = ++_loadToken;
-    final bytes = await ThemeAssetStore().readBytes(widget.mediaPath);
-    final controller =
-        VideoPlayerController.networkUrl(
-            Uri.dataFromBytes(
-              bytes,
-              mimeType: themeAssetVideoMimeType(widget.mediaPath),
-            ),
-          )
-          ..setLooping(widget.loop)
-          ..setVolume(widget.muted ? 0 : 1);
-    await controller.initialize();
-    await controller.play();
-    if (!mounted || token != _loadToken) {
-      await controller.dispose();
+  void _synchronizeRequest() {
+    final epoch = widget.diagnostics?.retryEpoch(widget.mediaPath) ?? 0;
+    if (!identical(_boundDiagnostics, widget.diagnostics)) {
+      _boundDiagnostics?.release(this);
+      _boundDiagnostics = widget.diagnostics;
+      final failure = _lastFailure;
+      if (failure != null && failure.reference == widget.mediaPath) {
+        widget.diagnostics?.report(failure, owner: this);
+      }
+      if (_boundReference == widget.mediaPath && identical(_boundResolver, widget.resolver)) {
+        // Keep a successful player and pending request; only the diagnostic
+        // owner moves. Its retry epoch now belongs to the new scope.
+        _retryEpoch = epoch;
+        return;
+      }
+    }
+    if (_boundReference == widget.mediaPath &&
+        identical(_boundResolver, widget.resolver) &&
+        epoch == _retryEpoch) {
       return;
     }
-    final previous = _controller;
-    setState(() {
-      _controller = controller;
-    });
-    await previous?.dispose();
+    _boundReference = widget.mediaPath;
+    _boundResolver = widget.resolver;
+    _retryEpoch = epoch;
+    widget.diagnostics?.release(this);
+    _lastFailure = null;
+    final previousRequest = _pendingLoader;
+    previousRequest?.cancel();
+    if (previousRequest != null) unawaited(previousRequest.dispose());
+    late final ThemeVideoAssetLoader loader;
+    loader = ThemeVideoAssetLoader(
+      resolver: widget.resolver,
+      reference: widget.mediaPath,
+      diagnostics: widget.diagnostics,
+      onPlaybackFailure: (failure) => _handlePlaybackFailure(loader, failure),
+    );
+    _pendingLoader = loader;
+    unawaited(_loadController(loader));
+  }
+
+  bool _current(ThemeVideoAssetLoader loader) =>
+      mounted && identical(_pendingLoader, loader);
+
+  /// Keeps the active video until the candidate is completely ready.
+  Future<void> _loadController(ThemeVideoAssetLoader loader) async {
+    try {
+      await loader.initialize(
+        muted: widget.muted,
+        loop: widget.loop,
+      );
+      if (!_current(loader)) {
+        await loader.dispose();
+        return;
+      }
+      while (true) {
+        final muted = widget.muted;
+        final loop = widget.loop;
+        await loader.configure(muted: muted, loop: loop, autoplay: true);
+        if (!_current(loader)) {
+          await loader.dispose();
+          return;
+        }
+        if (muted == widget.muted && loop == widget.loop) break;
+      }
+      // No await between this check and publication: a failed candidate must
+      // never dispose the previous successful video.
+      loader.validateReady();
+      final previous = _activeLoader;
+      _pendingLoader = null;
+      _activeLoader = loader;
+      _lastFailure = null;
+      setState(() {});
+      widget.diagnostics?.resolve(
+        loader.reference,
+        purpose: ThemeAssetPurpose.background,
+        owner: this,
+      );
+      if (previous != null) unawaited(previous.dispose());
+    } on ThemeAssetFailure catch (failure) {
+      if (!_current(loader)) return;
+      _pendingLoader = null;
+      _reportFailure(failure.withContext(retainedPrevious: _activeLoader != null));
+    } on FvpCreateCancelledException {
+      // Superseded requests are cancellation, not a damaged resource.
+    } finally {
+      if (!identical(_activeLoader, loader)) unawaited(loader.dispose());
+    }
+  }
+
+  Future<void> _updatePlaybackSettings() async {
+    final loader = _activeLoader;
+    if (!mounted || loader == null) return;
+    try {
+      await loader.configure(muted: widget.muted, loop: widget.loop);
+    } on ThemeAssetFailure catch (failure) {
+      _handlePlaybackFailure(loader, failure);
+    } on FvpCreateCancelledException {
+      // The widget may have been replaced while updating native settings.
+    }
+  }
+
+  void _handlePlaybackFailure(
+    ThemeVideoAssetLoader loader,
+    ThemeAssetFailure failure,
+  ) {
+    if (!mounted || !identical(_activeLoader, loader)) return;
+    _activeLoader = null;
+    _reportFailure(failure);
+    unawaited(loader.dispose());
+  }
+
+  void _reportFailure(ThemeAssetFailure failure) {
+    _lastFailure = failure;
+    widget.diagnostics?.report(failure, owner: this);
+    setState(() {});
   }
 
   /// Releases the active video controller.
   @override
   void dispose() {
-    _loadToken++;
-    unawaited(_controller?.dispose());
+    _boundDiagnostics?.release(this);
+    final pending = _pendingLoader;
+    final active = _activeLoader;
+    _pendingLoader = null;
+    _activeLoader = null;
+    pending?.cancel();
+    active?.cancel();
+    if (pending != null) unawaited(pending.dispose());
+    if (active != null) unawaited(active.dispose());
     super.dispose();
   }
 
   /// Builds the fitted video once the controller is initialized.
   @override
   Widget build(BuildContext context) {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
+    final controller = _activeLoader?.controller;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        controller.value.hasError) {
       return const SizedBox.expand();
     }
     return SizedBox.expand(
