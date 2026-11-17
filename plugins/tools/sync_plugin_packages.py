@@ -168,6 +168,19 @@ def _sync_state_path(source_dir: Path) -> Path:
     return root / f"{source_dir.name}.sync_state.json"
 
 
+# Both Xcode and Flutter native-asset hooks can start without Homebrew on PATH.
+# Keep explicit caller tools first and add the standard macOS host-tool locations.
+def _plugin_build_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    if sys.platform == "darwin":
+        paths = environment.get("PATH", os.defpath).split(os.pathsep)
+        for directory in ("/opt/homebrew/bin", "/usr/local/bin"):
+            if directory not in paths:
+                paths.append(directory)
+        environment["PATH"] = os.pathsep.join(paths)
+    return environment
+
+
 # Builds the environment used for host-only Cargo code generators.
 def _host_cargo_environment() -> dict[str, str]:
     environment = os.environ.copy()
@@ -644,6 +657,10 @@ def _prebuild_plans(repo_root: Path, source_dir: Path, plans: list[SyncPlanItem]
 
     for child_dir in child_dirs:
         if child_dir in script_packed_dirs:
+            build_environment = _plugin_build_environment()
+            corepack_command = shutil.which("corepack", path=build_environment.get("PATH"))
+            if corepack_command is None:
+                raise FileNotFoundError("Corepack is required to build script-packed ToolPkgs")
             signature = _compute_paths_signature(
                 repo_root,
                 _collect_prebuild_inputs(source_dir, child_dir) + _collect_manifest_logo_inputs(child_dir),
@@ -657,6 +674,7 @@ def _prebuild_plans(repo_root: Path, source_dir: Path, plans: list[SyncPlanItem]
                 [corepack_command, "pnpm", "run", "pack:toolpkg"],
                 child_dir,
                 dry_run=dry_run,
+                env=build_environment,
             )
             state[key] = signature
             changed = True
