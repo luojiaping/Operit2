@@ -397,6 +397,10 @@ impl JsEngineWorker {
     fn cancelScriptRequest(&self, callId: String, cancelled: &AtomicBool, interrupt: &HostJavaScriptExecutionInterrupt) {
         interrupt.interrupt();
         cancelled.store(true, Ordering::Release);
+        AppLogger::trace("JsExecutionTiming", &format!(
+            "kind=js_cancel callId={callId} timedOut={} runtimeAlive={}",
+            interrupt.didTimeOut(), self.alive.load(Ordering::Acquire),
+        ));
         let worker = self.clone();
         let result = defaultHostRuntimeTaskSchedulerHost().scheduleHostRuntimeAsyncTask(
             "operit-js-cancel",
@@ -483,7 +487,7 @@ impl JsEngineWorker {
             let request = JsScriptRequest {
                 submittedAtMs: currentTimeMillisU128(),
                 executionHost,
-                callId,
+                callId: callId.clone(),
                 script,
                 functionName,
                 params,
@@ -556,7 +560,14 @@ impl JsEngineWorker {
                 JsExecutionError::worker_unavailable(
                     "JavaScript execution completion channel disconnected",
                 )
-            })?;
+            }).and_then(|result| result);
+            let outcome = match &result {
+                Ok(_) => "success".to_string(),
+                Err(error) => format!("error kind={:?} error={}", error.kind, summarizeText(&error.message)),
+            };
+            AppLogger::trace("JsExecutionTiming", &format!(
+                "kind=js_finish callId={callId} outcome={outcome}",
+            ));
             if let Some(timing) = ipcTiming {
                 timing.mark("resultReturnMs").map_err(javaScriptExecutionErrorFromHost)?;
                 timing.log(result.is_ok());
@@ -2009,11 +2020,12 @@ impl JsEngineState {
                     let sink = windowSink.clone();
                     // A new surface must be able to acquire its own JS session
                     // while this caller awaits the host's startup acknowledgement.
-                    defaultHostRuntimeTaskSchedulerHost().scheduleHostRuntimeTask(
+                    defaultHostRuntimeTaskSchedulerHost().scheduleHostRuntimeAsyncTask(
                         "operit-floating-window",
-                        Box::new(move || {
-                            sink(JsAsyncCallback::Promise { requestId, result: host.floating_window_command(&payload) });
-                        }),
+                        Box::new(move || Box::pin(async move {
+                            let result = host.floating_window_command(payload).await;
+                            sink(JsAsyncCallback::Promise { requestId, result });
+                        })),
                     )?;
                     Ok(())
                 }),
